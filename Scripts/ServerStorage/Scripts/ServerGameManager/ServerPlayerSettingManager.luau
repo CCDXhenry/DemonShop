@@ -1,0 +1,53 @@
+--!strict
+local serverStorage: ServerStorage = game:GetService("ServerStorage")
+local serverScripts = serverStorage:WaitForChild("Scripts")
+local ServerGameInfo = require(serverScripts:FindFirstChild("ServerGameInfo"))
+local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
+local scripts = replicatedStorage:WaitForChild("Scripts")
+local sharedScripts = scripts:WaitForChild("Shared")
+local GameConfig = require(sharedScripts:FindFirstChild("GameConfig"))
+local NetMsg = require(sharedScripts:FindFirstChild("NetMsg"))
+
+local ServerPlayerSettingManager = {}
+ServerPlayerSettingManager.__index = ServerPlayerSettingManager
+
+export type ServerPlayerSettingManager = typeof(setmetatable({}, ServerPlayerSettingManager))
+
+local function OnPlayerRequestSetBGMVolume(player: Player, volume: number)
+	local playerInfo: GameConfig.PlayerInfo? = ServerGameInfo.GetPlayerInfo(player)
+	if playerInfo == nil or playerInfo.settingInfo.bgmVolume == volume then
+		return
+	end
+	playerInfo.settingInfo.bgmVolume = volume
+	playerInfo.playerInfoChanged = true
+end
+
+local function OnPlayerRequestSetSoundEffectVolume(player: Player, volume: number)
+	local playerInfo: GameConfig.PlayerInfo? = ServerGameInfo.GetPlayerInfo(player)
+	if playerInfo == nil or playerInfo.settingInfo.soundEffectVolume == volume then
+		return
+	end
+	playerInfo.settingInfo.soundEffectVolume = volume
+	playerInfo.playerInfoChanged = true
+end
+
+local function OnPlayerRequestSetVibrationsOnOffState(player: Player, vibrationsOn: boolean)
+	local playerInfo: GameConfig.PlayerInfo? = ServerGameInfo.GetPlayerInfo(player)
+	if playerInfo == nil or playerInfo.settingInfo.vibrationOn == vibrationsOn then
+		return
+	end
+	playerInfo.settingInfo.vibrationOn = vibrationsOn
+	playerInfo.playerInfoChanged = true
+end
+
+function ServerPlayerSettingManager.new(): ServerPlayerSettingManager
+	return setmetatable({}, ServerPlayerSettingManager) :: ServerPlayerSettingManager
+end
+
+function ServerPlayerSettingManager.Init(self: ServerPlayerSettingManager)
+	NetMsg.ConnectRequestSetBGMVolume(OnPlayerRequestSetBGMVolume)
+	NetMsg.ConnectRequestSetSoundEffectVolume(OnPlayerRequestSetSoundEffectVolume)
+	NetMsg.ConnectRequestSetVibrationsOnOffState(OnPlayerRequestSetVibrationsOnOffState)
+end
+
+return ServerPlayerSettingManager

@@ -1,0 +1,36 @@
+# SVN metadata and external working copies
+.svn/
+/.agents/skills/roblox-game-dev/
+/Tools/excel2json/
+/stylua.toml
+# SVN-owned files; refresh when SVN ownership changes
+/.cursorignore
+/ExcelData/Excel表格转json文件.bat
+/ExcelData/Excel表格转json文件.sh
+/GameLocalizationTables/GameLocalizationTable.csv
+# Local generated output and credentials
+.cache/
+__pycache__/
+.pytest_cache/
+.tmp/
+.codex-tmp/
+Temp/
+scratch/
+sourcemap.json
+**/bin/
+**/obj/
+**/packages/
+*.tmp
+*.temp
+*.log
+*.mp4
+*.mkv
+~$*
+.DS_Store
+Thumbs.db
+.env
+.env.*
+*.pem
+*.key
+*.suo
+*.user
