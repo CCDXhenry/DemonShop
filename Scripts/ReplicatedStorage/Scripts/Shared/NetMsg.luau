@@ -1,17 +1,21 @@
+-- 网络通信模块：负责双端 RemoteEvent 消息的强类型发送、接收与参数安全校验
 --!strict
-local NetMsg = {}
-
 local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
+local NetMsg = {}
+local FarmConfig = require(script.Parent:WaitForChild("FarmConfig"))
+local FarmRequest = require(script.Parent:WaitForChild("FarmRequest"))
+
 local scripts = replicatedStorage:WaitForChild("Scripts")
 local sharedScripts = scripts:WaitForChild("Shared")
 local GameConfig = require(sharedScripts:FindFirstChild("GameConfig"))
-local remoteEventsFolder: Folder = replicatedStorage:FindFirstChild("RemoteEvents") :: Folder
+local remoteEventsFolder: Folder = replicatedStorage:WaitForChild("RemoteEvents") :: Folder
 local requestSetBGMVolumeEvent: RemoteEvent = remoteEventsFolder:FindFirstChild("RequestSetBGMVolume") :: RemoteEvent
 local requestSetSoundEffectVolumeEvent: RemoteEvent = remoteEventsFolder:FindFirstChild("RequestSetSoundEffectVolume") :: RemoteEvent
 local requestSetVibrationsOnOffStateEvent: RemoteEvent = remoteEventsFolder:FindFirstChild("RequestSetVibrationsOnOffState") :: RemoteEvent
 local notifyPlayerInfoInitEvent = remoteEventsFolder:FindFirstChild("NotifyPlayerInfoInit") :: RemoteEvent
 local notifyPlayersOtherPlayerInfoInitEvent: RemoteEvent = remoteEventsFolder:FindFirstChild("NotifyPlayersOtherPlayerInfoInit") :: RemoteEvent
 local notifyPlayerAcquiredGamePassEvent: RemoteEvent = remoteEventsFolder:FindFirstChild("NotifyPlayerAcquiredGamePass") :: RemoteEvent
+local roastChickenActionEvent = remoteEventsFolder:WaitForChild("RoastChickenAction") :: RemoteEvent
 
 --boolean校验
 local function ValidateBoolean(value: any): boolean
@@ -96,7 +100,7 @@ local function ValidateSimpleTable(tbl: { [any]: any }, keyType: string, validat
 end
 
 --客户端请求设置背景音乐音量
-function NetMsg.FireRequestSetBGMVolume(volume: number)
+function NetMsg.FireRequestSetBGMVolume(volume: number): ()
 	requestSetBGMVolumeEvent:FireServer(volume)
 end
 
@@ -110,7 +114,7 @@ function NetMsg.ConnectRequestSetBGMVolume(callback: (player: Player, volume: nu
 end
 
 --客户端请求设置音效音量
-function NetMsg.FireRequestSetSoundEffectVolume(volume: number)
+function NetMsg.FireRequestSetSoundEffectVolume(volume: number): ()
 	requestSetSoundEffectVolumeEvent:FireServer(volume)
 end
 
@@ -124,7 +128,7 @@ function NetMsg.ConnectRequestSetSoundEffectVolume(callback: (player: Player, vo
 end
 
 --客户端请求设置振动开关状态
-function NetMsg.FireRequestSetVibrationsOnOffState(vibrationsOn: boolean)
+function NetMsg.FireRequestSetVibrationsOnOffState(vibrationsOn: boolean): ()
 	requestSetVibrationsOnOffStateEvent:FireServer(vibrationsOn)
 end
 
@@ -143,7 +147,7 @@ function NetMsg.FireNotifyPlayerInfoInit(
 	localPlayerSaveInfo: GameConfig.ClientLocalPlayerSaveInfo,
 	otherPlayerSaveInfoMap: { [string]: GameConfig.ClientOtherPlayerSyncInfo },
 	playerConfigInfo: GameConfig.PlayerConfigInfo
-)
+): ()
 	notifyPlayerInfoInitEvent:FireClient(player, localPlayerSaveInfo, otherPlayerSaveInfoMap, playerConfigInfo)
 end
 
@@ -156,7 +160,7 @@ function NetMsg.ConnectNotifyPlayerInfoInit(callback: (
 end
 
 --通知客户端其他玩家信息初始化完成
-function NetMsg.FireNotifyPlayersOtherPlayerInfoInit(playerId: number, otherPlayerSaveInfo: GameConfig.ClientOtherPlayerSyncInfo)
+function NetMsg.FireNotifyPlayersOtherPlayerInfoInit(playerId: number, otherPlayerSaveInfo: GameConfig.ClientOtherPlayerSyncInfo): ()
 	notifyPlayersOtherPlayerInfoInitEvent:FireAllClients(playerId, otherPlayerSaveInfo)
 end
 
@@ -167,12 +171,101 @@ function NetMsg.ConnectNotifyPlayersOtherPlayerInfoInit(
 end
 
 --通知客户端玩家获得了通行证
-function NetMsg.FireNotifyPlayerAcquiredGamePass(player: Player, gamePassId: number)
+function NetMsg.FireNotifyPlayerAcquiredGamePass(player: Player, gamePassId: number): ()
 	notifyPlayerAcquiredGamePassEvent:FireClient(player, gamePassId)
 end
 
 function NetMsg.ConnectNotifyPlayerAcquiredGamePass(callback: (gamePassId: number) -> ()): RBXScriptConnection
 	return notifyPlayerAcquiredGamePassEvent.OnClientEvent:Connect(callback)
+end
+
+-- 客户端请求农场动作：仅接受六种现有动作，统一经正式 RemoteEvents 节点传输。
+function NetMsg.FireRequestFarmAction(action: FarmConfig.FarmAction): ()
+	roastChickenActionEvent:FireServer(action)
+end
+-- 新协议复用既有通道；旧字符串监听器不会处理表请求，新监听器只接收净化后的字段。
+function NetMsg.FireRequestFarmCommand(command: { [string]: unknown }): ()
+	roastChickenActionEvent:FireServer(command)
+end
+function NetMsg.ConnectRequestFarmCommand(callback: (Player, FarmRequest.Request) -> ()): RBXScriptConnection
+	local function OnCommand(player: Player, value: unknown): ()
+		local command = FarmRequest.Parse(value)
+		if command then
+			callback(player, command)
+		elseif type(value) == "table" then
+			local data = value :: { [string]: unknown }
+			local shotId = FarmRequest.GetShotId(data.shotId)
+			if data.action == "zap" and shotId then
+				NetMsg.FireNotifyFarmVisual(player, { kind = "zapResult", shotId = shotId, accepted = false, targets = {} })
+			end
+		end
+	end
+	return roastChickenActionEvent.OnServerEvent:Connect(OnCommand)
+end
+function NetMsg.ConnectRequestFarmAction(callback: (Player, FarmConfig.FarmAction) -> ()): RBXScriptConnection
+	local function OnRequest(player: Player, action: unknown): ()
+		if typeof(action) ~= "string" or not FarmConfig.Actions[action] then
+			return
+		end
+		callback(player, action :: FarmConfig.FarmAction)
+	end
+	return roastChickenActionEvent.OnServerEvent:Connect(OnRequest)
+end
+function NetMsg.FireNotifyFarmFeedback(player: Player, message: string, kind: string?): ()
+	roastChickenActionEvent:FireClient(player, message, kind)
+end
+function NetMsg.ConnectNotifyFarmFeedback(callback: (string, string?) -> ()): RBXScriptConnection
+	local function OnFeedback(message: unknown, kind: unknown): ()
+		if typeof(message) ~= "string" then
+			return
+		end
+		callback(message, if typeof(kind) == "string" then kind else nil)
+	end
+	return roastChickenActionEvent.OnClientEvent:Connect(OnFeedback)
+end
+
+export type VisualTarget = {
+	x: number,
+	y: number,
+	z: number,
+	damage: number,
+	isCooked: boolean,
+	id: string?,
+	remainingHealth: number?,
+}
+
+export type VisualEvent = {
+	kind: string,
+	shotId: number?,
+	accepted: boolean?,
+	fromPos: { x: number, y: number, z: number }?,
+	toPos: { x: number, y: number, z: number }?,
+	tier: number?,
+	speciesId: string?,
+	qualityId: string?,
+	damage: number?,
+	isCooked: boolean?,
+	weightKg: number?,
+	count: number?,
+	targets: { VisualTarget }?,
+}
+
+-- 客户端轻量视觉事件通知 (电击轨迹/熟食飞入鸡筐/交货丰收抛跃)
+function NetMsg.FireNotifyFarmVisual(player: Player, event: VisualEvent): ()
+	roastChickenActionEvent:FireClient(player, event)
+end
+
+function NetMsg.FireNotifyFarmVisualAll(event: VisualEvent): ()
+	roastChickenActionEvent:FireAllClients(event)
+end
+
+function NetMsg.ConnectNotifyFarmVisual(callback: (VisualEvent) -> ()): RBXScriptConnection
+	local function OnVisual(payload: unknown): ()
+		if typeof(payload) == "table" and typeof((payload :: any).kind) == "string" then
+			callback(payload :: VisualEvent)
+		end
+	end
+	return roastChickenActionEvent.OnClientEvent:Connect(OnVisual)
 end
 
 return NetMsg

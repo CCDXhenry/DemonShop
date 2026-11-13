@@ -1,4 +1,4 @@
--- 主界面包装器：注册固定画布适配并管理生命周期
+-- 主界面包装器：通过 Core 公开接口注册和释放适配
 --!strict
 local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
 local core = replicatedStorage:WaitForChild("Core")
@@ -27,11 +27,19 @@ export type GameFrameWrapper =
 function GameFrameWrapper.new(gameFrame: Frame, uiActions: UIActions): GameFrameWrapper
 	local self: GameFrameWrapper = setmetatable(GuiWrapperBase.new(gameFrame, uiActions) :: GameFrameWrapper, GameFrameWrapper)
 	self.gameFrame = gameFrame
-	UIAdapter.AddAdaptiveFrame(gameFrame, UIAdapter.AdaptiveType.Center)
 	return self
 end
 
-function GameFrameWrapper.OnDestroy(self: GameFrameWrapper)
+function GameFrameWrapper.Init(self: GameFrameWrapper): ()
+	if self.scope then
+		return
+	end
+	GuiWrapperBase.Init(self)
+	UIAdapter.AddAdaptiveFrame(self.gameFrame, UIAdapter.AdaptiveType.Center)
+end
+
+function GameFrameWrapper.OnDestroy(self: GameFrameWrapper): ()
+	UIAdapter.RemoveAdaptiveFrame(self.gameFrame)
 	GuiWrapperBase.OnDestroy(self)
 end
 

@@ -1,16 +1,20 @@
+-- 业务分析封装：集中处理玩家生命周期及经营事件上报
 --!strict
-local AnalyticsTool = {}
-
 local serverStorage: ServerStorage = game:GetService("ServerStorage")
+local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
+local httpService: HttpService = game:GetService("HttpService")
+local runService: RunService = game:GetService("RunService")
+local AnalyticsTool = {}
+local LifecycleTool = require(replicatedStorage:WaitForChild("Scripts"):WaitForChild("Shared"):WaitForChild("LifecycleTool"))
+local analyticsScope: LifecycleTool.Lifecycle?
+local closeBound = false
+
 local serverScripts = serverStorage:WaitForChild("Scripts")
 local ServerGameInfo = require(serverScripts:FindFirstChild("ServerGameInfo"))
-local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
 local scripts = replicatedStorage:WaitForChild("Scripts")
 local sharedScripts = scripts:WaitForChild("Shared")
 local GameConfig = require(sharedScripts:FindFirstChild("GameConfig"))
 local GameAnalytics = require(replicatedStorage:FindFirstChild("GameAnalytics"))
-local httpService: HttpService = game:GetService("HttpService")
-local runService: RunService = game:GetService("RunService")
 
 local PostCustomEventsInterval: number = 8
 local PostCustomEventsUrl: string = "https://cloudapi.sixcubeapis.com/log_event"
@@ -25,7 +29,7 @@ type CustomEvent = {
 	event_name: string,
 	event_time: number,
 	total_time: number,
-	event_params: {CustomEventParam}
+	event_params: { CustomEventParam },
 }
 
 type CustomEventBody = {
@@ -34,26 +38,25 @@ type CustomEventBody = {
 	first_time: number,
 	version: string,
 	country: string,
-	events: {CustomEvent}
+	events: { CustomEvent },
 }
 
-local customEventBodies: {[number]: CustomEventBody} = {}
-local removedCustomEventBodies: {[number]: CustomEventBody} = {}
+local customEventBodies: { [number]: CustomEventBody } = {}
+local removedCustomEventBodies: { [number]: CustomEventBody } = {}
 
-local function PostCustomEvent(customEventBody: CustomEventBody)
+local function PostCustomEvent(customEventBody: CustomEventBody): ()
 	if #customEventBody.events == 0 then
 		return
 	end
 	local requestBody: string = httpService:JSONEncode(customEventBody)
 	table.clear(customEventBody.events)
 	if not runService:IsStudio() then
+		local headers: { [string]: Secret | string } = { ["Content-Type"] = "application/json" }
 		local success: boolean, result: any = pcall(function()
 			return httpService:RequestAsync({
 				Url = PostCustomEventsUrl,
 				Method = "POST",
-				Headers = {
-					["Content-Type"] = "application/json",
-				},
+				Headers = headers,
 				Body = requestBody,
 				Compress = Enum.HttpCompression.None,
 			})
@@ -64,7 +67,7 @@ local function PostCustomEvent(customEventBody: CustomEventBody)
 	end
 end
 
-local function PostCustomEvents()
+local function PostCustomEvents(): ()
 	for playerId: number, customEventBody: CustomEventBody in customEventBodies do
 		PostCustomEvent(customEventBody)
 	end
@@ -74,8 +77,8 @@ local function PostCustomEvents()
 	table.clear(removedCustomEventBodies)
 end
 
-local function AddCustomEvent(player: Player, eventName: string, eventParams: {CustomEventParam})
-	local playerInfo: GameConfig.PlayerInfo = ServerGameInfo.GetPlayerInfo(player)
+local function AddCustomEvent(player: Player, eventName: string, eventParams: { CustomEventParam }): ()
+	local playerInfo: GameConfig.PlayerInfo? = ServerGameInfo.GetPlayerInfo(player)
 	if playerInfo == nil then
 		return
 	end
@@ -87,7 +90,7 @@ local function AddCustomEvent(player: Player, eventName: string, eventParams: {C
 		event_name = eventName,
 		event_time = DateTime.now().UnixTimestamp,
 		total_time = math.floor(playerInfo.gameTime),
-		event_params = eventParams
+		event_params = eventParams,
 	}
 	table.insert(customEventBody.events, customEvent)
 	if IsShowAddCustomEventLog then
@@ -104,7 +107,12 @@ end
 --	GameAnalytics:addDesignEvent(player.UserId, options)
 --end
 
-function AnalyticsTool.Init()
+function AnalyticsTool.Init(): ()
+	if analyticsScope then
+		return
+	end
+	local scope = LifecycleTool.new()
+	analyticsScope = scope
 	--初始化GA埋点
 	--GameAnalytics:setEnabledInfoLog(true)
 	--GameAnalytics:setEnabledVerboseLog(true)
@@ -114,21 +122,23 @@ function AnalyticsTool.Init()
 	--GameAnalytics.setEnabledReportErrors(false)
 
 	--初始化自定义事件
-	task.spawn(function()
-		while true do
+	scope:Spawn(function()
+		while scope.alive do
 			task.wait(PostCustomEventsInterval)
 			PostCustomEvents()
 		end
 	end)
-	local postCustomEventsThread: thread = coroutine.create(PostCustomEvents)
-	coroutine.resume(postCustomEventsThread)
-	game:BindToClose(function(closeReason: Enum.CloseReason)
-		PostCustomEvents()
-	end)
+	scope:Spawn(PostCustomEvents)
+	if not closeBound then
+		closeBound = true
+		game:BindToClose(function(closeReason: Enum.CloseReason)
+			PostCustomEvents()
+		end)
+	end
 end
 
-function AnalyticsTool.AddPlayer(player: Player)
-	local playerInfo: GameConfig.PlayerInfo = ServerGameInfo.GetPlayerInfo(player)
+function AnalyticsTool.AddPlayer(player: Player): ()
+	local playerInfo: GameConfig.PlayerInfo? = ServerGameInfo.GetPlayerInfo(player)
 	if playerInfo == nil then
 		return
 	end
@@ -138,20 +148,20 @@ function AnalyticsTool.AddPlayer(player: Player)
 		first_time = playerInfo.firstEnterTime,
 		version = playerInfo.firstEnterVersion,
 		country = playerInfo.countryRegion,
-		events = {}
+		events = {},
 	}
 	customEventBodies[player.UserId] = customEventBody
 	AddCustomEvent(player, "PlayerAdded", {})
 end
 
-function AnalyticsTool.RemovePlayer(player: Player)
-	local playerInfo: GameConfig.PlayerInfo = ServerGameInfo.GetPlayerInfo(player)
+function AnalyticsTool.RemovePlayer(player: Player): ()
+	local playerInfo: GameConfig.PlayerInfo? = ServerGameInfo.GetPlayerInfo(player)
 	if playerInfo == nil then
 		return
 	end
 	AddCustomEvent(player, "PlayerRemoving", {
-		{filed = "start_time", value = tostring(playerInfo.timeOfThisLogin)},
-		{filed = "game_time", value = tostring(DateTime.now().UnixTimestamp - playerInfo.timeOfThisLogin)},
+		{ filed = "start_time", value = tostring(playerInfo.timeOfThisLogin) },
+		{ filed = "game_time", value = tostring(DateTime.now().UnixTimestamp - playerInfo.timeOfThisLogin) },
 	})
 	local customEventBody: CustomEventBody = customEventBodies[player.UserId]
 	if customEventBody == nil then
@@ -162,30 +172,30 @@ function AnalyticsTool.RemovePlayer(player: Player)
 end
 
 --普通商品内购事件
-function AnalyticsTool.AddProductPurchaseEvent(player: Player, receiptInfo: GameConfig.ReceiptInfo)
+function AnalyticsTool.AddProductPurchaseEvent(player: Player, receiptInfo: GameConfig.ReceiptInfo): ()
 	AddCustomEvent(player, "GamePurchase", {
-		{filed = "purchase_id", value = receiptInfo.PurchaseId},
-		{filed = "player_id", value = tostring(receiptInfo.PlayerId)},
-		{filed = "product_id", value = tostring(receiptInfo.ProductId)},
-		{filed = "spent", value = tostring(receiptInfo.CurrencySpent)},
+		{ filed = "purchase_id", value = receiptInfo.PurchaseId },
+		{ filed = "player_id", value = tostring(receiptInfo.PlayerId) },
+		{ filed = "product_id", value = tostring(receiptInfo.ProductId) },
+		{ filed = "spent", value = tostring(receiptInfo.CurrencySpent) },
 	})
 
 	GameAnalytics:ProcessReceiptCallback(receiptInfo)
 end
 
 --Pass内购事件
-function AnalyticsTool.AddPassPurchaseEvent(player: Player, gamePassId: number, price: number)
+function AnalyticsTool.AddPassPurchaseEvent(player: Player, gamePassId: number, price: number): ()
 	AddCustomEvent(player, "GamePurchase", {
-		{filed = "purchase_id", value = httpService:GenerateGUID()},
-		{filed = "player_id", value = tostring(player.UserId)},
-		{filed = "product_id", value = tostring(gamePassId)},
-		{filed = "spent", value = tostring(price)},
+		{ filed = "purchase_id", value = httpService:GenerateGUID() },
+		{ filed = "player_id", value = tostring(player.UserId) },
+		{ filed = "product_id", value = tostring(gamePassId) },
+		{ filed = "spent", value = tostring(price) },
 	})
 end
 
 --添加传送数据
-function AnalyticsTool.AddTeleportData(players: {Instance}, teleportData: any)
-	local playerIds: {number} = {}
+function AnalyticsTool.AddTeleportData(players: { Instance }, teleportData: any): ()
+	local playerIds: { number } = {}
 	for playerIndex: number, player: Instance in players do
 		if player:IsA("Player") then
 			table.insert(playerIds, player.UserId)
@@ -194,4 +204,13 @@ function AnalyticsTool.AddTeleportData(players: {Instance}, teleportData: any)
 	GameAnalytics:addGameAnalyticsTeleportData(playerIds, teleportData)
 end
 
+function AnalyticsTool.Destroy(): ()
+	if analyticsScope then
+		analyticsScope:Destroy()
+		analyticsScope = nil
+	end
+	PostCustomEvents()
+	table.clear(customEventBodies)
+	table.clear(removedCustomEventBodies)
+end
 return AnalyticsTool

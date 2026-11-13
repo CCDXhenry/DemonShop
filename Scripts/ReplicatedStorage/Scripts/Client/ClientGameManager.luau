@@ -1,97 +1,125 @@
--- 客户端游戏入口管理：绑定玩家通知并初始化预置 UI 与视口适配
+-- 客户端主管理器：负责音效、UI 框架、通行证与子系统初始化
 --!strict
 local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
+local players: Players = game:GetService("Players")
+local starterGui: StarterGui = game:GetService("StarterGui")
 local core = replicatedStorage:WaitForChild("Core")
 local coreScripts = core:WaitForChild("Scripts")
-local coreSharedScripts = coreScripts:WaitForChild("Shared")
-local SoundTool = require(coreSharedScripts:FindFirstChild("SoundTool"))
 local coreClientScripts = coreScripts:WaitForChild("Client")
 local UIAdapter = require(coreClientScripts:FindFirstChild("UIAdapter"))
 local scripts = replicatedStorage:WaitForChild("Scripts")
 local sharedScripts = scripts:WaitForChild("Shared")
+local FarmSoundTool = require(sharedScripts:WaitForChild("FarmSoundTool"))
 local GameConfig = require(sharedScripts:FindFirstChild("GameConfig"))
 local NetMsg = require(sharedScripts:FindFirstChild("NetMsg"))
 local clientScripts = scripts:WaitForChild("Client")
 local ClientGameInfo = require(clientScripts:FindFirstChild("ClientGameInfo"))
+local ClientRoastChickenFarmManager = require(clientScripts:WaitForChild("ClientRoastChickenFarmManager"))
+type ClientRoastChickenFarmManager = ClientRoastChickenFarmManager.ClientRoastChickenFarmManager
 local uiManagerScript = clientScripts:WaitForChild("UIManager")
 local UIManager = require(uiManagerScript)
-local GameFrameWrapper = require(uiManagerScript:FindFirstChild("GameFrameWrapper"))
-local players: Players = game:GetService("Players")
-local starterGui: StarterGui = game:GetService("StarterGui")
 
-local soundsFolder: Folder = workspace:FindFirstChild("Sounds")
-local bgmSound: Sound = soundsFolder:FindFirstChild("BGM") :: Sound
-
+local LifecycleTool = require(sharedScripts:WaitForChild("LifecycleTool"))
+local ClientBillboardManager = require(clientScripts:WaitForChild("ClientBillboardManager"))
+local ClientCameraController = require(clientScripts:WaitForChild("ClientCameraController"))
 local ClientGameManager = {}
 ClientGameManager.__index = ClientGameManager
 
-export type ClientGameManager = typeof(setmetatable({}, ClientGameManager))
-
-local DesignScreenSize: Vector2 = Vector2.new(1920, 1080)
+export type ClientGameManager = typeof(setmetatable(
+	{} :: {
+		roastChickenFarmManager: ClientRoastChickenFarmManager,
+		billboardManager: ClientBillboardManager.ClientBillboardManager,
+		cameraController: ClientCameraController.ClientCameraController,
+		scope: LifecycleTool.Lifecycle?,
+		screenGui: ScreenGui?,
+		initialized: boolean,
+	},
+	ClientGameManager
+))
 
 assert(players.LocalPlayer)
 
-local function InitUI()
-	local playerGui: PlayerGui = players.LocalPlayer:WaitForChild("PlayerGui") :: PlayerGui
-	local uiTemplates = replicatedStorage:WaitForChild("UI")
-	local screenTemplate = uiTemplates:FindFirstChild("GameScreenGui")
-	assert(screenTemplate and screenTemplate:IsA("ScreenGui"), "缺少 UI.GameScreenGui 预置模板")
-	local existing = playerGui:FindFirstChild("GameScreenGui")
-	if existing then existing:Destroy() end
-	local gameScreenGui: ScreenGui = screenTemplate:Clone()
-	gameScreenGui.Parent = playerGui
-	--禁用默认工具栏
-	starterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
-	--设置窗口容器
-	UIManager.Init(gameScreenGui)
-	local uiActions = UIManager.GetUIActions()
-	--创建游戏主界面
-	local gameFrame: Frame = UIManager.CreateFrame("GameFrame", gameScreenGui, 0)
-	GameFrameWrapper.new(gameFrame, uiActions)
-	--UI适配器初始化
-	UIAdapter.Init(DesignScreenSize, gameScreenGui.AbsoluteSize)
-	gameScreenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-		UIAdapter.OnScreenSizeChange(gameScreenGui.AbsoluteSize)
-	end)
-end
+local DesignScreenSize: Vector2 = Vector2.new(1920, 1080)
 
 --通知客户端玩家信息初始化
 local function OnNotifyPlayerInfoInit(
 	localPlayerSaveInfo: GameConfig.ClientLocalPlayerSaveInfo,
 	otherPlayerSaveInfoMap: { [string]: GameConfig.ClientOtherPlayerSyncInfo },
 	playerConfigInfo: GameConfig.PlayerConfigInfo
-)
+): ()
 	ClientGameInfo.InitPlayerInfo(localPlayerSaveInfo, otherPlayerSaveInfoMap, playerConfigInfo)
 	local localPlayerInfo: GameConfig.ClientLocalPlayerInfo? = ClientGameInfo.GetLocalPlayerInfo()
 	if localPlayerInfo ~= nil then
-		SoundTool.SetBGMVolumn(localPlayerInfo.settingInfo.bgmVolume)
-		SoundTool.SetSoundEffectVolume(localPlayerInfo.settingInfo.soundEffectVolume)
+		FarmSoundTool.SetBGMVolume(localPlayerInfo.settingInfo.bgmVolume)
+		FarmSoundTool.SetSoundEffectVolume(localPlayerInfo.settingInfo.soundEffectVolume)
 	end
-	SoundTool.PlayBGM(bgmSound)
-	--初始化UI
-	task.spawn(function()
-		InitUI()
-	end)
+	FarmSoundTool.PlayBGM()
 end
 
-local function OnNotifyPlayersOtherPlayerInfoInit(playerId: number, otherPlayerSaveInfo: GameConfig.ClientOtherPlayerSyncInfo)
+local function OnNotifyPlayersOtherPlayerInfoInit(playerId: number, otherPlayerSaveInfo: GameConfig.ClientOtherPlayerSyncInfo): ()
 	if playerId ~= players.LocalPlayer.UserId then
 		ClientGameInfo.InitOtherPlayerInfo(playerId, otherPlayerSaveInfo)
 	end
 end
 
-local function OnNotifyPlayerAcquiredGamePass(gamePassId: number)
+local function OnNotifyPlayerAcquiredGamePass(gamePassId: number): ()
 	ClientGameInfo.SetLocalPlayerGamePassAcquired(gamePassId)
 end
 
 function ClientGameManager.new(): ClientGameManager
-	return setmetatable({}, ClientGameManager) :: ClientGameManager
+	local self = setmetatable({}, ClientGameManager) :: ClientGameManager
+	self.roastChickenFarmManager = ClientRoastChickenFarmManager.new()
+	self.billboardManager = ClientBillboardManager.new()
+	self.cameraController = ClientCameraController.new()
+	self.initialized = false
+	return self
 end
 
-function ClientGameManager.Init(self: ClientGameManager)
-	NetMsg.ConnectNotifyPlayerInfoInit(OnNotifyPlayerInfoInit)
-	NetMsg.ConnectNotifyPlayersOtherPlayerInfoInit(OnNotifyPlayersOtherPlayerInfoInit)
-	NetMsg.ConnectNotifyPlayerAcquiredGamePass(OnNotifyPlayerAcquiredGamePass)
+function ClientGameManager.Init(self: ClientGameManager): ()
+	if self.initialized then
+		return
+	end
+	self.initialized = true
+	local scope = LifecycleTool.new()
+	self.scope = scope
+	scope:Connect(NetMsg.ConnectNotifyPlayerInfoInit(OnNotifyPlayerInfoInit))
+	scope:Connect(NetMsg.ConnectNotifyPlayersOtherPlayerInfoInit(OnNotifyPlayersOtherPlayerInfoInit))
+	scope:Connect(NetMsg.ConnectNotifyPlayerAcquiredGamePass(OnNotifyPlayerAcquiredGamePass))
+	local playerGui = players.LocalPlayer:WaitForChild("PlayerGui") :: PlayerGui
+	local template = replicatedStorage:WaitForChild("UI"):WaitForChild("GameScreenGui")
+	assert(template:IsA("ScreenGui"), "Missing GameScreenGui template")
+	local old = playerGui:FindFirstChild("GameScreenGui")
+	if old then
+		old:Destroy()
+	end
+	local screenGui = template:Clone()
+	screenGui.Parent = playerGui
+	self.screenGui = screenGui
+	scope:Own(screenGui)
+	starterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+	UIManager.Init(screenGui)
+	UIAdapter.Init(DesignScreenSize, screenGui.AbsoluteSize)
+	local function OnViewportChanged(): ()
+		UIAdapter.OnScreenSizeChange(screenGui.AbsoluteSize)
+	end
+	scope:Connect(screenGui:GetPropertyChangedSignal("AbsoluteSize"):Connect(OnViewportChanged))
+	self.billboardManager:Init()
+	self.cameraController:Init()
+	self.roastChickenFarmManager:Init(screenGui)
 end
-
+function ClientGameManager.Destroy(self: ClientGameManager): ()
+	if not self.initialized then
+		return
+	end
+	self.initialized = false
+	self.roastChickenFarmManager:Destroy()
+	self.cameraController:Destroy()
+	self.billboardManager:Destroy()
+	UIManager.Destroy()
+	if self.scope then
+		self.scope:Destroy()
+		self.scope = nil
+	end
+	self.screenGui = nil
+end
 return ClientGameManager

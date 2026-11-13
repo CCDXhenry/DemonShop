@@ -1,3 +1,4 @@
+-- 窗口基类：管理显示动画、窗口动作与关闭清理
 --!strict
 local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
 local tweenService: TweenService = game:GetService("TweenService")
@@ -11,6 +12,9 @@ type UIActions = UIActions.UIActions
 
 local WindowOpenScaleTweenInfo: TweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
+local sharedScripts = replicatedStorage:WaitForChild("Scripts"):WaitForChild("Shared")
+local LifecycleTool = require(sharedScripts:WaitForChild("LifecycleTool"))
+local FarmSoundTool = require(sharedScripts:WaitForChild("FarmSoundTool"))
 local WindowBase = {}
 WindowBase.__index = WindowBase
 
@@ -24,6 +28,8 @@ export type WindowBase = typeof(setmetatable(
 		windowId: string,
 		uiActions: UIActions,
 		openAnimation: string?,
+		scope: LifecycleTool.Lifecycle,
+		onClosed: (() -> ())?,
 	},
 	WindowBase
 ))
@@ -34,15 +40,16 @@ function WindowBase.new(frame: Frame, windowId: string, uiActions: UIActions, op
 	self.windowId = windowId
 	self.uiActions = uiActions
 	self.openAnimation = openAnimation
+	self.scope = LifecycleTool.new()
 	return self
 end
 
-local function OnOpenAnimScaleValueChanged(window: Frame, openAnimScaleValue: NumberValue)
+local function OnOpenAnimScaleValueChanged(window: Frame, openAnimScaleValue: NumberValue): ()
 	UIAdapter.SetOpenAnimScale(window, openAnimScaleValue.Value)
 	UIAdapter.RefreshAdaptiveFrame(window)
 end
 
-local function OnScaleOpenAnimationCompleted(window: Frame, openAnimScaleValue: NumberValue, playbackState: Enum.PlaybackState)
+local function OnScaleOpenAnimationCompleted(window: Frame, openAnimScaleValue: NumberValue, playbackState: Enum.PlaybackState): ()
 	if playbackState == Enum.PlaybackState.Completed then
 		UIAdapter.SetOpenAnimScale(window, 1)
 		UIAdapter.RefreshAdaptiveFrame(window)
@@ -50,46 +57,53 @@ local function OnScaleOpenAnimationCompleted(window: Frame, openAnimScaleValue: 
 	openAnimScaleValue:Destroy()
 end
 
-local function PlayScaleOpenAnimation(window: Frame)
+local function PlayScaleOpenAnimation(window: Frame, scope: LifecycleTool.Lifecycle): ()
 	UIAdapter.SetOpenAnimScale(window, 0)
 	local openAnimScaleValue: NumberValue = Instance.new("NumberValue")
 	openAnimScaleValue.Name = "OpenAnimScaleValue"
 	openAnimScaleValue.Value = 0
 	openAnimScaleValue.Parent = window
-	openAnimScaleValue:GetPropertyChangedSignal("Value"):Connect(function()
+	scope:Own(openAnimScaleValue)
+	scope:Connect(openAnimScaleValue:GetPropertyChangedSignal("Value"):Connect(function()
 		OnOpenAnimScaleValueChanged(window, openAnimScaleValue)
-	end)
+	end))
 	local openAnimScaleTween: Tween = tweenService:Create(openAnimScaleValue, WindowOpenScaleTweenInfo, { Value = 1 })
-	openAnimScaleTween.Completed:Connect(function(playbackState: Enum.PlaybackState)
+	scope:Connect(openAnimScaleTween.Completed:Connect(function(playbackState: Enum.PlaybackState)
 		OnScaleOpenAnimationCompleted(window, openAnimScaleValue, playbackState)
-	end)
-	openAnimScaleTween:Play()
+	end))
+	scope:Play(openAnimScaleTween)
 end
 
-function WindowBase.OnInit(self: WindowBase)
+function WindowBase.OnInit(self: WindowBase): ()
+	FarmSoundTool.Play("UIOpen")
 	if self.openAnimation == WindowBase.OpenAnimation.Scale then
-		PlayScaleOpenAnimation(self.frame)
+		PlayScaleOpenAnimation(self.frame, self.scope)
 	end
 end
 
-function WindowBase.OnClose(self: WindowBase)
+function WindowBase.OnClose(self: WindowBase): ()
+	FarmSoundTool.Play("UIClose")
+	local onClosed = self.onClosed
+	self.onClosed = nil
+	if onClosed then onClosed() end
+	self.scope:Destroy()
 	UIAdapter.RemoveAdaptiveFrame(self.frame)
 	self.frame:Destroy()
 end
 
-function WindowBase.Close(self: WindowBase)
+function WindowBase.Close(self: WindowBase): ()
 	self.uiActions.closeWindow(self.windowId)
 end
 
-function WindowBase.CloseWindow(self: WindowBase, windowId: string)
+function WindowBase.CloseWindow(self: WindowBase, windowId: string): ()
 	self.uiActions.closeWindow(windowId)
 end
 
-function WindowBase.CloseAllWindow(self: WindowBase)
+function WindowBase.CloseAllWindow(self: WindowBase): ()
 	self.uiActions.closeAllWindow()
 end
 
-function WindowBase.OpenWindow(self: WindowBase, windowId: string, ...: any)
+function WindowBase.OpenWindow(self: WindowBase, windowId: string, ...: any): ()
 	self.uiActions.openWindow(windowId, ...)
 end
 

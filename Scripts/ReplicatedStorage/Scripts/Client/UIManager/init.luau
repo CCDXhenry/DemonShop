@@ -1,31 +1,31 @@
--- 客户端 UI 管理器：管理模板克隆、窗口生命周期、模态遮罩与文本拟合
+-- 界面管理器：维护模板克隆、窗口栈、模态遮罩和交互资源
 --!strict
-local UIManager = {}
-local TextFitting = require(script:WaitForChild("TextFitting"))
-UIManager.FitTextLabel = TextFitting.FitTextLabel
-UIManager.FitTextWithShadow = TextFitting.FitTextWithShadow
-UIManager.FitMarkedText = TextFitting.FitMarkedText
-UIManager.FitMarkedRoot = TextFitting.FitMarkedRoot
-
 local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
+local tweenService: TweenService = game:GetService("TweenService")
+local userInputService: UserInputService = game:GetService("UserInputService")
+local UIManager = {}
+local LifecycleTool = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("LifecycleTool"))
+local scope = LifecycleTool.new()
+local initialized = false
+local buttonScopes: { [GuiButton]: LifecycleTool.Lifecycle } = {}
+
 local uiTemplatesFolder: Folder = replicatedStorage:FindFirstChild("UI") :: Folder
 local scripts = replicatedStorage:WaitForChild("Scripts")
 local clientScripts = scripts:WaitForChild("Client")
 local ClientMsg = require(clientScripts:FindFirstChild("ClientMsg"))
-local tweenService: TweenService = game:GetService("TweenService")
-local userInputService: UserInputService = game:GetService("UserInputService")
 
 local WindowBase = require(script:FindFirstChild("WindowBase"))
 type WindowBase = WindowBase.WindowBase
 local UIActions = require(script:FindFirstChild("UIActions"))
 type UIActions = UIActions.UIActions
+local TextFitting = require(script:WaitForChild("TextFitting"))
 
 local ModalTransparency: number = 0.4
 local ButtonHoveredScale: number = 1.1 --按钮鼠标移入放大
 local ButtonPressedScale: number = 0.8 --按钮按下缩小
 local ButtonInteractionTweenInfo: TweenInfo = TweenInfo.new(0.1) --按钮交互动画缓动信息
 
-type WindowConfig = {
+export type WindowConfig = {
 	frameName: string,
 	isModal: boolean,
 	modalTransparency: number?,
@@ -41,14 +41,19 @@ local modalButton: ImageButton
 local interactionEffectAppliedButtons: { [GuiButton]: boolean } = {}
 local uiActions: UIActions
 
-local function MarkButtonApplied(appliedButtons: { [GuiButton]: boolean }, button: GuiButton)
-	appliedButtons[button] = true
-	button.Destroying:Connect(function()
-		appliedButtons[button] = nil
-	end)
+function UIManager.RegisterWindow(windowId: string, config: WindowConfig): ()
+	assert(not addedWindows[windowId], "Cannot replace an open window configuration")
+	WindowConfigs[windowId] = config
 end
 
-local function CheckModalButtonVisible()
+local function MarkButtonApplied(appliedButtons: { [GuiButton]: boolean }, button: GuiButton): ()
+	appliedButtons[button] = true
+	scope:Connect(button.Destroying:Connect(function()
+		appliedButtons[button] = nil
+	end))
+end
+
+local function CheckModalButtonVisible(): ()
 	local topModalWindow: Frame?
 	local topModalWindowConfig: WindowConfig?
 	local modalTransparency: number = 1
@@ -72,7 +77,7 @@ local function CheckModalButtonVisible()
 end
 
 --给按钮加点击和悬停缩放效果
-local function ApplyButtonEffects(button: GuiButton)
+local function ApplyButtonEffects(button: GuiButton): ()
 	--如果按钮不需要交互效果
 	if not button:GetAttribute("HasInteractionEffect") then
 		return
@@ -85,6 +90,13 @@ local function ApplyButtonEffects(button: GuiButton)
 	if uiScale == nil then
 		return
 	end
+	local buttonScope = LifecycleTool.new()
+	buttonScopes[button] = buttonScope
+	buttonScope:Connect(button.Destroying:Connect(function(): ()
+		buttonScope:Destroy()
+		buttonScopes[button] = nil
+		interactionEffectAppliedButtons[button] = nil
+	end))
 	MarkButtonApplied(interactionEffectAppliedButtons, button)
 	local normalScale: number = uiScale.Scale
 	local hoveredScale: number = ButtonHoveredScale * normalScale
@@ -93,44 +105,49 @@ local function ApplyButtonEffects(button: GuiButton)
 	local mouseLeaveTween: Tween = tweenService:Create(uiScale, ButtonInteractionTweenInfo, { Scale = normalScale })
 	local clickTween1: Tween = tweenService:Create(uiScale, ButtonInteractionTweenInfo, { Scale = pressedScale })
 	local clickTween2: Tween = tweenService:Create(uiScale, ButtonInteractionTweenInfo, { Scale = normalScale })
-	clickTween1.Completed:Connect(function(playbackState: Enum.PlaybackState)
-		clickTween2:Play()
-	end)
-	button.MouseEnter:Connect(function()
+	buttonScope:Connect(clickTween1.Completed:Connect(function(playbackState: Enum.PlaybackState)
+		buttonScope:Play(clickTween2)
+	end))
+	buttonScope:Connect(button.MouseEnter:Connect(function()
 		if not button.Active then
 			return
 		end
 		if userInputService.PreferredInput == Enum.PreferredInput.KeyboardAndMouse then
-			mouseEnterTween:Play()
+			buttonScope:Play(mouseEnterTween)
 		end
-	end)
-	button.MouseLeave:Connect(function()
+	end))
+	buttonScope:Connect(button.MouseLeave:Connect(function()
 		if userInputService.PreferredInput == Enum.PreferredInput.KeyboardAndMouse then
-			mouseLeaveTween:Play()
+			buttonScope:Play(mouseLeaveTween)
 		end
-	end)
-	button.Activated:Connect(function(inputObject: InputObject, clickCount: number)
-		clickTween1:Play()
-	end)
+	end))
+	buttonScope:Connect(button.Activated:Connect(function(inputObject: InputObject, clickCount: number)
+		buttonScope:Play(clickTween1)
+	end))
 end
 
 --初始化
-function UIManager.Init(gameScreenGuiNew: ScreenGui)
+function UIManager.Init(gameScreenGuiNew: ScreenGui): ()
+	if initialized then
+		return
+	end
+	initialized = true
+	if not scope.alive then
+		scope = LifecycleTool.new()
+	end
 	gameScreenGui = gameScreenGuiNew
 	if gameScreenGui == nil then
 		return
 	end
-	local templateModal = gameScreenGui:FindFirstChild("ModalButton")
-	assert(templateModal and templateModal:IsA("ImageButton"), "缺少 GameScreenGui.ModalButton 预置模板")
-	modalButton = templateModal
-	modalButton.Visible = false
+	modalButton = gameScreenGuiNew:WaitForChild("ModalButton") :: ImageButton
+
 	local uiParents: { Instance } = { workspace, gameScreenGui }
 	for uiParentIndex: number, uiParent: Instance in uiParents do
-		uiParent.DescendantAdded:Connect(function(descendant: Instance)
+		scope:Connect(uiParent.DescendantAdded:Connect(function(descendant: Instance)
 			if descendant:IsA("GuiButton") then
 				ApplyButtonEffects(descendant)
 			end
-		end)
+		end))
 		for descendantIndex: number, descendant: Instance in uiParent:GetDescendants() do
 			if descendant:IsA("GuiButton") then
 				ApplyButtonEffects(descendant)
@@ -141,9 +158,7 @@ end
 
 --非窗口方式创建界面
 function UIManager.CreateFrame(frameName: string, frameParent: GuiBase2d?, ZIndex: number?): Frame
-	local template = uiTemplatesFolder:FindFirstChild(frameName)
-	assert(template and template:IsA("Frame"), "缺少 UI Frame 模板: " .. frameName)
-	local frame: Frame = template:Clone()
+	local frame: Frame = (uiTemplatesFolder:FindFirstChild(frameName) :: Frame):Clone()
 	if frameParent == nil then
 		frame.Parent = gameScreenGui
 	else
@@ -152,12 +167,23 @@ function UIManager.CreateFrame(frameName: string, frameParent: GuiBase2d?, ZInde
 	if ZIndex ~= nil then
 		frame.ZIndex = ZIndex
 	end
-	TextFitting.FitMarkedRoot(frame)
 	return frame
 end
 
+function UIManager.FitTextLabel(label: TextLabel, options: TextFitting.TextFitOptions?): number
+	return TextFitting.FitTextLabel(label, options)
+end
+
+function UIManager.FitMarkedText(label: TextLabel): number?
+	return TextFitting.FitMarkedText(label)
+end
+
+function UIManager.FitMarkedRoot(root: Instance): ()
+	TextFitting.FitMarkedRoot(root)
+end
+
 --打开窗口
-function UIManager.OpenWindow(windowId: string, ...: any)
+function UIManager.OpenWindow(windowId: string, ...: any): ()
 	if gameScreenGui == nil then
 		return
 	end
@@ -169,9 +195,10 @@ function UIManager.OpenWindow(windowId: string, ...: any)
 	if windowConfig == nil then
 		return
 	end
-	local template = uiTemplatesFolder:FindFirstChild(windowConfig.frameName)
-	assert(template and template:IsA("Frame"), "缺少窗口模板: " .. windowConfig.frameName)
-	local frame: Frame = template:Clone()
+	local frame: Frame? = (uiTemplatesFolder:FindFirstChild(windowConfig.frameName) :: Frame):Clone()
+	if frame == nil then
+		return
+	end
 	frame.Parent = gameScreenGui
 	local window: WindowBase = windowConfig.newWindow(frame, windowId, uiActions, ...)
 	if windowConfig.openAnimation ~= nil then
@@ -183,7 +210,6 @@ function UIManager.OpenWindow(windowId: string, ...: any)
 		addedWindowCount += 1
 	end
 	frame.ZIndex = 100 + addedWindowCount * 2
-	TextFitting.FitMarkedRoot(frame)
 	window:OnInit()
 	CheckModalButtonVisible()
 	ClientMsg.FireOpenWindow(windowId)
@@ -196,7 +222,7 @@ function UIManager.IsWindowShowing(windowId: string): boolean
 end
 
 --关闭窗口
-function UIManager.CloseWindow(windowId: string)
+function UIManager.CloseWindow(windowId: string): ()
 	local window: WindowBase? = addedWindows[windowId]
 	if window == nil then
 		return
@@ -208,7 +234,7 @@ function UIManager.CloseWindow(windowId: string)
 end
 
 --切换窗口显示状态
-function UIManager.SwitchWindowShowing(windowId: string)
+function UIManager.SwitchWindowShowing(windowId: string): ()
 	if UIManager.IsWindowShowing(windowId) then
 		UIManager.CloseWindow(windowId)
 	else
@@ -217,7 +243,7 @@ function UIManager.SwitchWindowShowing(windowId: string)
 end
 
 --关闭所有窗口
-function UIManager.CloseAllWindow()
+function UIManager.CloseAllWindow(): ()
 	local closingWindows: { { windowId: string, window: WindowBase } } = {}
 	for windowId: string, window: WindowBase in pairs(addedWindows) do
 		table.insert(closingWindows, { windowId = windowId, window = window })
@@ -251,4 +277,18 @@ function UIManager.GetUIActions(): UIActions
 	return uiActions
 end
 
+function UIManager.Destroy(): ()
+	if not initialized then
+		return
+	end
+	UIManager.CloseAllWindow()
+	for _, buttonScope in buttonScopes do
+		buttonScope:Destroy()
+	end
+	table.clear(buttonScopes)
+	scope:Destroy()
+	table.clear(interactionEffectAppliedButtons)
+	gameScreenGui = nil
+	initialized = false
+end
 return UIManager

@@ -1,21 +1,23 @@
+-- 服务端商城管理器：处理通行证购买与收据回调
 --!strict
 local serverStorage: ServerStorage = game:GetService("ServerStorage")
+local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
+local players: Players = game:GetService("Players")
+local marketplaceService: MarketplaceService = game:GetService("MarketplaceService")
 local serverScripts = serverStorage:WaitForChild("Scripts")
 local ServerGameInfo = require(serverScripts:FindFirstChild("ServerGameInfo"))
 local AnalyticsTool = require(serverScripts:FindFirstChild("AnalyticsTool"))
-local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
 local scripts = replicatedStorage:WaitForChild("Scripts")
 local sharedScripts = scripts:WaitForChild("Shared")
 local GameConfig = require(sharedScripts:FindFirstChild("GameConfig"))
-local players: Players = game:GetService("Players")
-local marketplaceService: MarketplaceService = game:GetService("MarketplaceService")
 
+local LifecycleTool = require(sharedScripts:WaitForChild("LifecycleTool"))
 local ServerMarketplaceManager = {}
 ServerMarketplaceManager.__index = ServerMarketplaceManager
 
-export type ServerMarketplaceManager = typeof(setmetatable({}, ServerMarketplaceManager))
+export type ServerMarketplaceManager = typeof(setmetatable({} :: { scope: LifecycleTool.Lifecycle? }, ServerMarketplaceManager))
 
-local function OnPromptGamePassPurchaseFinished(player: Instance, gamePassId: number, wasPurchased: boolean)
+local function OnPromptGamePassPurchaseFinished(player: Instance, gamePassId: number, wasPurchased: boolean): ()
 	if not wasPurchased then
 		return
 	end
@@ -48,9 +50,20 @@ function ServerMarketplaceManager.new(): ServerMarketplaceManager
 	return setmetatable({}, ServerMarketplaceManager) :: ServerMarketplaceManager
 end
 
-function ServerMarketplaceManager.Init(self: ServerMarketplaceManager)
-	marketplaceService.PromptGamePassPurchaseFinished:Connect(OnPromptGamePassPurchaseFinished)
+function ServerMarketplaceManager.Init(self: ServerMarketplaceManager): ()
+	if self.scope then
+		return
+	end
+	local scope = LifecycleTool.new()
+	self.scope = scope
+	scope:Connect(marketplaceService.PromptGamePassPurchaseFinished:Connect(OnPromptGamePassPurchaseFinished))
 	marketplaceService.ProcessReceipt = ProcessReceipt
 end
 
+function ServerMarketplaceManager.Destroy(self: ServerMarketplaceManager): ()
+	if self.scope then
+		self.scope:Destroy()
+		self.scope = nil
+	end
+end
 return ServerMarketplaceManager

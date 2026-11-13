@@ -1,7 +1,8 @@
+-- 客户端消息封装：统一界面、玩家和农场数据变更通知
 --!strict
+local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ClientMsg = {}
 
-local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
 local bindableEventsFolder: Folder = replicatedStorage:FindFirstChild("BindableEvents") :: Folder
 local closeWindowEvent: BindableEvent = bindableEventsFolder:FindFirstChild("CloseWindow") :: BindableEvent
 local openWindowEvent: BindableEvent = bindableEventsFolder:FindFirstChild("OpenWindow") :: BindableEvent
@@ -10,7 +11,7 @@ local otherPlayerInfoInitEvent: BindableEvent = bindableEventsFolder:FindFirstCh
 local localPlayerAcquiredGamePassEvent: BindableEvent = bindableEventsFolder:FindFirstChild("LocalPlayerAcquiredGamePass") :: BindableEvent
 
 --关闭窗口事件
-function ClientMsg.FireCloseWindow(windowName: string)
+function ClientMsg.FireCloseWindow(windowName: string): ()
 	closeWindowEvent:Fire(windowName)
 end
 
@@ -19,7 +20,7 @@ function ClientMsg.ConnectCloseWindow(callback: (windowName: string) -> ()): RBX
 end
 
 --打开窗口事件
-function ClientMsg.FireOpenWindow(windowName: string)
+function ClientMsg.FireOpenWindow(windowName: string): ()
 	openWindowEvent:Fire(windowName)
 end
 
@@ -28,7 +29,7 @@ function ClientMsg.ConnectOpenWindow(callback: (windowName: string) -> ()): RBXS
 end
 
 --自己的玩家信息初始化事件
-function ClientMsg.FireLocalPlayerInfoInit()
+function ClientMsg.FireLocalPlayerInfoInit(): ()
 	localPlayerInfoInitEvent:Fire()
 end
 
@@ -37,7 +38,7 @@ function ClientMsg.ConnectLocalPlayerInfoInit(callback: () -> ()): RBXScriptConn
 end
 
 --其他玩家的信息初始化事件
-function ClientMsg.FireOtherPlayerInfoInit(playerId: number)
+function ClientMsg.FireOtherPlayerInfoInit(playerId: number): ()
 	otherPlayerInfoInitEvent:Fire(playerId)
 end
 
@@ -46,7 +47,7 @@ function ClientMsg.ConnectOtherPlayerInfoInit(callback: (playerId: number) -> ()
 end
 
 --自己获得了通行证
-function ClientMsg.FireLocalPlayerAcquiredGamePass(gamePassId: number)
+function ClientMsg.FireLocalPlayerAcquiredGamePass(gamePassId: number): ()
 	localPlayerAcquiredGamePassEvent:Fire(gamePassId)
 end
 
@@ -54,4 +55,11 @@ function ClientMsg.ConnectLocalPlayerAcquiredGamePass(callback: (gamePassId: num
 	return localPlayerAcquiredGamePassEvent.Event:Connect(callback)
 end
 
+local farmInfoChangedEvent = bindableEventsFolder:WaitForChild("FarmInfoChanged") :: BindableEvent
+function ClientMsg.FireFarmInfoChanged(): ()
+	farmInfoChangedEvent:Fire()
+end
+function ClientMsg.ConnectFarmInfoChanged(callback: () -> ()): RBXScriptConnection
+	return farmInfoChangedEvent.Event:Connect(callback)
+end
 return ClientMsg
