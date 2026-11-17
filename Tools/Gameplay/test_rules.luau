@@ -1,0 +1,68 @@
+-- 规则回归：面积去重、表面映射、输入边界、存档失败及租约幂等
+local Roblox=require('@lune/roblox')
+local Rules=require('./PlayerSaveLeaseRules')
+local Save=require('./SaveRules')
+local Config=require('./GameConfig')
+local Surface=require('./PaintSurface')
+local Store=require('./ServerPlayerSaveStore')
+local Mock=require('./Mock')
+local checks=0
+local function check(condition,message) assert(condition,message);checks+=1 end
+check(Save.Validate(Save.New()),"new save valid")
+for _,coins in {-1,0/0,math.huge,.5,Config.MaximumCoins+1} do check(not Save.Validate({version=1,coins=coins}),"invalid coins rejected") end
+check(not Save.Validate({version=2,coins=0}),"future version rejected")
+local a=Rules.Acquire({},"A",100,120);check(a~=nil,"lease acquired")
+check(Rules.Acquire(a,"B",110,120)==nil,"concurrent lease refused")
+local b,replay=Rules.Write(a,"A",110,120,0,"op1");check(b and not replay,"first write")
+local again,isReplay=Rules.Write(b,"A",111,120,0,"op1");check(again and isReplay,"write retry idempotent")
+check(Rules.Write(b,"A",111,120,0,"different")==nil,"stale operation refused")
+check(Rules.Write(b,"B",111,120,1,"foreign")==nil,"foreign writer refused")
+check(Rules.Write(b,"A",240,120,1,"expired")==nil,"expired writer refused")
+check(Rules.Release(b,"B")==nil,"foreign release refused")
+local released=Rules.Release(b,"A");check(released and released[Rules.MetadataKeys.SessionId]==nil,"release clears lease")
+-- 用历史持久化元数据验证改名后仍拒绝占用、延续修订号并保留业务外字段。
+local keys=Rules.MetadataKeys
+local legacy={ [keys.SessionId]='old-session', [keys.SessionExpires]=220, [keys.SaveRevision]=7, [keys.SaveOperation]='old-op', unrelated='keep' }
+check(Rules.Acquire(legacy,'new-session',110,120)==nil,'legacy active lease remains exclusive')
+local renewed,legacyReplay=Rules.Write(legacy,'old-session',110,120,6,'old-op')
+check(renewed and legacyReplay and renewed[keys.SaveRevision]==7,'legacy retry stays idempotent')
+local expired=Rules.Acquire(legacy,'new-session',221,120)
+check(expired and expired[keys.SaveRevision]==7 and expired.unrelated=='keep','expired legacy lease preserves revision and metadata')
+local saved=Rules.Write(expired,'new-session',222,120,7,'new-op')
+check(saved and saved[keys.SaveRevision]==8,'legacy revision continues after reacquire')
+local freed=Rules.Release(saved,'new-session')
+check(freed and freed[keys.SessionId]==nil and freed[keys.SessionExpires]==nil and freed[keys.SaveOperation]==nil,'legacy lease fields released')
+check(freed and freed[keys.SaveRevision]==8 and freed.unrelated=='keep','release preserves revision and unrelated metadata')
+local vector=Roblox.Vector3
+local part=Roblox.Instance.new('Part');part.Name='UpperTorso';part.Size=vector.new(2,2,1);part:SetAttribute('Paintable',true)
+local covered={};local sample={part='UpperTorso',face=1,u=.5,v=.5}
+local cells,area=Surface.Stamp(part,sample,covered);check(#cells>0 and area>0,"new coverage adds area")
+local repeated,repeatedArea=Surface.Stamp(part,sample,covered);check(#repeated==0 and repeatedArea==0,"repeat coverage adds nothing")
+part:SetAttribute('PaintMask1',string.rep('0',64))
+local masked,maskedArea=Surface.Stamp(part,sample,{})
+check(#masked==0 and maskedArea==0,'hidden contact mask excludes coverage')
+part:SetAttribute('PaintMask1',nil)
+local hidden,hiddenArea=Surface.Stamp(part,{part='UpperTorso',face=5,u=.5,v=.5},covered);check(#hidden==0 and hiddenArea==0,"joint surface excluded")
+for face=1,6 do
+ local point=Surface.Point(part.Size,face,.3,.7)
+ local normal=Surface.Point(vector.new(2,2,2),face,.5,.5)
+ local projected=Surface.Project(part,part.CFrame:PointToWorldSpace(point),normal)
+ check(projected.face==face and math.abs(projected.u-.3)<.0001 and math.abs(projected.v-.7)<.0001,"surface roundtrip")
+end
+local db=Mock.NewStore();local first=Store.new(db);local second=Store.new(db)
+local ok,profile=first:Acquire(42);check(ok and profile.coins==0,"new player loads zero")
+check(not second:Acquire(42),"parallel store cannot acquire player")
+second:Release(42)
+check(first:Save(42,{version=1,coins=100},1),"coin save")
+check(first:Save(42,{version=1,coins=0},0),"superseded snapshot safely skipped")
+check(db.values['42'].coins==100,"superseded snapshot cannot roll coins back")
+db.fail=true;check(not first:Save(42,{version=1,coins=200},2),"storage failure propagated")
+check(db.values['42'].coins==100,"failed write does not mutate stored profile")
+db.fail=false;check(first:Save(42,{version=1,coins=200},2),"retry saves newer snapshot")
+check(first:Release(42),"release succeeds")
+local ok2,reloaded=second:Acquire(42);check(ok2 and reloaded.coins==200,"rejoin loads coins")
+second:Release(42)
+db.values['99']={version=1,coins='broken'}
+local broken=Store.new(db);check(not broken:Acquire(99),"malformed data does not load default")
+check(db.values['99'].coins=='broken',"malformed data untouched")
+print(string.format('PASS: %d rule assertions (production modules; mocked storage boundary)',checks))

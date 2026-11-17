@@ -1,271 +1,104 @@
--- 网络通信模块：负责双端 RemoteEvent 消息的强类型发送、接收与参数安全校验
+-- 网络封装：可靠动作请求、状态通知及边界类型校验
 --!strict
-local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
-local NetMsg = {}
-local FarmConfig = require(script.Parent:WaitForChild("FarmConfig"))
-local FarmRequest = require(script.Parent:WaitForChild("FarmRequest"))
-
-local scripts = replicatedStorage:WaitForChild("Scripts")
-local sharedScripts = scripts:WaitForChild("Shared")
-local GameConfig = require(sharedScripts:FindFirstChild("GameConfig"))
-local remoteEventsFolder: Folder = replicatedStorage:WaitForChild("RemoteEvents") :: Folder
-local requestSetBGMVolumeEvent: RemoteEvent = remoteEventsFolder:FindFirstChild("RequestSetBGMVolume") :: RemoteEvent
-local requestSetSoundEffectVolumeEvent: RemoteEvent = remoteEventsFolder:FindFirstChild("RequestSetSoundEffectVolume") :: RemoteEvent
-local requestSetVibrationsOnOffStateEvent: RemoteEvent = remoteEventsFolder:FindFirstChild("RequestSetVibrationsOnOffState") :: RemoteEvent
-local notifyPlayerInfoInitEvent = remoteEventsFolder:FindFirstChild("NotifyPlayerInfoInit") :: RemoteEvent
-local notifyPlayersOtherPlayerInfoInitEvent: RemoteEvent = remoteEventsFolder:FindFirstChild("NotifyPlayersOtherPlayerInfoInit") :: RemoteEvent
-local notifyPlayerAcquiredGamePassEvent: RemoteEvent = remoteEventsFolder:FindFirstChild("NotifyPlayerAcquiredGamePass") :: RemoteEvent
-local roastChickenActionEvent = remoteEventsFolder:WaitForChild("RoastChickenAction") :: RemoteEvent
-
---boolean校验
-local function ValidateBoolean(value: any): boolean
-	if typeof(value) ~= "boolean" then
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Types = require(script.Parent.GameTypes)
+local Surface = require(script.Parent.PaintSurface)
+local VisualRules = require(script.Parent.VisualRules)
+local Config = require(script.Parent.GameConfig)
+local Curve = require(script.Parent.CurvedSurface)
+local BodyPose = require(script.Parent.PaintBodyPose)
+local folder = ReplicatedStorage:WaitForChild("RemoteEvents")
+local requestEvent = folder:WaitForChild("GameRequest") :: RemoteEvent
+local notifyEvent = folder:WaitForChild("GameNotify") :: RemoteEvent
+local Net = {}
+function Net.Validate(value: unknown): boolean
+	if typeof(value) ~= "table" then
 		return false
 	end
-	return true
-end
-
---Number校验
-local function ValidateNumber(value: any): boolean
-	--类型校验
-	if typeof(value) ~= "number" then
+	local r = value :: { [string]: unknown }
+	if r.bodyPose~=nil and not BodyPose.ValidateWire(r.bodyPose) then return false end
+	if typeof(r.action) ~= "string" or #r.action > 24 then
 		return false
 	end
-	--NaN校验
-	if value ~= value then
+	if r.target ~= nil and (typeof(r.target) ~= "string" or #r.target > 80) then
 		return false
 	end
-	return true
-end
-
---string校验
-local function ValidateString(value: any): boolean
-	if typeof(value) ~= "string" then
+	if r.session ~= nil and (typeof(r.session) ~= "string" or #r.session > 80) then
 		return false
 	end
-	return true
-end
-
---Instance校验
-local function ValidateInstance(instance: any, expectedClass: string): boolean
-	if typeof(instance) ~= "Instance" then
+	if r.version ~= nil and (not Surface.IsFinite(r.version) or (r.version :: number) % 1 ~= 0) then
 		return false
 	end
-	return instance:IsA(expectedClass)
-end
-
---Vector3校验
-local function ValidateVector3(vector3: any): boolean
-	--类型校验
-	if typeof(vector3) ~= "Vector3" then
-		return false
-	end
-	--NaN校验
-	if vector3 ~= vector3 then
-		return false
-	end
-	return true
-end
-
---CFrame校验
-local function ValidateCFrame(cframe: any): boolean
-	if typeof(cframe) ~= "CFrame" then
-		return false
-	end
-	if not ValidateVector3(cframe.Position) then
-		return false
-	end
-	if not ValidateVector3(cframe.LookVector) then
-		return false
-	end
-	return true
-end
-
---简单表校验
-local function ValidateSimpleTable(tbl: { [any]: any }, keyType: string, validator: (any) -> boolean): boolean
-	--类型校验
-	if typeof(tbl) ~= "table" then
-		return false
-	end
-	--表中元素类型校验
-	for key, value in tbl do
-		if typeof(key) ~= keyType then
-			return false
-		end
-		if not validator(value) then
+	for _, name in { "yaw", "pitch" } do
+		if r[name] ~= nil and not Surface.IsFinite(r[name]) then
 			return false
 		end
 	end
-	return true
-end
-
---客户端请求设置背景音乐音量
-function NetMsg.FireRequestSetBGMVolume(volume: number): ()
-	requestSetBGMVolumeEvent:FireServer(volume)
-end
-
-function NetMsg.ConnectRequestSetBGMVolume(callback: (player: Player, volume: number) -> ()): RBXScriptConnection
-	return requestSetBGMVolumeEvent.OnServerEvent:Connect(function(player: Player, volume: number)
-		if not ValidateNumber(volume) then
-			return
+	if r.action == "PaintVisual" then
+		if not Surface.IsFinite(r.sequence) or (r.sequence :: number) < 1 or (r.sequence :: number) % 1 ~= 0 or not Surface.IsFinite(r.started) then return false end
+		if typeof(r.segments) ~= "table" then return false end
+		local segments = r.segments :: {unknown}
+		if #segments > Config.PaintVisualBatchSize then return false end
+		local count=0
+		for index,segment in segments do
+			count+=1
+			if count>Config.PaintVisualBatchSize or typeof(index)~="number" or index%1~=0 or index<1 or index>#segments or not VisualRules.Validate(segment) then return false end
 		end
-		callback(player, volume)
-	end)
-end
-
---客户端请求设置音效音量
-function NetMsg.FireRequestSetSoundEffectVolume(volume: number): ()
-	requestSetSoundEffectVolumeEvent:FireServer(volume)
-end
-
-function NetMsg.ConnectRequestSetSoundEffectVolume(callback: (player: Player, volume: number) -> ()): RBXScriptConnection
-	return requestSetSoundEffectVolumeEvent.OnServerEvent:Connect(function(player: Player, volume: number)
-		if not ValidateNumber(volume) then
-			return
+		if count~=#segments then return false end
+	end
+	if r.action == "EndPaint" and r.sequence ~= nil and (not Surface.IsFinite(r.sequence) or (r.sequence :: number) < 0 or (r.sequence :: number) % 1 ~= 0) then return false end
+	if r.action == "Paint" then
+		if not Surface.IsFinite(r.sequence) or (r.sequence :: number) % 1 ~= 0 or (r.sequence :: number) < 1 then return false end
+		local samples = r.samples
+		if typeof(samples) ~= "table" then
+			return false
 		end
-		callback(player, volume)
-	end)
-end
-
---客户端请求设置振动开关状态
-function NetMsg.FireRequestSetVibrationsOnOffState(vibrationsOn: boolean): ()
-	requestSetVibrationsOnOffStateEvent:FireServer(vibrationsOn)
-end
-
-function NetMsg.ConnectRequestSetVibrationsOnOffState(callback: (player: Player, vibrationsOn: boolean) -> ()): RBXScriptConnection
-	return requestSetVibrationsOnOffStateEvent.OnServerEvent:Connect(function(player: Player, vibrationsOn: boolean)
-		if not ValidateBoolean(vibrationsOn) then
-			return
+		local list = samples :: { unknown }
+		if #list > 12 then
+			return false
 		end
-		callback(player, vibrationsOn)
-	end)
-end
-
---通知客户端玩家信息初始化完成
-function NetMsg.FireNotifyPlayerInfoInit(
-	player: Player,
-	localPlayerSaveInfo: GameConfig.ClientLocalPlayerSaveInfo,
-	otherPlayerSaveInfoMap: { [string]: GameConfig.ClientOtherPlayerSyncInfo },
-	playerConfigInfo: GameConfig.PlayerConfigInfo
-): ()
-	notifyPlayerInfoInitEvent:FireClient(player, localPlayerSaveInfo, otherPlayerSaveInfoMap, playerConfigInfo)
-end
-
-function NetMsg.ConnectNotifyPlayerInfoInit(callback: (
-	localPlayerSaveInfo: GameConfig.ClientLocalPlayerSaveInfo,
-	otherPlayerSaveInfoMap: { [string]: GameConfig.ClientOtherPlayerSyncInfo },
-	playerConfigInfo: GameConfig.PlayerConfigInfo
-) -> ()): RBXScriptConnection
-	return notifyPlayerInfoInitEvent.OnClientEvent:Connect(callback)
-end
-
---通知客户端其他玩家信息初始化完成
-function NetMsg.FireNotifyPlayersOtherPlayerInfoInit(playerId: number, otherPlayerSaveInfo: GameConfig.ClientOtherPlayerSyncInfo): ()
-	notifyPlayersOtherPlayerInfoInitEvent:FireAllClients(playerId, otherPlayerSaveInfo)
-end
-
-function NetMsg.ConnectNotifyPlayersOtherPlayerInfoInit(
-	callback: (playerId: number, otherPlayerSaveInfo: GameConfig.ClientOtherPlayerSyncInfo) -> ()
-): RBXScriptConnection
-	return notifyPlayersOtherPlayerInfoInitEvent.OnClientEvent:Connect(callback)
-end
-
---通知客户端玩家获得了通行证
-function NetMsg.FireNotifyPlayerAcquiredGamePass(player: Player, gamePassId: number): ()
-	notifyPlayerAcquiredGamePassEvent:FireClient(player, gamePassId)
-end
-
-function NetMsg.ConnectNotifyPlayerAcquiredGamePass(callback: (gamePassId: number) -> ()): RBXScriptConnection
-	return notifyPlayerAcquiredGamePassEvent.OnClientEvent:Connect(callback)
-end
-
--- 客户端请求农场动作：仅接受六种现有动作，统一经正式 RemoteEvents 节点传输。
-function NetMsg.FireRequestFarmAction(action: FarmConfig.FarmAction): ()
-	roastChickenActionEvent:FireServer(action)
-end
--- 新协议复用既有通道；旧字符串监听器不会处理表请求，新监听器只接收净化后的字段。
-function NetMsg.FireRequestFarmCommand(command: { [string]: unknown }): ()
-	roastChickenActionEvent:FireServer(command)
-end
-function NetMsg.ConnectRequestFarmCommand(callback: (Player, FarmRequest.Request) -> ()): RBXScriptConnection
-	local function OnCommand(player: Player, value: unknown): ()
-		local command = FarmRequest.Parse(value)
-		if command then
-			callback(player, command)
-		elseif type(value) == "table" then
-			local data = value :: { [string]: unknown }
-			local shotId = FarmRequest.GetShotId(data.shotId)
-			if data.action == "zap" and shotId then
-				NetMsg.FireNotifyFarmVisual(player, { kind = "zapResult", shotId = shotId, accepted = false, targets = {} })
+		for _, raw in ipairs(list) do
+			if typeof(raw) ~= "table" then
+				return false
+			end
+			local s = raw :: { [string]: unknown }
+			if s.breakBefore ~= nil and typeof(s.breakBefore) ~= "boolean" then return false end
+			if typeof(s.part) ~= "string" or #s.part > 32 then
+				return false
+			end
+			if not Surface.IsFinite(s.face) or not Surface.IsFinite(s.u) or not Surface.IsFinite(s.v) then
+				return false
+			end
+			local face, u, v = s.face :: number, s.u :: number, s.v :: number
+			if s.triangle~=nil then
+				if not Surface.IsFinite(s.triangle) or s.surfaceVersion~=Curve.Version then return false end
+				local triangle=s.triangle :: number
+				if triangle<1 or triangle>960 or triangle%1~=0 or u+v>1.00001 then return false end
+			elseif s.surfaceVersion~=nil then return false end
+			if face < 1 or face > 6 or face % 1 ~= 0 or u < 0 or u > 1 or v < 0 or v > 1 then
+				return false
 			end
 		end
 	end
-	return roastChickenActionEvent.OnServerEvent:Connect(OnCommand)
+	return true
 end
-function NetMsg.ConnectRequestFarmAction(callback: (Player, FarmConfig.FarmAction) -> ()): RBXScriptConnection
-	local function OnRequest(player: Player, action: unknown): ()
-		if typeof(action) ~= "string" or not FarmConfig.Actions[action] then
-			return
+function Net.FireRequest(request: Types.Request): ()
+	requestEvent:FireServer(request)
+end
+function Net.ConnectRequest(callback: (Player, Types.Request) -> ()): RBXScriptConnection
+	return requestEvent.OnServerEvent:Connect(function(player: Player, value: unknown): ()
+		if Net.Validate(value) then
+			callback(player, value :: Types.Request)
 		end
-		callback(player, action :: FarmConfig.FarmAction)
-	end
-	return roastChickenActionEvent.OnServerEvent:Connect(OnRequest)
+	end)
 end
-function NetMsg.FireNotifyFarmFeedback(player: Player, message: string, kind: string?): ()
-	roastChickenActionEvent:FireClient(player, message, kind)
+function Net.FireNotify(player: Player, notice: Types.Notice): ()
+	notifyEvent:FireClient(player, notice)
 end
-function NetMsg.ConnectNotifyFarmFeedback(callback: (string, string?) -> ()): RBXScriptConnection
-	local function OnFeedback(message: unknown, kind: unknown): ()
-		if typeof(message) ~= "string" then
-			return
-		end
-		callback(message, if typeof(kind) == "string" then kind else nil)
-	end
-	return roastChickenActionEvent.OnClientEvent:Connect(OnFeedback)
+function Net.Broadcast(notice: Types.Notice): ()
+	notifyEvent:FireAllClients(notice)
 end
-
-export type VisualTarget = {
-	x: number,
-	y: number,
-	z: number,
-	damage: number,
-	isCooked: boolean,
-	id: string?,
-	remainingHealth: number?,
-}
-
-export type VisualEvent = {
-	kind: string,
-	shotId: number?,
-	accepted: boolean?,
-	fromPos: { x: number, y: number, z: number }?,
-	toPos: { x: number, y: number, z: number }?,
-	tier: number?,
-	speciesId: string?,
-	qualityId: string?,
-	damage: number?,
-	isCooked: boolean?,
-	weightKg: number?,
-	count: number?,
-	targets: { VisualTarget }?,
-}
-
--- 客户端轻量视觉事件通知 (电击轨迹/熟食飞入鸡筐/交货丰收抛跃)
-function NetMsg.FireNotifyFarmVisual(player: Player, event: VisualEvent): ()
-	roastChickenActionEvent:FireClient(player, event)
+function Net.ConnectNotify(callback: (Types.Notice) -> ()): RBXScriptConnection
+	return notifyEvent.OnClientEvent:Connect(callback)
 end
-
-function NetMsg.FireNotifyFarmVisualAll(event: VisualEvent): ()
-	roastChickenActionEvent:FireAllClients(event)
-end
-
-function NetMsg.ConnectNotifyFarmVisual(callback: (VisualEvent) -> ()): RBXScriptConnection
-	local function OnVisual(payload: unknown): ()
-		if typeof(payload) == "table" and typeof((payload :: any).kind) == "string" then
-			callback(payload :: VisualEvent)
-		end
-	end
-	return roastChickenActionEvent.OnClientEvent:Connect(OnVisual)
-end
-
-return NetMsg
+return Net

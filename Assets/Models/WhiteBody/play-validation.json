@@ -1,0 +1,145 @@
+{
+  "date": "2026-11-17",
+  "paintFirstStrokeFix": {
+    "cause": "Curved renderer uploaded bodyId-prefixed keys; server requires session-prefixed keys",
+    "productionCode": "PaintView.DrawLocal",
+    "regressionFailedBeforeFix": true,
+    "newPipelineAssertionsPassed": 14,
+    "totalOfflineAssertionsPassed": 420,
+    "inputMethod": "Native Studio mouse down/move/up via official MCP",
+    "visualRejections": 0,
+    "beginPaintEvents": 2,
+    "intentionalEndPaintEvents": 1,
+    "storedSegmentsRestoredOnReentry": 55,
+    "segmentsAfterSecondDrag": 92,
+    "progressAfterSecondDrag": 0.047046460287339,
+    "paintingStayedOpenAfterBothDrags": true,
+    "screenshot": "paint_fix_reenter.png"
+  },
+  "placeId": 110812537538556,
+  "universeId": 10776291771,
+  "surfaceVersion": 1,
+  "geometry": {
+    "meshParts": 15,
+    "motor6Ds": 15,
+    "triangles": 14400,
+    "heightStuds": 5.18304,
+    "fbxReadbackPassed": true,
+    "cloudUvPositionSampleErrorBelow": 1e-06
+  },
+  "offline": {
+    "assertionsPassed": 406,
+    "curvedAssertions": 261,
+    "typeCheckedBusinessFiles": 17
+  },
+  "finalIsolatedPlay": {
+    "stopExitsWalking": true,
+    "idleTrackPlays": true,
+    "hitDisplacementStuds": 0.812989,
+    "thirdHitRagdoll": true,
+    "survivesJump": true,
+    "settledShoulderErrorStuds": 0.0420662,
+    "maximumSampledServerShoulderErrorStuds": 0.177074,
+    "carriedCollidingParts": 0,
+    "repeatTakeStaticCycles": 20,
+    "attachmentsAndSupportCleared": true
+  },
+  "finalKeyboardPlay": {
+    "inputs": [
+      "W 0.6s",
+      "Space 0.1s",
+      "D 0.6s"
+    ],
+    "playerDisplacementStuds": 13.470377,
+    "maximumLocalShoulderErrorStuds": 0.180961,
+    "maximumRelativeOrientationErrorDegrees": 8.821783,
+    "remainedCarried": true
+  },
+  "curvedPainting": {
+    "liveEditableImageReadback": true,
+    "activeTextureSize": 1024,
+    "observerTextureSize": 512,
+    "torsoArcSamples": 29,
+    "renderedArcPurplePixels": 911,
+    "ringSeamSamples": 37,
+    "repeatCoverageAdded": 0,
+    "realServerPaintRequestsReachedProgress": 1,
+    "completionStage": "Painted",
+    "method": "Automated surface samples sent through production NetMsg; not a manual drag usability test"
+  },
+  "multiplayer": {
+    "clients": 2,
+    "productionAttackAndTakeRequests": true,
+    "observerCarriedCollidingParts": 0,
+    "curvedSegmentsBroadcast": 13,
+    "curvedSegmentsResynced": 13,
+    "note": "Multiplayer checks preceded final support parameter tuning; network protocol unchanged afterward"
+  },
+  "loadSample": {
+    "isolatedAdditionalBodies": 32,
+    "bodyParts": 512,
+    "existingStreetBodiesAlsoRunning": true,
+    "setupSeconds": 0.137661,
+    "heartbeatSamples": 90,
+    "meanServerHeartbeatMs": 18.94844,
+    "maximumServerHeartbeatMs": 187.04447,
+    "cleaned": true,
+    "note": "Short Studio sample including setup spike; not a sustained performance target or mobile FPS"
+  },
+  "clientTextureLoad": {
+    "bodies": 32,
+    "residentTextures": 8,
+    "cpuPixelBufferBytes": 11534336,
+    "residentAfterActiveSwitch": 8,
+    "destroyClearedAllTextures": true
+  },
+  "remaining": [
+    "Confirm Enable Mesh / Image APIs with a privileged account for published experience",
+    "Published-client verification",
+    "Physical mobile devices",
+    "High-latency multiplayer",
+    "Long-duration stress",
+    "Manual continuous drag usability review"
+  ],
+  "delivery": {
+    "playStopped": true,
+    "editModelSaveVersion": 40,
+    "scriptEditorDraftReadbackVerified": true,
+    "experiencePublished": false,
+    "gitCommitted": false,
+    "gitPushed": false,
+    "source": "Local files through Script Sync; Studio script drafts not submitted"
+  },
+  "hangingPaintTable": {
+    "fixedPart": "UpperTorso",
+    "physics": "Local head, waist and limbs using retained BallSocket joints; server validates and reconstructs body pose; observers interpolate authoritative pose",
+    "strictBusinessFilesPassed": 9,
+    "newOfflineAssertionsPassed": 29,
+    "totalOfflineAssertionsPassed": 449,
+    "input": "Native Studio mouse dragging through official MCP",
+    "maximumHandMovementRelativeToTorsoStuds": 0.9919630289077759,
+    "validatedMotionFrames": 79,
+    "invalidPoseFrames": 0,
+    "paintedForearmVisualSegments": 29,
+    "intentionalExitAndReentry": {
+      "restoredVisualSegments": 232,
+      "progress": 0.07544525336325515,
+      "dynamicResumed": true
+    },
+    "observerAfterExitPositionErrorStuds": 2.336015541004599e-06,
+    "multiplayer": {
+      "clients": 2,
+      "bodyPosePacketsReceived": 10,
+      "visualSegmentsReceived": 45,
+      "maximumObserverHandFrameDisplacementStuds": 0.5153563618659973,
+      "visualRejections": 0,
+      "newObserverPosePositionErrorStuds": 3.84438408218557e-06
+    },
+    "screenshot": "table_hanging_paint.png",
+    "playStopped": true,
+    "limits": [
+      "No simulated network latency",
+      "No physical mobile test"
+    ]
+  }
+}

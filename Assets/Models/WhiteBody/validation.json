@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "parts": 15,
+  "triangles": 14400,
+  "exportReadback": true
+}

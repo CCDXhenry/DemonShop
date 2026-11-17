@@ -1,0 +1,29 @@
+{
+  "sha256": "4170a9e08bcc4a9be80ae39d93767f138a231cb8fbd5640f409d780830e67a97",
+  "groupId": "33977495",
+  "operation": "operations/9435d0d8-2d4a-4055-814b-98b886f6ed99",
+  "result": {
+    "path": "operations/9435d0d8-2d4a-4055-814b-98b886f6ed99",
+    "operationId": "9435d0d8-2d4a-4055-814b-98b886f6ed99",
+    "done": true,
+    "response": {
+      "path": "assets/84781021841961",
+      "revisionId": "1",
+      "revisionCreateTime": "2026-11-17T02:43:44.226Z",
+      "assetId": "84781021841961",
+      "displayName": "DemonShop_WhiteBody_v1",
+      "description": "Curved R15 white body, shared painting UV atlas",
+      "assetType": "Model",
+      "creationContext": {
+        "creator": {
+          "groupId": "33977495"
+        }
+      },
+      "moderationResult": {
+        "moderationState": "Approved"
+      },
+      "state": "Active",
+      "isPublished": true
+    }
+  }
+}

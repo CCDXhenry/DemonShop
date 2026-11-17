@@ -1,326 +1,902 @@
--- 服务端主管理器：负责全局玩家生命周期、数据存档、各子系统初始化与分发
+-- 服务端总控：共享加工状态机、会话占用、权威画符与金币生命周期
 --!strict
-local serverStorage: ServerStorage = game:GetService("ServerStorage")
-local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
-local dataStoreService: DataStoreService = game:GetService("DataStoreService")
-local players: Players = game:GetService("Players")
-local localizationService: LocalizationService = game:GetService("LocalizationService")
-local runService: RunService = game:GetService("RunService")
-local configService: ConfigService = game:GetService("ConfigService")
-local serverCore = serverStorage:WaitForChild("Core")
-local serverCoreScripts = serverCore:WaitForChild("Scripts")
-local MarketplaceTool = require(serverCoreScripts:FindFirstChild("MarketplaceTool"))
-local serverScripts = serverStorage:WaitForChild("Scripts")
-local PlayerSaveInfoVersionUpdateTool = require(serverScripts:FindFirstChild("PlayerSaveInfoVersionUpdateTool"))
-local ServerGameInfo = require(serverScripts:FindFirstChild("ServerGameInfo"))
-local ServerPlayerSaveStore = require(serverScripts:WaitForChild("ServerPlayerSaveStore"))
-local AnalyticsTool = require(serverScripts:FindFirstChild("AnalyticsTool"))
-local ServerRoastChickenFarmManager = require(serverScripts:WaitForChild("ServerPersonalFarmManager"))
-type ServerRoastChickenFarmManager = ServerRoastChickenFarmManager.ServerPersonalFarmManager
-local activeFarmManager: ServerRoastChickenFarmManager?
-local core = replicatedStorage:WaitForChild("Core")
-local coreScripts = core:WaitForChild("Scripts")
-local coreSharedScripts = coreScripts:WaitForChild("Shared")
-local RetryAsync = require(coreSharedScripts:FindFirstChild("RetryAsync"))
-local DateTimeExtension = require(coreSharedScripts:FindFirstChild("DateTimeExtension"))
-local scripts = replicatedStorage:WaitForChild("Scripts")
-local sharedScripts = scripts:WaitForChild("Shared")
-local GameConfig = require(sharedScripts:FindFirstChild("GameConfig"))
-local ServerMarketplaceManager = require(script:FindFirstChild("ServerMarketplaceManager"))
-type ServerMarketplaceManager = ServerMarketplaceManager.ServerMarketplaceManager
-local ServerPlayerSettingManager = require(script:FindFirstChild("ServerPlayerSettingManager"))
-type ServerPlayerSettingManager = ServerPlayerSettingManager.ServerPlayerSettingManager
-local ServerPlayerChatCommandManager = require(script:FindFirstChild("ServerPlayerChatCommandManager"))
-type ServerPlayerChatCommandManager = ServerPlayerChatCommandManager.ServerPlayerChatCommandManager
-
-local playerInfoDataStore: DataStore = dataStoreService:GetDataStore("PlayerInfo")
-local playerSaveStore = ServerPlayerSaveStore.new(playerInfoDataStore)
-local closing = false
-local closeBound = false
-local removingPlayers: { [Player]: boolean } = {}
-
-local LifecycleTool = require(sharedScripts:WaitForChild("LifecycleTool"))
-local activeScope: LifecycleTool.Lifecycle?
-local playerScopes: { [Player]: LifecycleTool.Lifecycle } = {}
-local ServerGameManager = {}
-ServerGameManager.__index = ServerGameManager
-
-export type ServerGameManager = typeof(setmetatable(
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+local RunService = game:GetService("RunService")
+local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
+local Shared = ReplicatedStorage.Scripts.Shared
+local Config = require(Shared.GameConfig)
+local Types = require(Shared.GameTypes)
+local SaveRules = require(Shared.SaveRules)
+local Net = require(Shared.NetMsg)
+local Lifecycle = require(Shared.LifecycleTool)
+local Store = require(script.Parent.ServerPlayerSaveStore)
+local Scene = require(script.Parent.Scene)
+local NPC = require(script.Parent.NPC)
+local Carry = require(script.Parent.Carry)
+local Ragdoll = require(script.Parent.Ragdoll)
+local Door = require(script.Parent.Door)
+local Painting = require(script.Parent.Painting)
+local Replication = require(script.Parent.Replication)
+local VisualRules = require(Shared.VisualRules)
+local BodyPose = require(Shared.PaintBodyPose)
+type PaintSession = Painting.Session
+type PlayerRecord = {
+	profile: SaveRules.Profile,
+	revision: number,
+	scope: Lifecycle.Lifecycle,
+	lastAttack: number,
+	lastRequest: number,
+	lastSync: number,
+	closing: boolean,
+}
+local Manager = {}
+Manager.__index = Manager
+export type Manager = typeof(setmetatable(
 	{} :: {
-		marketplaceManager: ServerMarketplaceManager,
-		playerSettingManager: ServerPlayerSettingManager,
-		playerChatCommandManager: ServerPlayerChatCommandManager,
-		roastChickenFarmManager: ServerRoastChickenFarmManager,
 		initialized: boolean,
+		replication: Replication.Replication,
+		closing: boolean,
+		scope: Lifecycle.Lifecycle,
+		store: Store.ServerPlayerSaveStore,
+		runtime: Folder,
+		items: { [string]: Types.Item },
+		players: { [Player]: PlayerRecord },
+		loading: { [Player]: boolean },
+		removing: { [Player]: boolean },
+		pool: { string },
+		shelf: { string },
+		tableId: string?,
+		altarId: string?,
+		altarEnds: number,
+		paint: PaintSession?,
+		stationVersions: { [string]: number },
+		stationKeys: { [string]: string },
+		revision: number,
+		nextSpawn: number,
+		nextSave: number,
+		nextUpdate: number,
 	},
-	ServerGameManager
+	Manager
 ))
-
-local AutoSavePlayerInfoInterval: number = 30 --自动保存玩家信息间隔时间
-
-local function SplitVersion(version: string): { number }
-	local result: { number } = {}
-	for v: string in string.gmatch(version, "%d+") do
-		local v2: number? = tonumber(v)
-		if v2 ~= nil then
-			table.insert(result, v2)
+function Manager.new(): Manager
+	local runtime = Instance.new("Folder")
+	runtime.Name = "GameRuntime"
+	return setmetatable({
+		initialized = false,
+		replication = Replication.new(),
+		closing = false,
+		scope = Lifecycle.new(),
+		store = Store.new(DataStoreService:GetDataStore("PlayerInfo")),
+		runtime = runtime,
+		items = {},
+		players = {},
+		loading = {},
+		removing = {},
+		pool = {},
+		shelf = {},
+		tableId = nil,
+		altarId = nil,
+		altarEnds = 0,
+		paint = nil,
+		stationVersions = { Pool = 1, Table = 1, Altar = 1, Shelf = 1, Sigil = 1 },
+		stationKeys = {},
+		revision = 0,
+		nextSpawn = 0,
+		nextSave = 0,
+		nextUpdate = 0,
+	}, Manager)
+end
+function Manager.Snapshot(self: Manager): Types.Snapshot
+	local list: { Types.ItemView } = {}
+	for _, item in self.items do
+		table.insert(list, {
+			id = item.id,
+			kind = item.kind,
+			stage = item.stage,
+			location = item.location,
+			version = item.version,
+			model = item.model,
+			hits = item.hits,
+			progress = item.progress,
+			holder = if item.holder then item.holder.UserId else nil,
+			visualCount = if item.visualState then item.visualState.count else 0,
+		})
+	end
+	local body = if self.tableId then self.items[self.tableId] else nil
+	return {
+		revision = self.revision,
+		poseYaw = if body then body.poseYaw or 0 else 0,
+		posePitch = if body then body.posePitch or 0 else 0,
+		bodyPose = if body then body.poseBody else nil,
+		stationVersions = table.clone(self.stationVersions),
+		items = list,
+		pool = #self.pool,
+		shelf = #self.shelf,
+		tableId = self.tableId,
+		altarId = self.altarId,
+		altarEnds = self.altarEnds,
+		painter = if self.paint then self.paint.player.UserId else nil,
+		session = if self.paint then self.paint.token else nil,
+	}
+end
+function Manager.Changed(self: Manager): ()
+	local keys: { [string]: string } = {
+		Pool = table.concat(self.pool, ","),
+		Table = (self.tableId or "") .. (if self.paint then self.paint.token else ""),
+		Altar = (self.altarId or "") .. tostring(self.altarEnds),
+		Shelf = table.concat(self.shelf, ","),
+	}
+	for name, key in keys do
+		if self.stationKeys[name] ~= key then
+			self.stationKeys[name] = key
+			self.stationVersions[name] += 1
 		end
 	end
-	return result
+	self.revision += 1
+	self.replication:Broadcast(self:Snapshot())
 end
-
---版本1是否是版本2后的版本
-local function IsVersionAfter(version1: string, version2: string): boolean
-	local v1: { number } = SplitVersion(version1)
-	local v2: { number } = SplitVersion(version2)
-	local length: number = math.max(#v1, #v2)
-	for i: number = 1, length do
-		local v1i: number = v1[i] or 0
-		local v2i: number = v2[i] or 0
-		if v1i ~= v2i then
-			return v1i > v2i
+function Manager.Tell(_self: Manager, player: Player, text: string): ()
+	Net.FireNotify(player, { kind = "Message", text = text })
+end
+function Manager.Held(self: Manager, player: Player): Types.Item?
+	for _, item in self.items do
+		if item.holder == player then
+			return item
 		end
 	end
-	return true
+	return nil
 end
-
-local function CheckPlayerLoginDays(player: Player, todayDate: DateTimeExtension.DateTimeTable): ()
-	local playerInfo: GameConfig.PlayerInfo? = ServerGameInfo.GetPlayerInfo(player)
-	if
-		playerInfo ~= nil
-		and (
-			todayDate.Year > playerInfo.lastOnlineDate.Year
-			or (todayDate.Year == playerInfo.lastOnlineDate.Year and todayDate.Month > playerInfo.lastOnlineDate.Month)
-			or (
-				todayDate.Year == playerInfo.lastOnlineDate.Year
-				and todayDate.Month == playerInfo.lastOnlineDate.Month
-				and todayDate.Day > playerInfo.lastOnlineDate.Day
-			)
-		)
-	then
-		--登录天数+1
-		ServerGameInfo.ChangePlayerLoginDays(player, playerInfo.loginDays + 1, todayDate)
+function Manager.Root(_self: Manager, player: Player): BasePart?
+	local character = player.Character
+	local h = character and character:FindFirstChildOfClass("Humanoid")
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if h and h.Health > 0 and root and root:IsA("BasePart") then
+		return root
+	end
+	return nil
+end
+function Manager.Near(self: Manager, player: Player, position: Vector3, range: number, target: Model?): boolean
+	local root = self:Root(player)
+	local char = player.Character
+	return root ~= nil and char ~= nil and (root.Position - position).Magnitude <= range and Scene.Visible(char, position, target)
+end
+function Manager.Arrange(self: Manager): ()
+	for index, id in self.pool do
+		local item = self.items[id]
+		if item then
+			Carry.Static(item, Scene.PoolPose(index))
+		end
+	end
+	for index, id in self.shelf do
+		local item = self.items[id]
+		if item then
+			Carry.Static(item, Scene.ShelfPose(index))
+		end
 	end
 end
-
-local function CheckOwnedGamePasses(player: Player): ()
-	local playerInfo: GameConfig.PlayerInfo? = ServerGameInfo.GetPlayerInfo(player)
-	local scope = playerScopes[player]
-	if playerInfo ~= nil and scope then
-		scope:Spawn(function()
-			for gamePassIdKey: string, gamePassIdValue: number in pairs(GameConfig.GamePassId) do
-				if playerInfo.ownedGamePassMap[gamePassIdValue] == nil then
-					local success: boolean, result: any = MarketplaceTool.SafeUserOwnsGamePass(player, gamePassIdValue)
-					if success and result then
-						ServerGameInfo.SetPlayerGamePassAcquired(player, gamePassIdValue)
-						AnalyticsTool.AddPassPurchaseEvent(player, gamePassIdValue, GameConfig.GamePassPrice[gamePassIdValue])
-					end
+function Manager.EndPaint(self: Manager, player: Player): ()
+	local session = self.paint
+	if not session or session.player ~= player then
+		return
+	end
+	local item = self.items[session.id]
+	if item and item.progress>=1 then item.stage="Painted";item.version+=1 end
+	if item and item.stage ~= "Painted" then
+		item.stage = "Painting"
+		item.version += 1
+	end
+	local character = player.Character
+	local hum = character and character:FindFirstChildOfClass("Humanoid")
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if hum then
+		hum.WalkSpeed = session.walkSpeed
+		hum.JumpPower = session.jumpPower
+		hum.JumpHeight = session.jumpHeight
+	end
+	if root and root:IsA("BasePart") then
+		root.Anchored = false
+	end
+	if character then
+		local brush = character:FindFirstChild("RuneBrush")
+		if brush then
+			brush:Destroy()
+		end
+	end
+	if hum and hum.Health > 0 then
+		local backpack = player:FindFirstChild("Backpack")
+		local club = backpack and backpack:FindFirstChild("Club")
+		if club and club:IsA("Tool") then
+			hum:EquipTool(club)
+		end
+	end
+	player:SetAttribute("Painting", false)
+	self.paint = nil
+	Net.FireNotify(player, { kind = "EndPaint", session = session.token })
+end
+function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
+	if self.paint then
+		self:Tell(player, "The table is in use.")
+		return
+	end
+	local character = player.Character
+	local root = self:Root(player)
+	local hum = character and character:FindFirstChildOfClass("Humanoid")
+	if not character or not root or not hum then
+		return
+	end
+	local session: PaintSession = {
+		player = player,
+		id = item.id,
+		token = HttpService:GenerateGUID(false),
+		last = workspace:GetServerTimeNow(),
+		sequence = 0,
+		yaw = 0,
+		pitch = 0,
+		walkSpeed = hum.WalkSpeed,
+		jumpPower = hum.JumpPower,
+		jumpHeight = hum.JumpHeight,
+	}
+	self.paint = session
+	item.poseYaw, item.posePitch = 0, 0
+	item.poseBody=nil
+	item.stage = "Painting"
+	item.version += 1
+	hum:UnequipTools()
+	hum.WalkSpeed = 0
+	hum.JumpPower = 0
+	hum.JumpHeight = 0
+	root.Anchored = true
+	local brush = ReplicatedStorage.Models.RuneBrush:Clone() :: Tool
+	brush.Parent = player:WaitForChild("Backpack")
+	hum:EquipTool(brush)
+	player:SetAttribute("Painting", true)
+	Carry.Static(item, Scene.TablePose())
+	Net.FireNotify(player, { kind = "BeginPaint", id = item.id, session = session.token })
+end
+function Manager.Pool(self: Manager, player: Player): ()
+	local held = self:Held(player)
+	if held then
+		if held.kind ~= "Body" or held.stage == "Painted" then
+			self:Tell(player, "Store unfinished bodies here.")
+			return
+		end
+		if #self.pool >= Config.PoolCapacity then
+			self:Tell(player, "The holding pool is full.")
+			return
+		end
+		Carry.Detach(held)
+		held.location = "Pool"
+		held.version += 1
+		table.insert(self.pool, held.id)
+	elseif #self.pool > 0 then
+		local id = self.pool[1]
+		local item = self.items[id]
+		if item and Carry.Take(item, player) then
+			table.remove(self.pool, 1)
+		end
+	else
+		self:Tell(player, "The holding pool is empty.")
+	end
+	self:Arrange()
+end
+function Manager.Table(self: Manager, player: Player): ()
+	if self.paint then
+		self:Tell(player, "The table is in use.")
+		return
+	end
+	local held = self:Held(player)
+	if self.tableId then
+		if held then
+			self:Tell(player, "The table is occupied.")
+			return
+		end
+		local item = self.items[self.tableId]
+		if not item then
+			return
+		end
+		if item.stage == "Painted" then
+			if Carry.Take(item, player) then
+				self.tableId = nil
+			end
+		else
+			self:BeginPaint(player, item)
+		end
+		return
+	end
+	if held and (held.kind ~= "Body" or held.stage == "Painted") then
+		self:Tell(player, "Bring an unfinished body.")
+		return
+	end
+	local item = held
+	if not item and #self.pool > 0 then
+		item = self.items[self.pool[1]]
+		table.remove(self.pool, 1)
+		self:Arrange()
+	end
+	if not item then
+		self:Tell(player, "Bring a stunned body or fill the pool.")
+		return
+	end
+	Carry.Static(item, Scene.TablePose())
+	item.location = "Table"
+	item.streetSlot = false
+	item.version += 1
+	self.tableId = item.id
+	self:BeginPaint(player, item)
+end
+function Manager.Altar(self: Manager, player: Player): ()
+	local item = self:Held(player)
+	if self.altarId then
+		self:Tell(player, "The altar is occupied.")
+		return
+	end
+	if not item or item.kind ~= "Body" or item.stage ~= "Painted" then
+		self:Tell(player, "The altar needs a completed rune body.")
+		return
+	end
+	Carry.Static(item, Scene.Altar.CFrame * CFrame.new(0, 2, 0) * CFrame.Angles(math.pi / 2, 0, 0))
+	item.location, item.stage = "Altar", "Converting"
+	item.version += 1
+	self.altarId, self.altarEnds = item.id, workspace:GetServerTimeNow() + Config.ConversionSeconds
+end
+function Manager.Shelf(self: Manager, player: Player): ()
+	if self:Held(player) then
+		self:Tell(player, "Your hands are full.")
+		return
+	end
+	if #self.shelf == 0 then
+		self:Tell(player, "No potions are ready.")
+		return
+	end
+	local item = self.items[self.shelf[1]]
+	if item and Carry.Take(item, player) then
+		table.remove(self.shelf, 1)
+		self:Arrange()
+	end
+end
+function Manager.Submit(self: Manager, player: Player): ()
+	local record = self.players[player]
+	local item = self:Held(player)
+	if not record or not self.store:IsActive(player.UserId) then
+		return
+	end
+	if not item or item.kind ~= "Potion" then
+		self:Tell(player, "Bring a potion to the summoning sigil.")
+		return
+	end
+	if record.profile.coins > Config.MaximumCoins - Config.PotionReward then
+		self:Tell(player, "Coin limit reached.")
+		return
+	end
+	Carry.Detach(item)
+	self.items[item.id] = nil
+	item.stage = "Consumed"
+	item.model:Destroy()
+	self.stationVersions.Sigil += 1
+	record.profile.coins += Config.PotionReward
+	record.revision += 1
+	player:SetAttribute("Coins", record.profile.coins)
+	self:Tell(player, "+100 COINS")
+end
+function Manager.Attack(self: Manager, player: Player, request: Types.Request): ()
+	local record = self.players[player]
+	local root = self:Root(player)
+	if not record or not root or self:Held(player) or (self.paint and self.paint.player == player) then
+		return
+	end
+	local character = player.Character
+	local weapon = character and character:FindFirstChild("Club")
+	if not weapon or not weapon:IsA("Tool") then
+		return
+	end
+	local now = workspace:GetServerTimeNow()
+	if now - record.lastAttack < Config.AttackCooldown then
+		return
+	end
+	record.lastAttack = now
+	Net.Broadcast({ kind = "Swing", actor = player.UserId, started = now })
+	-- 只在服务端接受挥击后播放一次；复用武器内的官方空间音效。
+	local handle = weapon:FindFirstChild("Handle")
+	local slash = handle and handle:FindFirstChild("SwordSlash")
+	if slash and slash:IsA("Sound") then
+		slash:Stop()
+		slash.TimePosition = 0
+		slash:Play()
+	end
+	self.scope:Spawn(function(): ()
+		task.wait(Config.AttackWindup)
+		local item = if request.target then self.items[request.target] else nil
+		if not item or item.kind ~= "Body" or item.location ~= "Street" or item.hits >= Config.StunHits or item.version ~= request.version then
+			return
+		end
+		local root = self:Root(player)
+		if not root or self.players[player] ~= record or record.closing or self:Held(player) then return end
+		local equipped = player.Character and player.Character:FindFirstChild("Club")
+		if equipped ~= weapon or player.Character ~= character then return end
+		local target = item.model.PrimaryPart
+		if not target or not self:Near(player, target.Position, Config.AttackRange, item.model) then
+			return
+		end
+		local delta = target.Position - root.Position
+		if delta.Magnitude > 0.1 and root.CFrame.LookVector:Dot(delta.Unit) < -0.1 then
+			return
+		end
+		NPC.Hit(item, root.CFrame.LookVector)
+		self:Tell(player, if item.hits >= Config.StunHits then "STUNNED - E TO CARRY" else string.format("HIT %d/%d", item.hits, Config.StunHits))
+		self:Changed()
+	end)
+end
+function Manager.Paint(self: Manager, player: Player, request: Types.Request): ()
+	local session = self.paint
+	if not session or session.player ~= player or request.session ~= session.token then
+		return
+	end
+	local item = self.items[session.id]
+	if not item or item.stage ~= "Painting" or session.finishing then
+		return
+	end
+	local result = Painting.Apply(session, item, request, Scene.TablePose(), Scene.CameraPose().Position, workspace:GetServerTimeNow())
+	Net.Broadcast({ kind = "PaintPose", id = item.id, session = session.token, sequence = request.sequence, yaw = session.yaw, pitch = session.pitch, progress = item.progress, bodyPose=item.poseBody, started=workspace:GetServerTimeNow() })
+	if result and result.complete then
+		session.finishing=true
+		Net.FireNotify(player,{kind="FinishPaint",session=session.token,id=item.id})
+	end
+end
+function Manager.PaintVisual(self: Manager,player: Player,request: Types.Request): ()
+	local session=self.paint
+	if not session or session.player~=player or request.session~=session.token then return end
+	local item=self.items[session.id]
+	local sequence=request.sequence
+	if not item or not sequence or not request.segments then return end
+	local previous=session.visualSequence or 0
+	if sequence<=previous then
+		Net.FireNotify(player,{kind="VisualDelta",id=item.id,session=session.token,sequence=previous,segments={}})
+		return
+	end
+	local reason: string?=nil
+	local now=workspace:GetServerTimeNow()
+	if now-(session.visualWindow or 0)>=1 then session.visualWindow=now;session.visualPackets=0 end
+	if sequence~=previous+1 then reason="Paint batch out of sequence."
+	elseif (session.visualPackets or 0)>=Config.PaintVisualPacketsPerSecond then reason="Paint upload rate exceeded." end
+	for _,segment in request.segments do
+		local part=item.model:FindFirstChild(segment.part)
+		if not part or not part:IsA("BasePart") or not part:GetAttribute("Paintable") then reason="Invalid paint body part.";break end
+		if part:GetAttribute("SurfaceVersion")~=segment.surfaceVersion then reason="Paint surface version mismatch.";break end
+	end
+	local state=item.visualState or VisualRules.New()
+	local accepted: {Types.VisualSegment}?=nil
+	if not reason then accepted,reason=VisualRules.Apply(state,request.segments,session.token) end
+	if reason or not accepted then
+		Net.FireNotify(player,{kind="VisualRejected",id=item.id,session=session.token,sequence=previous,text=reason or "Paint upload rejected."})
+		return
+	end
+	item.visualState=state
+	session.visualSequence=sequence
+	session.visualPackets=(session.visualPackets or 0)+1
+	session.yaw=((request.yaw or session.yaw)+math.pi)%(2*math.pi)-math.pi
+	session.pitch=math.clamp(request.pitch or session.pitch,-Config.PaintPitchLimit,Config.PaintPitchLimit)
+	item.poseYaw,item.posePitch=session.yaw,session.pitch
+	if request.bodyPose and BodyPose.Validate(item.model,request.bodyPose) then item.poseBody=table.clone(request.bodyPose) end
+	BodyPose.Apply(item.model,Scene.TablePose()*CFrame.Angles(session.pitch,session.yaw,0),item.poseBody)
+	Net.Broadcast({kind="VisualDelta",id=item.id,session=session.token,sequence=sequence,segments=accepted,visualRevision=state.revision,yaw=session.yaw,pitch=session.pitch,bodyPose=item.poseBody,started=math.min(request.started or now,now)})
+end
+function Manager.OnRequest(self: Manager, player: Player, request: Types.Request): ()
+	local record = self.players[player]
+	if not record or record.closing or self.closing or not self.store:IsActive(player.UserId) then
+		return
+	end
+	local now = workspace:GetServerTimeNow()
+	if request.action == "Sync" then
+		if now - record.lastSync < 1 then
+			return
+		end
+		record.lastSync = now
+		Net.FireNotify(player, { kind = "State", snapshot = self:Snapshot() })
+		local histories: {{id: string,item: Types.Item,revision: number,segments: {Types.VisualSegment}}}={}
+		for _,item in self.items do
+			local state=item.visualState
+			if state then
+				local segments: {Types.VisualSegment}={}
+				for _,segment in state.segments do table.insert(segments,segment) end
+				table.insert(histories,{id=item.id,item=item,revision=state.revision,segments=segments})
+			end
+		end
+		self.scope:Spawn(function(): ()
+			local packets=0
+			for _,history in histories do
+				for first=1,#history.segments,Config.PaintVisualBatchSize do
+					if self.items[history.id]~=history.item or self.players[player]~=record or record.closing then break end
+					local chunk: {Types.VisualSegment}={}
+					for index=first,math.min(first+Config.PaintVisualBatchSize-1,#history.segments) do table.insert(chunk,history.segments[index]) end
+					Net.FireNotify(player,{kind="VisualSnapshot",id=history.id,segments=chunk,visualRevision=history.revision})
+					packets+=1
+					if packets%Config.PaintVisualPacketsPerTick==0 then task.wait() end
 				end
+			end
+			if self.players[player]==record and not record.closing then Net.FireNotify(player,{kind="SyncComplete"}) end
+		end)
+		return
+	end
+	if not self:Root(player) then
+		return
+	end
+	if request.action == "Paint" then
+		self:Paint(player, request)
+		return
+	end
+	if request.action=="PaintVisual" then self:PaintVisual(player,request);return end
+	if request.action=="EndPaint" then
+		local session=self.paint
+		if session and session.player==player and session.token==request.session and (request.sequence or 0)==(session.visualSequence or 0) then
+			local complete=session.finishing
+			self:EndPaint(player)
+			if complete then self:Tell(player,"Rune complete. Pick up the body.") end
+			self:Changed()
+		end
+		return
+	end
+	if now - record.lastRequest < 0.12 then
+		return
+	end
+	record.lastRequest = now
+	if self.paint and self.paint.player == player then
+		if request.session ~= self.paint.token then
+			return
+		end
+		if request.action == "ResetView" then
+			self.paint.yaw = 0
+			self.paint.pitch = 0
+			local i = self.items[self.paint.id]
+			if i then
+				i.poseYaw, i.posePitch = 0, 0
+				i.model:PivotTo(Scene.TablePose())
+				Net.Broadcast({ kind = "PaintPose", id = i.id, session = self.paint.token, yaw = 0, pitch = 0, progress = i.progress,started=now })
+			end
+		end
+		return
+	end
+	local target = request.target
+	if request.action == "Attack" then
+		self:Attack(player, request)
+	elseif request.action == "Drop" then
+		local held = self:Held(player)
+		local root = self:Root(player)
+		if held and root then
+			Carry.Drop(held, root.Position + root.CFrame.LookVector * 3)
+		end
+	elseif request.action == "TakeTable" then
+		if not self:Held(player) and not self.paint and self.tableId and self:Near(player, Scene.TableInteract.Position, Config.InteractionRange, nil) then
+			local item = self.items[self.tableId]
+			if item and Carry.Take(item, player) then
+				self.tableId = nil
+			end
+		end
+	elseif request.action == "Interact" and target then
+		local positions = {
+			Pool = Scene.PoolPickup.Position,
+			Table = Scene.TableInteract.Position,
+			Altar = Scene.Altar.Position,
+			Shelf = Scene.Shelf.Position,
+			Sigil = Scene.SigilPosition,
+		}
+		local position = positions[target]
+		if position then
+			if request.version ~= self.stationVersions[target] then
+				self:Tell(player, "Station changed. Try interacting again.")
+				return
+			end
+			if not self:Near(player, position, Config.InteractionRange, nil) then
+				self:Tell(player, "Move closer with a clear path to the station.")
+				return
+			end
+			if target == "Pool" then
+				self:Pool(player)
+			elseif target == "Table" then
+				self:Table(player)
+			elseif target == "Altar" then
+				self:Altar(player)
+			elseif target == "Shelf" then
+				self:Shelf(player)
+			else
+				self:Submit(player)
+			end
+		else
+			local item = self.items[target]
+			if self:Held(player) then
+				self:Tell(player, "Your hands are full.")
+				return
+			end
+			if not item or item.version ~= request.version then
+				self:Tell(player, "Item changed or was taken. Choose it again.")
+			elseif item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits) then
+				local primary = item.model.PrimaryPart
+				if primary and self:Near(player, primary.Position, Config.InteractionRange, item.model) then
+					Carry.Take(item, player)
+				else
+					self:Tell(player, "Move closer with a clear path to the item.")
+				end
+			else
+				self:Tell(player, "This item is occupied or cannot be carried yet.")
+			end
+		end
+	end
+	self:Changed()
+end
+function Manager.ReleasePlayer(self: Manager, player: Player): ()
+	self:EndPaint(player)
+	local held = self:Held(player)
+	if held then
+		local primary = held.model.PrimaryPart
+		Carry.Drop(held, if primary then primary.Position else Scene.PoolPickup.Position)
+	end
+	self:Changed()
+end
+function Manager.OnCharacter(self: Manager, player: Player, character: Model): ()
+	local record = self.players[player]
+	if not record then
+		return
+	end
+	self:ReleasePlayer(player)
+	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
+	local root = character:WaitForChild("HumanoidRootPart") :: BasePart
+	if not record.scope.alive or player.Character ~= character then
+		return
+	end
+	root.CFrame = Scene.Spawn.CFrame * CFrame.new(0, 4, 0)
+	local backpack = player:WaitForChild("Backpack")
+	for _, v in backpack:GetChildren() do
+		if v:IsA("Tool") then
+			v:Destroy()
+		end
+	end
+	local club = ReplicatedStorage.Models.Club:Clone() :: Tool
+	if not humanoid:FindFirstChildOfClass("Animator") then
+		local animator = Instance.new("Animator")
+		animator.Parent = humanoid
+	end
+	local handle = club:FindFirstChild("Handle")
+	local slash = handle and handle:FindFirstChild("SwordSlash")
+	if slash and slash:IsA("Sound") then
+		slash.SoundId = Config.WeaponSlashSound
+		local function OnStopSlash(): () slash:Stop() end
+		record.scope:Connect(club.Unequipped:Connect(OnStopSlash))
+		record.scope:Connect(humanoid.Died:Connect(OnStopSlash))
+	end
+	club.Parent = backpack
+	humanoid:EquipTool(club)
+	record.scope:Connect(humanoid.Died:Connect(function(): ()
+		self:ReleasePlayer(player)
+	end))
+end
+function Manager.AddPlayer(self: Manager, player: Player): ()
+	if self.loading[player] or self.players[player] or self.closing then
+		return
+	end
+	self.loading[player] = true
+	player:SetAttribute("GameReady", false)
+	local ok, value, reason = self.store:Acquire(player.UserId)
+	self.loading[player] = nil
+	if not ok then
+		warn("[DemonShop] Load rejected", player.UserId, reason)
+		self.store:Release(player.UserId)
+		if player.Parent then
+			player:Kick("Saved coins unavailable. Please rejoin.")
+		end
+		return
+	end
+	if self.closing or not player.Parent then
+		self.store:Release(player.UserId)
+		return
+	end
+	local profile = value :: SaveRules.Profile
+	local record: PlayerRecord = { profile = profile, revision = 0, scope = Lifecycle.new(), lastAttack = 0, lastRequest = 0, lastSync = 0, closing = false }
+	self.players[player] = record
+	player:SetAttribute("Coins", profile.coins)
+	player:SetAttribute("GameReady", true)
+	record.scope:Connect(player.CharacterAdded:Connect(function(character: Model): ()
+		self:OnCharacter(player, character)
+	end))
+	if player.Character then
+		record.scope:Spawn(function(): ()
+			local character = player.Character
+			if character then
+				self:OnCharacter(player, character)
 			end
 		end)
 	end
+	Net.FireNotify(player, { kind = "State", snapshot = self:Snapshot() })
 end
-
---保存玩家信息
-local function SavePlayerInfo(player: Player): ()
-	local playerInfo: GameConfig.PlayerInfo? = ServerGameInfo.GetPlayerInfo(player)
-	if playerInfo ~= nil and playerInfo.playerInfoChanged then
-		local revision = playerInfo.changeRevision
-		local playerSaveInfo: GameConfig.PlayerSaveInfo = ServerGameInfo.CreatePlayerSaveInfoByPlayerInfo(playerInfo)
-		local success, reason = playerSaveStore:Save(player.UserId, playerSaveInfo, revision)
-		if success and playerInfo.changeRevision == revision and playerInfo.farm.revision == playerSaveInfo.farm.revision then
-			playerInfo.playerInfoChanged = false
-		end
-		if not success then warn("[ServerGameManager] Player save failed", player.UserId, reason) end
+function Manager.SavePlayer(self: Manager, player: Player): ()
+	local record = self.players[player]
+	if not record then
+		return
+	end
+	local ok, reason = self.store:Save(player.UserId, table.clone(record.profile), record.revision)
+	if not ok then
+		warn("[DemonShop] Save failed", player.UserId, reason)
 	end
 end
-
-local function OnHeartbeat(deltaTime: number): ()
-	if closing then return end
-	local nowDate: DateTimeExtension.DateTimeTable = DateTimeExtension.GetNowDate()
-	for playerIndex: number, player: Player in players:GetPlayers() do
-		if removingPlayers[player] then continue end
-		if ServerGameInfo.GetPlayerInfo(player) and not playerSaveStore:IsActive(player.UserId) then
-			if activeFarmManager then activeFarmManager:FreezePlayer(player) end
-			player:Kick("Your data session expired. Please rejoin to keep your progress safe.")
-			continue
-		end
-		ServerGameInfo.AddPlayerGameTime(player, deltaTime)
-		CheckPlayerLoginDays(player, nowDate)
+function Manager.RemovePlayer(self: Manager, player: Player): ()
+	if self.removing[player] then
+		return
 	end
+	local record = self.players[player]
+	if not record then
+		return
+	end
+	self.removing[player] = true
+	record.closing = true
+	self:ReleasePlayer(player)
+	record.scope:Destroy()
+	self:SavePlayer(player)
+	self.store:Release(player.UserId)
+	self.players[player] = nil
+	self.removing[player] = nil
 end
-
---玩家加入事件
-local function OnPlayerAdded(player: Player): ()
-	if closing then player:Kick("Server is closing. Please rejoin."); return end
-	if playerScopes[player] then
+function Manager.Update(self: Manager): ()
+	if self.closing then
 		return
 	end
-	local scope = LifecycleTool.new()
-	playerScopes[player] = scope
-	player:SetAttribute("FarmStage", 2)
-	player:SetAttribute("FarmReady", false)
-	--读取玩家存档
-	local success: boolean, result: any, loadReason = playerSaveStore:Acquire(player.UserId)
-	--如果没有读取成功，将玩家踢出服务器，提示玩家读取存档失败
-	if not success then
-		warn("[ServerGameManager] Player session acquisition failed", player.UserId, loadReason)
-		player:Kick("Your saved data is unavailable or active in another server. Please rejoin later.")
+	local now = workspace:GetServerTimeNow()
+	if now < self.nextUpdate then
 		return
 	end
-	if not scope.alive or not player.Parent then
-		return
-	end
-	--初始化玩家信息
-	local playerSaveInfo: GameConfig.PlayerSaveInfo
-	if result ~= nil then
-		local migrated, migrationError = PlayerSaveInfoVersionUpdateTool.Update(result)
-		if not migrated then
-			warn("[ServerGameManager] Save migration rejected", player.UserId, migrationError)
-			player:Kick("Your saved data could not be loaded. Please rejoin later.")
-			return
+	self.nextUpdate = now + 0.1
+	local count, bodies = 0, 0
+	for _, item in self.items do
+		if Carry.Update(item, now) then self:Changed() end
+		if item.streetSlot then
+			count += 1
 		end
-		playerSaveInfo = result
-	else
-		playerSaveInfo = GameConfig.CreateDefaultPlayerSaveInfo()
-	end
-	--获取玩家国家/地区
-	success, result = RetryAsync(function()
-		return localizationService:GetCountryRegionForPlayerAsync(player)
-	end, 5, 1)
-	local countryRegion: string = if success then result else "unknown"
-	if not scope.alive or not player.Parent then
-		return
-	end
-	--远程配置
-	local _config: ConfigSnapshot?
-	local configSuccess, configError = pcall(function()
-		if IsVersionAfter(playerSaveInfo.firstEnterVersion, GameConfig.ABTestVersion) then
-			_config = configService:GetConfigForPlayerAsync(player)
-		else
-			--老玩家不参与AB测试
-			_config = configService:GetConfigAsync()
+		if item.kind == "Body" then
+			bodies += 1
 		end
-	end)
-	if not configSuccess then
-		warn("远程配置读取失败", configError)
-	end
-	if not scope.alive or not player.Parent then
-		return
-	end
-	local playerConfigInfo: GameConfig.PlayerConfigInfo = {}
-	if not playerSaveStore:IsActive(player.UserId) then player:Kick("Your data session expired while loading. Please rejoin."); return end
-	ServerGameInfo.InitPlayerInfo(player, playerSaveInfo, countryRegion, playerConfigInfo)
-	if activeFarmManager then activeFarmManager:OnPlayerLoaded(player) end
-	--检查登录天数
-	local nowDate: DateTimeExtension.DateTimeTable = DateTimeExtension.GetNowDate()
-	CheckPlayerLoginDays(player, nowDate)
-	--检查拥有的通行证
-	CheckOwnedGamePasses(player)
-	--每隔一段时间自动保存玩家数据
-	scope:Spawn(function()
-		while scope.alive do
-			task.wait(AutoSavePlayerInfoInterval)
-			--保存玩家数据
-			local saveScope = activeScope
-			if scope.alive and saveScope and not playerSaveStore:IsBusy(player.UserId) then
-				-- 保存任务归服务器作用域所有；退出销毁玩家作用域不会取消正在进行的写入。
-				saveScope:Spawn(function(): () SavePlayerInfo(player) end)
+		if item.kind == "Body" then
+			NPC.Update(item, now)
+			if item.hits >= Config.StunHits then
+				Ragdoll.LimitVelocity(item.model)
 			end
 		end
-	end)
-	--埋点添加玩家
-	AnalyticsTool.AddPlayer(player)
-end
-
---玩家离开事件
-local function OnPlayerRemoving(player: Player): ()
-	if removingPlayers[player] then return end
-	removingPlayers[player] = true
-	if activeFarmManager then activeFarmManager:FreezePlayer(player) end
-	local scope = playerScopes[player]
-	if scope then
-		scope:Destroy()
-		playerScopes[player] = nil
+		local primary = item.model.PrimaryPart
+		if primary and primary.Position.Y < -40 then
+			if item.holder then
+				self:EndPaint(item.holder)
+			end
+			Carry.Drop(item, Vector3.new(0, -100, 0))
+			item.streetSlot = false
+			self:Changed()
+		end
 	end
-	--埋点移除玩家
-	AnalyticsTool.RemovePlayer(player)
-	--离开前保存玩家数据
-	SavePlayerInfo(player)
-	if activeFarmManager then activeFarmManager:RemovePlayer(player) end
-	--移除玩家数据
-	ServerGameInfo.RemovePlayerInfo(player)
-	local released = playerSaveStore:Release(player.UserId)
-	if not released then warn("[ServerGameManager] Session release failed; lease will expire", player.UserId) end
-	removingPlayers[player] = nil
-end
-
-local function OnServerClosing(): ()
-	closing = true
-	for _, player in players:GetPlayers() do
-		if activeFarmManager then activeFarmManager:FreezePlayer(player) end
+	if count < Config.StreetPopulation and bodies < Config.MaximumBodies and now >= self.nextSpawn then
+		local item = NPC.Spawn(self.runtime, self.items)
+		if item then
+			self.items[item.id] = item
+			self:Changed()
+		end
+		self.nextSpawn = now + Config.SpawnInterval
 	end
-	for _, player in players:GetPlayers() do
-		local saveScope = activeScope
-		if saveScope then saveScope:Spawn(function(): () OnPlayerRemoving(player) end) else OnPlayerRemoving(player) end
+	if self.altarId and now >= self.altarEnds and #self.shelf < Config.ShelfCapacity then
+		local item = self.items[self.altarId]
+		if item then
+			item.model:Destroy()
+			self.items[item.id] = nil
+			local model = ReplicatedStorage.Models.Potion:Clone() :: Model
+			local id = HttpService:GenerateGUID(false)
+			model:SetAttribute("ItemId", id)
+			model.Parent = self.runtime
+			local potion: Types.Item = {
+				id = id,
+				kind = "Potion",
+				stage = "Ready",
+				location = "Shelf",
+				version = 1,
+				model = model,
+				holder = nil,
+				hits = 0,
+				covered = {},
+				strokes = {},
+				strokePoints = 0,
+				area = 0,
+				totalArea = 0,
+				progress = 0,
+				paintSeconds = 0,
+				streetSlot = false,
+				nextWalk = 0,
+				carryWeld = nil,
+				walkTrack = nil,
+			}
+			self.items[id] = potion
+			table.insert(self.shelf, id)
+		end
+		self.altarId = nil
+		self.altarEnds = 0
+		self:Arrange()
+		self:Changed()
 	end
-	while next(playerScopes) or next(removingPlayers) do task.wait(0.05) end
+	for player, record in self.players do
+		if not record.closing and not self.store:IsActive(player.UserId) then
+			record.closing = true
+			self:ReleasePlayer(player)
+			player:Kick("Coin session expired. Please rejoin.")
+		end
+	end
+	if self.paint and not self:Root(self.paint.player) then
+		local player = self.paint.player
+		self:EndPaint(player)
+		self:Changed()
+	end
+	if now >= self.nextSave then
+		self.nextSave = now + Config.SaveInterval
+		for player in self.players do
+			if not self.store:IsBusy(player.UserId) then
+				self.scope:Spawn(function(): ()
+					self:SavePlayer(player)
+				end)
+			end
+		end
+	end
 end
-
-function ServerGameManager.new(): ServerGameManager
-	local self: ServerGameManager = setmetatable({}, ServerGameManager) :: ServerGameManager
-	self.initialized = false
-	self.marketplaceManager = ServerMarketplaceManager.new()
-	self.playerSettingManager = ServerPlayerSettingManager.new()
-	self.playerChatCommandManager = ServerPlayerChatCommandManager.new()
-	self.roastChickenFarmManager = ServerRoastChickenFarmManager.new()
-	return self
+function Manager.Close(self: Manager): ()
+	self.closing = true
+	for player in self.players do
+		self.scope:Spawn(function(): ()
+			self:RemovePlayer(player)
+		end)
+	end
+	local deadline = os.clock() + 25
+	while (next(self.players) or next(self.loading)) and os.clock() < deadline do
+		task.wait(0.1)
+	end
 end
-
-function ServerGameManager.Init(self: ServerGameManager): ()
+function Manager.Init(self: Manager): ()
 	if self.initialized then
 		return
 	end
 	self.initialized = true
-	closing = false
-	local scope = LifecycleTool.new()
-	activeScope = scope
-	if not closeBound then game:BindToClose(OnServerClosing); closeBound = true end
-	print("GameVersion", GameConfig.GameVersion)
-	AnalyticsTool.Init()
-	scope:Connect(players.PlayerAdded:Connect(OnPlayerAdded))
-	scope:Connect(players.PlayerRemoving:Connect(OnPlayerRemoving))
-	scope:Connect(runService.Heartbeat:Connect(OnHeartbeat))
-
-	self.marketplaceManager:Init()
-	self.playerSettingManager:Init()
-	self.playerChatCommandManager:Init()
-	self.roastChickenFarmManager:Init()
-	activeFarmManager = self.roastChickenFarmManager
-	for _, player in players:GetPlayers() do
-		scope:Spawn(function()
-			OnPlayerAdded(player)
+	self.runtime.Parent = workspace
+	self.scope:Own(self.runtime)
+	Ragdoll.Init()
+	Door.Init(self.scope)
+	self.scope:Connect(Net.ConnectRequest(function(player: Player, request: Types.Request): ()
+		self:OnRequest(player, request)
+	end))
+	self.scope:Connect(Players.PlayerAdded:Connect(function(player: Player): ()
+		self.scope:Spawn(function(): ()
+			self:AddPlayer(player)
+		end)
+	end))
+	self.scope:Connect(Players.PlayerRemoving:Connect(function(player: Player): ()
+		self:RemovePlayer(player)
+	end))
+	self.scope:Connect(RunService.Heartbeat:Connect(function(): ()
+		self:Update()
+	end))
+	game:BindToClose(function(): ()
+		self:Close()
+	end)
+	for _ = 1, Config.StreetPopulation do
+		local item = NPC.Spawn(self.runtime, self.items)
+		if item then
+			self.items[item.id] = item
+		end
+	end
+	self.nextSave = workspace:GetServerTimeNow() + Config.SaveInterval
+	for _, player in Players:GetPlayers() do
+		self.scope:Spawn(function(): ()
+			self:AddPlayer(player)
 		end)
 	end
+	self:Changed()
 end
-
-function ServerGameManager.Destroy(self: ServerGameManager): ()
+function Manager.Destroy(self: Manager): ()
 	if not self.initialized then
 		return
 	end
 	self.initialized = false
-	closing = true
-	for player in playerScopes do if activeFarmManager then activeFarmManager:FreezePlayer(player) end end
-	self.marketplaceManager:Destroy()
-	self.playerSettingManager:Destroy()
-	self.playerChatCommandManager:Destroy()
-	for player in playerScopes do
-		OnPlayerRemoving(player)
-	end
-	while next(removingPlayers) do task.wait() end
-	if activeScope then activeScope:Destroy(); activeScope = nil end
-	self.roastChickenFarmManager:Destroy()
-	activeFarmManager = nil
-	AnalyticsTool.Destroy()
+	self:Close()
+	self.scope:Destroy()
 end
-return ServerGameManager
+return Manager
