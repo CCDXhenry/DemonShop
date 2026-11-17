@@ -1,0 +1,672 @@
+{
+  "referencePlaceId": 17432470623,
+  "rows": [
+    {
+      "class": "BindableEvent",
+      "path": "ReplicatedStorage.BindableEvents.CloseWindow"
+    },
+    {
+      "class": "BindableEvent",
+      "path": "ReplicatedStorage.BindableEvents.LocalPlayerAcquiredGamePass"
+    },
+    {
+      "class": "BindableEvent",
+      "path": "ReplicatedStorage.BindableEvents.LocalPlayerInfoInit"
+    },
+    {
+      "class": "BindableEvent",
+      "path": "ReplicatedStorage.BindableEvents.OpenWindow"
+    },
+    {
+      "class": "BindableEvent",
+      "path": "ReplicatedStorage.BindableEvents.OtherPlayerInfoInit"
+    },
+    {
+      "class": "RemoteEvent",
+      "path": "ReplicatedStorage.RemoteEvents.NotifyPlayerAcquiredGamePass"
+    },
+    {
+      "class": "RemoteEvent",
+      "path": "ReplicatedStorage.RemoteEvents.NotifyPlayerInfoInit"
+    },
+    {
+      "class": "RemoteEvent",
+      "path": "ReplicatedStorage.RemoteEvents.NotifyPlayersOtherPlayerInfoInit"
+    },
+    {
+      "class": "RemoteEvent",
+      "path": "ReplicatedStorage.RemoteEvents.RequestSetBGMVolume"
+    },
+    {
+      "class": "RemoteEvent",
+      "path": "ReplicatedStorage.RemoteEvents.RequestSetSoundEffectVolume"
+    },
+    {
+      "class": "RemoteEvent",
+      "path": "ReplicatedStorage.RemoteEvents.RequestSetVibrationsOnOffState"
+    },
+    {
+      "class": "Folder",
+      "path": "ReplicatedStorage.Scripts.Client"
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Client.ClientGameInfo",
+      "api": [
+        "function ClientGameInfo.InitPlayerInfo(localPlayerSaveInfo: GameConfig.ClientLocalPlayerSaveInfo,",
+        "function ClientGameInfo.InitOtherPlayerInfo(playerId: number, otherPlayerSaveInfo: GameConfig.ClientOtherPlayerSyncInfo)",
+        "function ClientGameInfo.GetLocalPlayerInfo(): GameConfig.ClientLocalPlayerInfo?",
+        "function ClientGameInfo.GetOtherPlayerInfo(playerId: number): GameConfig.ClientOtherPlayerInfo?",
+        "function ClientGameInfo.SetLocalPlayerGamePassAcquired(gamePassId: number)"
+      ],
+      "contracts": [
+        {
+          "method": "InitPlayerInfo",
+          "parameters": "localPlayerSaveInfo: GameConfig.ClientLocalPlayerSaveInfo,\n\totherPlayerSaveInfoMap: {[string]: GameConfig.ClientOtherPlayerSyncInfo}, playerConfigInfo: GameConfig.PlayerConfigInfo"
+        },
+        {
+          "method": "InitOtherPlayerInfo",
+          "parameters": "playerId: number, otherPlayerSaveInfo: GameConfig.ClientOtherPlayerSyncInfo"
+        },
+        {
+          "method": "GetLocalPlayerInfo",
+          "parameters": ""
+        },
+        {
+          "method": "GetOtherPlayerInfo",
+          "parameters": "playerId: number"
+        },
+        {
+          "method": "SetLocalPlayerGamePassAcquired",
+          "parameters": "gamePassId: number"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Client.ClientGameManager",
+      "api": [
+        "function ClientGameManager.new(): ClientGameManager",
+        "function ClientGameManager.Init(self: ClientGameManager)"
+      ],
+      "contracts": [
+        {
+          "method": "new",
+          "parameters": ""
+        },
+        {
+          "method": "Init",
+          "parameters": "self: ClientGameManager"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Client.ClientMsg",
+      "api": [
+        "function ClientMsg.FireCloseWindow(windowName: string)",
+        "function ClientMsg.ConnectCloseWindow(callback: (windowName: string) -> ()): RBXScriptConnection",
+        "function ClientMsg.FireOpenWindow(windowName: string)",
+        "function ClientMsg.ConnectOpenWindow(callback: (windowName: string) -> ()): RBXScriptConnection",
+        "function ClientMsg.FireLocalPlayerInfoInit()",
+        "function ClientMsg.ConnectLocalPlayerInfoInit(callback: () -> ()): RBXScriptConnection",
+        "function ClientMsg.FireOtherPlayerInfoInit(playerId: number)",
+        "function ClientMsg.ConnectOtherPlayerInfoInit(callback: (playerId: number) -> ()): RBXScriptConnection",
+        "function ClientMsg.FireLocalPlayerAcquiredGamePass(gamePassId: number)",
+        "function ClientMsg.ConnectLocalPlayerAcquiredGamePass(callback: (gamePassId: number) -> ()): RBXScriptConnection"
+      ],
+      "contracts": [
+        {
+          "method": "FireCloseWindow",
+          "parameters": "windowName: string"
+        },
+        {
+          "method": "ConnectCloseWindow",
+          "parameters": "callback: (windowName: string) -> ()"
+        },
+        {
+          "method": "FireOpenWindow",
+          "parameters": "windowName: string"
+        },
+        {
+          "method": "ConnectOpenWindow",
+          "parameters": "callback: (windowName: string) -> ()"
+        },
+        {
+          "method": "FireLocalPlayerInfoInit",
+          "parameters": ""
+        },
+        {
+          "method": "ConnectLocalPlayerInfoInit",
+          "parameters": "callback: () -> ()"
+        },
+        {
+          "method": "FireOtherPlayerInfoInit",
+          "parameters": "playerId: number"
+        },
+        {
+          "method": "ConnectOtherPlayerInfoInit",
+          "parameters": "callback: (playerId: number) -> ()"
+        },
+        {
+          "method": "FireLocalPlayerAcquiredGamePass",
+          "parameters": "gamePassId: number"
+        },
+        {
+          "method": "ConnectLocalPlayerAcquiredGamePass",
+          "parameters": "callback: (gamePassId: number) -> ()"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Client.UIManager",
+      "api": [
+        "function UIManager.Init(gameScreenGuiNew: ScreenGui)",
+        "function UIManager.CreateFrame(frameName: string, frameParent: GuiBase2d?, ZIndex: number?): Frame",
+        "function UIManager.OpenWindow(windowId: string, ...: any)",
+        "function UIManager.IsWindowShowing(windowId: string): boolean",
+        "function UIManager.CloseWindow(windowId: string)",
+        "function UIManager.SwitchWindowShowing(windowId: string)",
+        "function UIManager.CloseAllWindow()",
+        "function UIManager.HasShowingWindow(): boolean",
+        "function UIManager.GetUIActions(): UIActions"
+      ],
+      "contracts": [
+        {
+          "method": "Init",
+          "parameters": "gameScreenGuiNew: ScreenGui"
+        },
+        {
+          "method": "CreateFrame",
+          "parameters": "frameName: string, frameParent: GuiBase2d?, ZIndex: number?"
+        },
+        {
+          "method": "OpenWindow",
+          "parameters": "windowId: string, ...: any"
+        },
+        {
+          "method": "IsWindowShowing",
+          "parameters": "windowId: string"
+        },
+        {
+          "method": "CloseWindow",
+          "parameters": "windowId: string"
+        },
+        {
+          "method": "SwitchWindowShowing",
+          "parameters": "windowId: string"
+        },
+        {
+          "method": "CloseAllWindow",
+          "parameters": ""
+        },
+        {
+          "method": "HasShowingWindow",
+          "parameters": ""
+        },
+        {
+          "method": "GetUIActions",
+          "parameters": ""
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Client.UIManager.GameFrameWrapper",
+      "api": [
+        "function GameFrameWrapper.new(gameFrame: Frame, uiActions: UIActions): GameFrameWrapper",
+        "function GameFrameWrapper.OnDestroy(self: GameFrameWrapper)"
+      ],
+      "contracts": [
+        {
+          "method": "new",
+          "parameters": "gameFrame: Frame, uiActions: UIActions"
+        },
+        {
+          "method": "OnDestroy",
+          "parameters": "self: GameFrameWrapper"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Client.UIManager.GuiWrapperBase",
+      "api": [
+        "function GuiWrapperBase.OnDestroy(self: GuiWrapperBase) end",
+        "function GuiWrapperBase.new(gui: GuiObject, uiActions: UIActions): GuiWrapperBase",
+        "function GuiWrapperBase.CloseWindow(self: GuiWrapperBase, windowId: string)",
+        "function GuiWrapperBase.CloseAllWindow(self: GuiWrapperBase)",
+        "function GuiWrapperBase.OpenWindow(self: GuiWrapperBase, windowId: string, ...: any)",
+        "function GuiWrapperBase.CreateFrame(self: GuiWrapperBase, frameName: string, frameParent: GuiBase2d?, zIndex: number?): Frame",
+        "function GuiWrapperBase.HasShowingWindow(self: GuiWrapperBase): boolean",
+        "function GuiWrapperBase.IsWindowShowing(self: GuiWrapperBase, windowId: string): boolean"
+      ],
+      "contracts": [
+        {
+          "method": "OnDestroy",
+          "parameters": "self: GuiWrapperBase"
+        },
+        {
+          "method": "new",
+          "parameters": "gui: GuiObject, uiActions: UIActions"
+        },
+        {
+          "method": "CloseWindow",
+          "parameters": "self: GuiWrapperBase, windowId: string"
+        },
+        {
+          "method": "CloseAllWindow",
+          "parameters": "self: GuiWrapperBase"
+        },
+        {
+          "method": "OpenWindow",
+          "parameters": "self: GuiWrapperBase, windowId: string, ...: any"
+        },
+        {
+          "method": "CreateFrame",
+          "parameters": "self: GuiWrapperBase, frameName: string, frameParent: GuiBase2d?, zIndex: number?"
+        },
+        {
+          "method": "HasShowingWindow",
+          "parameters": "self: GuiWrapperBase"
+        },
+        {
+          "method": "IsWindowShowing",
+          "parameters": "self: GuiWrapperBase, windowId: string"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Client.UIManager.UIActions",
+      "api": [],
+      "contracts": []
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Client.UIManager.WindowBase",
+      "api": [
+        "function WindowBase.new(frame: Frame, windowId: string, uiActions: UIActions, openAnimation: string?): WindowBase",
+        "function WindowBase.OnInit(self: WindowBase)",
+        "function WindowBase.OnClose(self: WindowBase)",
+        "function WindowBase.Close(self: WindowBase)",
+        "function WindowBase.CloseWindow(self: WindowBase, windowId: string)",
+        "function WindowBase.CloseAllWindow(self: WindowBase)",
+        "function WindowBase.OpenWindow(self: WindowBase, windowId: string, ...: any)",
+        "function WindowBase.CreateFrame(self: WindowBase, frameName: string, frameParent: GuiBase2d?, zIndex: number?): Frame",
+        "function WindowBase.HasShowingWindow(self: WindowBase): boolean",
+        "function WindowBase.IsWindowShowing(self: WindowBase, windowId: string): boolean"
+      ],
+      "contracts": [
+        {
+          "method": "new",
+          "parameters": "frame: Frame, windowId: string, uiActions: UIActions, openAnimation: string?"
+        },
+        {
+          "method": "OnInit",
+          "parameters": "self: WindowBase"
+        },
+        {
+          "method": "OnClose",
+          "parameters": "self: WindowBase"
+        },
+        {
+          "method": "Close",
+          "parameters": "self: WindowBase"
+        },
+        {
+          "method": "CloseWindow",
+          "parameters": "self: WindowBase, windowId: string"
+        },
+        {
+          "method": "CloseAllWindow",
+          "parameters": "self: WindowBase"
+        },
+        {
+          "method": "OpenWindow",
+          "parameters": "self: WindowBase, windowId: string, ...: any"
+        },
+        {
+          "method": "CreateFrame",
+          "parameters": "self: WindowBase, frameName: string, frameParent: GuiBase2d?, zIndex: number?"
+        },
+        {
+          "method": "HasShowingWindow",
+          "parameters": "self: WindowBase"
+        },
+        {
+          "method": "IsWindowShowing",
+          "parameters": "self: WindowBase, windowId: string"
+        }
+      ]
+    },
+    {
+      "class": "Folder",
+      "path": "ReplicatedStorage.Scripts.Shared"
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Shared.GameConfig",
+      "api": [
+        "function GameConfig.CreateDefaultPlayerSaveInfo(): PlayerSaveInfo"
+      ],
+      "contracts": [
+        {
+          "method": "CreateDefaultPlayerSaveInfo",
+          "parameters": ""
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Shared.GameTexts",
+      "api": [],
+      "contracts": []
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Shared.NetCallbacks",
+      "api": [],
+      "contracts": []
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ReplicatedStorage.Scripts.Shared.NetMsg",
+      "api": [
+        "function NetMsg.FireRequestSetBGMVolume(volume: number)",
+        "function NetMsg.ConnectRequestSetBGMVolume(callback: (player: Player, volume: number) -> ()): RBXScriptConnection",
+        "function NetMsg.FireRequestSetSoundEffectVolume(volume: number)",
+        "function NetMsg.ConnectRequestSetSoundEffectVolume(callback: (player: Player, volume: number) -> ()): RBXScriptConnection",
+        "function NetMsg.FireRequestSetVibrationsOnOffState(vibrationsOn: boolean)",
+        "function NetMsg.ConnectRequestSetVibrationsOnOffState(callback: (player: Player, vibrationsOn: boolean) -> ()): RBXScriptConnection",
+        "function NetMsg.FireNotifyPlayerInfoInit(",
+        "function NetMsg.ConnectNotifyPlayerInfoInit(callback: (",
+        "function NetMsg.FireNotifyPlayersOtherPlayerInfoInit(playerId: number, otherPlayerSaveInfo: GameConfig.ClientOtherPlayerSyncInfo)",
+        "function NetMsg.ConnectNotifyPlayersOtherPlayerInfoInit(",
+        "function NetMsg.FireNotifyPlayerAcquiredGamePass(player: Player, gamePassId: number)",
+        "function NetMsg.ConnectNotifyPlayerAcquiredGamePass(callback: (gamePassId: number) -> ()): RBXScriptConnection"
+      ],
+      "contracts": [
+        {
+          "method": "FireRequestSetBGMVolume",
+          "parameters": "volume: number"
+        },
+        {
+          "method": "ConnectRequestSetBGMVolume",
+          "parameters": "callback: (player: Player, volume: number) -> ()"
+        },
+        {
+          "method": "FireRequestSetSoundEffectVolume",
+          "parameters": "volume: number"
+        },
+        {
+          "method": "ConnectRequestSetSoundEffectVolume",
+          "parameters": "callback: (player: Player, volume: number) -> ()"
+        },
+        {
+          "method": "FireRequestSetVibrationsOnOffState",
+          "parameters": "vibrationsOn: boolean"
+        },
+        {
+          "method": "ConnectRequestSetVibrationsOnOffState",
+          "parameters": "callback: (player: Player, vibrationsOn: boolean) -> ()"
+        },
+        {
+          "method": "FireNotifyPlayerInfoInit",
+          "parameters": "\n\tplayer: Player,\n\tlocalPlayerSaveInfo: GameConfig.ClientLocalPlayerSaveInfo,\n\totherPlayerSaveInfoMap: { [string]: GameConfig.ClientOtherPlayerSyncInfo },\n\tplayerConfigInfo: GameConfig.PlayerConfigInfo\n"
+        },
+        {
+          "method": "ConnectNotifyPlayerInfoInit",
+          "parameters": "callback: (\n\tlocalPlayerSaveInfo: GameConfig.ClientLocalPlayerSaveInfo,\n\totherPlayerSaveInfoMap: { [string]: GameConfig.ClientOtherPlayerSyncInfo },\n\tplayerConfigInfo: GameConfig.PlayerConfigInfo\n) -> ()"
+        },
+        {
+          "method": "FireNotifyPlayersOtherPlayerInfoInit",
+          "parameters": "playerId: number, otherPlayerSaveInfo: GameConfig.ClientOtherPlayerSyncInfo"
+        },
+        {
+          "method": "ConnectNotifyPlayersOtherPlayerInfoInit",
+          "parameters": "\n\tcallback: (playerId: number, otherPlayerSaveInfo: GameConfig.ClientOtherPlayerSyncInfo) -> ()\n"
+        },
+        {
+          "method": "FireNotifyPlayerAcquiredGamePass",
+          "parameters": "player: Player, gamePassId: number"
+        },
+        {
+          "method": "ConnectNotifyPlayerAcquiredGamePass",
+          "parameters": "callback: (gamePassId: number) -> ()"
+        }
+      ]
+    },
+    {
+      "path": "ReplicatedStorage.UI.GameFrame",
+      "position": "{0, 0}, {0, 0}",
+      "anchor": "0, 0",
+      "class": "Frame",
+      "size": "{0, 1920}, {0, 1080}"
+    },
+    {
+      "path": "ReplicatedStorage.UI.GameFrame.TextLabel",
+      "position": "{0, 0}, {0, 0}",
+      "anchor": "0, 0",
+      "class": "TextLabel",
+      "size": "{1, 0}, {1, 0}"
+    },
+    {
+      "class": "UIScale",
+      "path": "ReplicatedStorage.UI.GameFrame.UIScale"
+    },
+    {
+      "class": "Script",
+      "path": "ServerScriptService.ServerRoot",
+      "api": [],
+      "contracts": []
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ServerStorage.Scripts.AnalyticsTool",
+      "api": [
+        "function AnalyticsTool.Init()",
+        "function AnalyticsTool.AddPlayer(player: Player)",
+        "function AnalyticsTool.RemovePlayer(player: Player)",
+        "function AnalyticsTool.AddProductPurchaseEvent(player: Player, receiptInfo: GameConfig.ReceiptInfo)",
+        "function AnalyticsTool.AddPassPurchaseEvent(player: Player, gamePassId: number, price: number)",
+        "function AnalyticsTool.AddTeleportData(players: {Instance}, teleportData: any)"
+      ],
+      "contracts": [
+        {
+          "method": "Init",
+          "parameters": ""
+        },
+        {
+          "method": "AddPlayer",
+          "parameters": "player: Player"
+        },
+        {
+          "method": "RemovePlayer",
+          "parameters": "player: Player"
+        },
+        {
+          "method": "AddProductPurchaseEvent",
+          "parameters": "player: Player, receiptInfo: GameConfig.ReceiptInfo"
+        },
+        {
+          "method": "AddPassPurchaseEvent",
+          "parameters": "player: Player, gamePassId: number, price: number"
+        },
+        {
+          "method": "AddTeleportData",
+          "parameters": "players: {Instance}, teleportData: any"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool",
+      "api": [
+        "function PlayerSaveInfoVersionUpdateTool.Update(playerSaveInfo: any)"
+      ],
+      "contracts": [
+        {
+          "method": "Update",
+          "parameters": "playerSaveInfo: any"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool.PlayerSaveInfoVersionUpdate1",
+      "api": [],
+      "contracts": []
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ServerStorage.Scripts.ServerConfig",
+      "api": [],
+      "contracts": []
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ServerStorage.Scripts.ServerGameInfo",
+      "api": [
+        "function ServerGameInfo.InitPlayerInfo(player: Player, playerSaveInfo: GameConfig.PlayerSaveInfo, countryRegion: string,",
+        "function ServerGameInfo.RemovePlayerInfo(player: Player)",
+        "function ServerGameInfo.GetPlayerInfo(player: Player)",
+        "function ServerGameInfo.CreatePlayerSaveInfoByPlayerInfo(playerInfo: GameConfig.PlayerInfo): GameConfig.PlayerSaveInfo",
+        "function ServerGameInfo.AddPlayerGameTime(player: Player, addGameTime: number)",
+        "function ServerGameInfo.ChangePlayerLoginDays(player: Player, loginDays: number, lastOnlineDate: DateTimeExtension.DateTimeTable)",
+        "function ServerGameInfo.SetPlayerGamePassAcquired(player: Player, gamePassId: number)"
+      ],
+      "contracts": [
+        {
+          "method": "InitPlayerInfo",
+          "parameters": "player: Player, playerSaveInfo: GameConfig.PlayerSaveInfo, countryRegion: string,\n\tplayerConfigInfo: GameConfig.PlayerConfigInfo"
+        },
+        {
+          "method": "RemovePlayerInfo",
+          "parameters": "player: Player"
+        },
+        {
+          "method": "GetPlayerInfo",
+          "parameters": "player: Player"
+        },
+        {
+          "method": "CreatePlayerSaveInfoByPlayerInfo",
+          "parameters": "playerInfo: GameConfig.PlayerInfo"
+        },
+        {
+          "method": "AddPlayerGameTime",
+          "parameters": "player: Player, addGameTime: number"
+        },
+        {
+          "method": "ChangePlayerLoginDays",
+          "parameters": "player: Player, loginDays: number, lastOnlineDate: DateTimeExtension.DateTimeTable"
+        },
+        {
+          "method": "SetPlayerGamePassAcquired",
+          "parameters": "player: Player, gamePassId: number"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ServerStorage.Scripts.ServerGameManager",
+      "api": [
+        "function ServerGameManager.new(): ServerGameManager",
+        "function ServerGameManager.Init(self: ServerGameManager)"
+      ],
+      "contracts": [
+        {
+          "method": "new",
+          "parameters": ""
+        },
+        {
+          "method": "Init",
+          "parameters": "self: ServerGameManager"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ServerStorage.Scripts.ServerGameManager.ServerMarketplaceManager",
+      "api": [
+        "function ServerMarketplaceManager.new(): ServerMarketplaceManager",
+        "function ServerMarketplaceManager.Init(self: ServerMarketplaceManager)"
+      ],
+      "contracts": [
+        {
+          "method": "new",
+          "parameters": ""
+        },
+        {
+          "method": "Init",
+          "parameters": "self: ServerMarketplaceManager"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ServerStorage.Scripts.ServerGameManager.ServerPlayerChatCommandManager",
+      "api": [
+        "function ServerPlayerChatCommandManager.new(): ServerPlayerChatCommandManager",
+        "function ServerPlayerChatCommandManager.Init(self: ServerPlayerChatCommandManager)"
+      ],
+      "contracts": [
+        {
+          "method": "new",
+          "parameters": ""
+        },
+        {
+          "method": "Init",
+          "parameters": "self: ServerPlayerChatCommandManager"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ServerStorage.Scripts.ServerGameManager.ServerPlayerSettingManager",
+      "api": [
+        "function ServerPlayerSettingManager.new(): ServerPlayerSettingManager",
+        "function ServerPlayerSettingManager.Init(self: ServerPlayerSettingManager)"
+      ],
+      "contracts": [
+        {
+          "method": "new",
+          "parameters": ""
+        },
+        {
+          "method": "Init",
+          "parameters": "self: ServerPlayerSettingManager"
+        }
+      ]
+    },
+    {
+      "class": "ModuleScript",
+      "path": "ServerStorage.Scripts.ServerMsg",
+      "api": [
+        "function ServerMsg.FirePlayerInfoInit(player: Player)",
+        "function ServerMsg.ConnectPlayerInfoInit(callback: (player: Player) -> ()): RBXScriptConnection"
+      ],
+      "contracts": [
+        {
+          "method": "FirePlayerInfoInit",
+          "parameters": "player: Player"
+        },
+        {
+          "method": "ConnectPlayerInfoInit",
+          "parameters": "callback: (player: Player) -> ()"
+        }
+      ]
+    },
+    {
+      "class": "ScreenGui",
+      "path": "StarterGui.GameScreenGui"
+    },
+    {
+      "class": "LocalScript",
+      "path": "StarterPlayer.StarterPlayerScripts.ClientRoot",
+      "api": [],
+      "contracts": []
+    }
+  ]
+}

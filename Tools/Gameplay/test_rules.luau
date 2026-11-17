@@ -9,8 +9,9 @@ local Mock=require('./Mock')
 local checks=0
 local function check(condition,message) assert(condition,message);checks+=1 end
 check(Save.Validate(Save.New()),"new save valid")
-for _,coins in {-1,0/0,math.huge,.5,Config.MaximumCoins+1} do check(not Save.Validate({version=1,coins=coins}),"invalid coins rejected") end
-check(not Save.Validate({version=2,coins=0}),"future version rejected")
+for _,coins in {-1,0/0,math.huge,.5,Config.MaximumCoins+1} do local invalid=Save.New();invalid.coins=coins;check(not Save.Validate(invalid),"invalid coins rejected") end
+local future=Save.New();future.version=Config.SaveVersion+1;check(not Save.Validate(future),"future version rejected")
+local function withCoins(coins) local result=Save.New();result.coins=coins;return result end
 local a=Rules.Acquire({},"A",100,120);check(a~=nil,"lease acquired")
 check(Rules.Acquire(a,"B",110,120)==nil,"concurrent lease refused")
 local b,replay=Rules.Write(a,"A",110,120,0,"op1");check(b and not replay,"first write")
@@ -53,12 +54,12 @@ local db=Mock.NewStore();local first=Store.new(db);local second=Store.new(db)
 local ok,profile=first:Acquire(42);check(ok and profile.coins==0,"new player loads zero")
 check(not second:Acquire(42),"parallel store cannot acquire player")
 second:Release(42)
-check(first:Save(42,{version=1,coins=100},1),"coin save")
-check(first:Save(42,{version=1,coins=0},0),"superseded snapshot safely skipped")
+check(first:Save(42,withCoins(100),1),"coin save")
+check(first:Save(42,withCoins(0),0),"superseded snapshot safely skipped")
 check(db.values['42'].coins==100,"superseded snapshot cannot roll coins back")
-db.fail=true;check(not first:Save(42,{version=1,coins=200},2),"storage failure propagated")
+db.fail=true;check(not first:Save(42,withCoins(200),2),"storage failure propagated")
 check(db.values['42'].coins==100,"failed write does not mutate stored profile")
-db.fail=false;check(first:Save(42,{version=1,coins=200},2),"retry saves newer snapshot")
+db.fail=false;check(first:Save(42,withCoins(200),2),"retry saves newer snapshot")
 check(first:Release(42),"release succeeds")
 local ok2,reloaded=second:Acquire(42);check(ok2 and reloaded.coins==200,"rejoin loads coins")
 second:Release(42)

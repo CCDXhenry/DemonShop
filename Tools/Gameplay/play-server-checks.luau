@@ -2,7 +2,7 @@
 assert(game:GetService('RunService'):IsRunning())
 local SS=game.ServerStorage
 local RS=game.ReplicatedStorage
-local Manager=require(SS.Scripts.ServerGameManager)
+local Manager=require(SS.Scripts.ProcessingManager)
 local Ragdoll=require(SS.Scripts.Ragdoll)
 local Carry=require(SS.Scripts.Carry)
 local Surface=require(game.ReplicatedStorage.Scripts.Shared.PaintSurface)
@@ -11,8 +11,10 @@ local players=game.Players:GetPlayers();assert(#players>=2)
 local a,b=players[1],players[2]
 local originalPose=a.Character:GetPivot()
 local originalCoins=a:GetAttribute("Coins")
-local manager=Manager.new();manager.runtime.Name='GameplayIsolatedChecks';manager.runtime.Parent=workspace
-manager.nextSpawn=math.huge;manager.nextSave=math.huge
+local testCoins=0
+local data={IsActive=function() return true end,CanAddCoins=function() return true end,AddCoins=function(_,coins) testCoins+=coins;return true end}
+local manager=Manager.new(data);manager.runtime.Name='GameplayIsolatedChecks';manager.runtime.Parent=workspace
+manager.nextSpawn=math.huge
 local checks=0
 local function check(condition,label) assert(condition,label);checks+=1 end
 local serial=0
@@ -43,19 +45,18 @@ local ok,result=pcall(function()
  check(manager.altarId==body.id and #manager.shelf==8,'full shelf keeps completed conversion waiting')
  manager:Shelf(a);check(#manager.shelf==7 and manager:Held(a).kind=='Potion','shelf pickup frees one slot')
  manager.nextUpdate=0;manager:Update();check(manager.altarId==nil and #manager.shelf==8 and manager.items[body.id]==nil,'waiting conversion outputs once after slot freed')
- manager.players[a]={profile={version=1,coins=0},revision=0,scope=Lifecycle.new(),lastAttack=0,lastRequest=0,lastSync=0,closing=false}
- manager.store.IsActive=function() return true end
- manager:Submit(a);check(manager.players[a].profile.coins==100 and manager:Held(a)==nil,'submit consumes exactly one potion')
- manager:Submit(a);check(manager.players[a].profile.coins==100,'duplicate submit cannot reward twice')
+ manager.players[a]={scope=Lifecycle.new(),lastAttack=0,lastRequest=0,lastSync=0,closing=false}
+ manager:Submit(a);check(testCoins==100 and manager:Held(a)==nil,'submit consumes exactly one potion')
+ manager:Submit(a);check(testCoins==100,'duplicate submit cannot reward twice')
  local extra=item('Potion')
  local Scene=require(SS.Scripts.Scene)
  a.Character:PivotTo(CFrame.new(Scene.SigilPosition+Vector3.new(0,2,2)))
  manager.players[a].lastRequest=0
  manager:OnRequest(a,{action='Interact',target='Sigil',version=manager.stationVersions.Sigil-1})
- check(manager:Held(a)==extra and manager.players[a].profile.coins==100,'stale station request preserves held material')
+ check(manager:Held(a)==extra and testCoins==100,'stale station request preserves held material')
  manager.players[a].lastRequest=0
  manager:OnRequest(a,{action='Interact',target='Sigil',version=manager.stationVersions.Sigil})
- check(manager:Held(a)==nil and manager.players[a].profile.coins==200,'current station request accepts exactly once')
+ check(manager:Held(a)==nil and testCoins==200,'current station request accepts exactly once')
  local potion=item('Potion');Carry.Drop(potion,Vector3.new(0,-100,0));check(potion.location=='Ground' and potion.model.PrimaryPart.Position.Y>-40,'invalid ground drop recovers at shelf')
  return {checks=checks,passed=true}
 end)

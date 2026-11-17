@@ -1,7 +1,7 @@
 -- 隔离 Play 收尾回归：捕获网络边界且不写存档，不参与正常玩家流程验收
 assert(game.PlaceId==110812537538556 and game:GetService("RunService"):IsServer(),"target server required")
 local rs=game.ReplicatedStorage
-local Manager=require(game.ServerStorage.Scripts.ServerGameManager)
+local Manager=require(game.ServerStorage.Scripts.ProcessingManager)
 local Scene=require(game.ServerStorage.Scripts.Scene)
 local Net=require(rs.Scripts.Shared.NetMsg)
 local Lifecycle=require(rs.Scripts.Shared.LifecycleTool)
@@ -12,7 +12,7 @@ local root=player.Character.HumanoidRootPart
 local backup={painting=player:GetAttribute("Painting"),walk=hum.WalkSpeed,jump=hum.JumpPower,height=hum.JumpHeight,anchored=root.Anchored}
 local originalBroadcast,originalNotify=Net.Broadcast,Net.FireNotify
 local notices={}
-local manager=Manager.new()
+local manager=Manager.new({IsActive=function()return true end,CanAddCoins=function()return false end,AddCoins=function()return false end})
 local model=Instance.new("Model");model.Name="VisualFinishFixture"
 local part=Instance.new("Part");part.Name="UpperTorso";part.Size=Vector3.new(2,2,1);part.Anchored=true;part.CanCollide=false;part:SetAttribute("Paintable",true);part.Parent=model
 model.PrimaryPart=part;model:PivotTo(Scene.TablePose());model.Parent=workspace
@@ -22,8 +22,7 @@ local function check(v,m)assert(v,m);checks+=1 end
 local ok,err=xpcall(function()
  Net.Broadcast=function(n)table.insert(notices,n)end
  Net.FireNotify=function(_,n)table.insert(notices,n)end
- manager.store={IsActive=function()return true end}
- manager.players[player]={profile={version=1,coins=0},revision=0,scope=scope,lastAttack=0,lastRequest=0,lastSync=0,closing=false}
+ manager.players[player]={scope=scope,lastAttack=0,lastRequest=0,lastSync=0,closing=false}
  local item={id="visual-finish-fixture",kind="Body",stage="Painting",location="Table",version=1,model=model,hits=3,covered={},strokes={},strokePoints=0,area=0,totalArea=.001,progress=0,paintSeconds=0,streetSlot=false,nextWalk=0}
  manager.items[item.id]=item;manager.tableId=item.id
  local now=workspace:GetServerTimeNow()

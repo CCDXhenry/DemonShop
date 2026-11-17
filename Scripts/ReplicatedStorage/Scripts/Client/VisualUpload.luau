@@ -3,7 +3,7 @@
 local ReplicatedStorage=game:GetService("ReplicatedStorage")
 local Config=require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local Types=require(ReplicatedStorage.Scripts.Shared.GameTypes)
-local Net=require(ReplicatedStorage.Scripts.Shared.NetMsg)
+local Net=require(ReplicatedStorage.Scripts.Shared.ProcessingNet)
 local BodyPose=require(ReplicatedStorage.Scripts.Shared.PaintBodyPose)
 local Upload={}
 Upload.__index=Upload

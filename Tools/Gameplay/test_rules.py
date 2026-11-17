@@ -6,10 +6,16 @@ OUT=ROOT/".cache"/"ragdoll-rules"
 OUT.mkdir(parents=True,exist_ok=True)
 shared=ROOT/"Scripts/ReplicatedStorage/Scripts/Shared"
 server=ROOT/"Scripts/ServerStorage/Scripts"
-for name in ("GameConfig","GameTypes","SaveRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose"):
+(OUT/"FoundationDateBoundary.luau").write_text((ROOT/"Tools/Gameplay/FoundationDateBoundary.luau").read_text(encoding="utf-8"),encoding="utf-8")
+for name in ("GameConfig","GameTypes","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose"):
     text=(shared/(name+".luau")).read_text(encoding="utf-8")
-    for dep in ("GameConfig","GameTypes","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose"):
+    for dep in ("GameConfig","GameTypes","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose"):
         text=text.replace("require(script.Parent."+dep+")", "require('./"+dep+"')")
+    if name == "GameConfig":
+        start=text.index('local replicatedStorage:')
+        end=text.index('--游戏版本')
+        text=text[:start]+"local D=require('./FoundationDateBoundary')\nlocal DateTimeExtension,DateTime=D.DateTimeExtension,D.DateTime\n"+text[end:]
+        text="local game={GameId=0}\n"+text
     if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose"):
         text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame,Enum=roblox.Vector2,roblox.Vector3,roblox.CFrame,roblox.Enum\n"+text
     (OUT/(name+".luau")).write_text(text,encoding="utf-8")
@@ -20,7 +26,7 @@ text=(server/"ServerPlayerSaveStore.luau").read_text(encoding="utf-8")
 start=text.index('local ServerStorage =')
 end=text.index('type Record =')
 text=text.replace('local Config = require(Shared:WaitForChild("GameConfig"))',"local Config = require('./GameConfig')")
-text=text[:start]+"local Mock=require('./Mock')\nlocal HttpService=Mock.HttpService\nlocal DataStoreTool=Mock.DataStoreTool\nlocal SaveRules=require('./SaveRules')\nlocal Rules=require('./PlayerSaveLeaseRules')\nlocal task=require('@lune/task')\n"+text[end:]
+text=text[:start]+"local Mock=require('./Mock')\nlocal HttpService=Mock.HttpService\nlocal DataStoreTool=Mock.DataStoreTool\nlocal SaveRules=require('./SaveRules')\nlocal Rules=require('./PlayerSaveLeaseRules')\nlocal VersionUpdate={Update=SaveRules.Migrate}\nlocal task=require('@lune/task')\n"+text[end:]
 (OUT/"ServerPlayerSaveStore.luau").write_text(text,encoding="utf-8")
 text=(server/"Painting.luau").read_text(encoding="utf-8")
 start=text.index('local ReplicatedStorage =')
@@ -68,7 +74,7 @@ text="local Config=require('./GameConfig')\nlocal Types=require('./GameTypes')\n
 (OUT/"VisualUpload.luau").write_text(text,encoding="utf-8")
 for name in ("VisualNet","test_visual_sync"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
-text=(shared/"NetMsg.luau").read_text(encoding="utf-8")
+text=(shared/"ProcessingNet.luau").read_text(encoding="utf-8")
 text="local Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal VisualRules=require('./VisualRules')\nlocal Curve=require('./CurvedSurface')\nlocal Config=require('./GameConfig')\nlocal requestEvent,notifyEvent={},{}\nlocal BodyPose=require('./PaintBodyPose')\n"+text[text.index('local Net ='):]
 (OUT/"VisualProtocol.luau").write_text(text,encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_visual_sync.luau")],cwd=ROOT,check=True)
@@ -90,7 +96,7 @@ for name in ("CurvedRasterBoundary","CurvedRasterReference","test_curved_raster"
 subprocess.run(["lune","run",str(OUT/"test_curved_raster.luau")],cwd=ROOT,check=True)
 
 # Exercise production client lifecycle methods with input/camera/network boundaries.
-source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientGameManager.luau").read_text(encoding="utf-8")
+source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientProcessingManager.luau").read_text(encoding="utf-8")
 methods=[]
 for name in ("ExitView","RequestPaintEnd","Update","OnInput","OnMove","OnRelease","ResetPaintView"):
     start=source.index("function Client."+name+"(")
@@ -101,3 +107,41 @@ prefix="local R=require('@lune/roblox')\nlocal Vector2,Vector3,Enum=R.Vector2,R.
 for name in ("PaintClientBoundary","test_paint_client_lifecycle"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_paint_client_lifecycle.luau")],cwd=ROOT,check=True)
+
+# Restore framework behavior under offline service boundaries; production methods are retained.
+for name in ("FoundationBoundary", "test_foundation"):
+    (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
+(OUT/"LifecycleTool.luau").write_text("local task=require('@lune/task')\n"+(shared/"LifecycleTool.luau").read_text(encoding="utf-8"),encoding="utf-8")
+def foundation_module(name, source_path, marker, prefix):
+    source=(ROOT/source_path).read_text(encoding="utf-8")
+    (OUT/(name+".luau")).write_text(prefix+source[source.index(marker):],encoding="utf-8")
+foundation_module("FoundationProtocol", "Scripts/ReplicatedStorage/Scripts/Shared/FoundationNet.luau", "local Net =", "local requestEvent,notifyEvent={},{}\nlocal NetMsg={}\n")
+foundation_module("ServerGameInfo", "Scripts/ServerStorage/Scripts/ServerGameInfo.luau", "export type PlayerInfo", "local Config=require('./GameConfig')\nlocal B=require('./FoundationBoundary')\nlocal SaveRules=require('./SaveRules')\nlocal ProfileRules=require('./PlayerProfileRules')\nlocal Config=require('./GameConfig')\nlocal Net=B.Net\nlocal Store=require('./ServerPlayerSaveStore')\nlocal ServerMsg=B.ServerMsg\n")
+foundation_module("ClientGameInfo", "Scripts/ReplicatedStorage/Scripts/Client/ClientGameInfo.luau", "local profile:", "local Config=require('./GameConfig')\nlocal SaveRules=require('./SaveRules')\nlocal ClientMsg=require('./FoundationBoundary').ClientMsg\n")
+foundation_module("ServerMarketplaceManager", "Scripts/ServerStorage/Scripts/ServerGameManager/ServerMarketplaceManager.luau", "local Manager =", "local B=require('./FoundationBoundary')\nlocal MarketplaceService,Enum=B.MarketplaceService,B.Enum\nlocal Config=require('./GameConfig')\nlocal Lifecycle=require('./LifecycleTool')\nlocal Info=require('./ServerGameInfo')\nlocal Analytics=B.Analytics\n")
+foundation_module("ServerPlayerSettingManager", "Scripts/ServerStorage/Scripts/ServerGameManager/ServerPlayerSettingManager.luau", "local Manager =", "local Net=require('./FoundationBoundary').Net\nlocal Config=require('./GameConfig')\nlocal Lifecycle=require('./LifecycleTool')\nlocal Info=require('./ServerGameInfo')\n")
+foundation_module("ServerGameManager", "Scripts/ServerStorage/Scripts/ServerGameManager/init.luau", "local Manager =", "local B=require('./FoundationBoundary')\nlocal Players,RunService,DataStoreService,game=B.Players,B.RunService,B.DataStoreService,B.game\nlocal task=require('@lune/task')\nlocal Lifecycle=require('./LifecycleTool')\nlocal Config=require('./GameConfig')\nlocal Info=require('./ServerGameInfo')\nlocal Store=require('./ServerPlayerSaveStore')\nlocal Processing,Analytics,Chat=B.Processing,B.Analytics,B.Chat\nlocal Settings=require('./ServerPlayerSettingManager')\nlocal Marketplace=require('./ServerMarketplaceManager')\nlocal Context=B.Context\n")
+foundation_module("ClientGameManager", "Scripts/ReplicatedStorage/Scripts/Client/ClientGameManager.luau", "local Manager =", "local B=require('./FoundationBoundary')\nlocal Players=B.Players\nlocal Config=require('./GameConfig')\nlocal RunService,Net,Sound,UIManager,Processing=B.RunService,B.Net,B.Sound,B.UI,B.ClientProcessing\nlocal Lifecycle=require('./LifecycleTool')\nlocal SaveRules=require('./SaveRules')\nlocal Info=require('./ClientGameInfo')\n")
+subprocess.run(["lune","run",str(OUT/"test_foundation.luau")],cwd=ROOT,check=True)
+
+foundation_module("GuiWrapperBase", "Scripts/ReplicatedStorage/Scripts/Client/UIManager/GuiWrapperBase.luau", "local GuiWrapperBase =", "local LifecycleTool=require('./LifecycleTool')\n")
+foundation_module("GameFrameWrapper", "Scripts/ReplicatedStorage/Scripts/Client/UIManager/GameFrameWrapper.luau", "local Wrapper =", "local U=require('./FoundationUIBoundary')\nlocal workspace=U.workspace\nlocal GuiWrapperBase=require('./GuiWrapperBase')\nlocal Lifecycle=require('./LifecycleTool')\n")
+for name in ("FoundationUIBoundary", "test_foundation_ui"):
+    (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
+source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/UIManager/init.luau").read_text(encoding="utf-8")
+start=source.index("local ModalTransparency:")
+prefix="local U=require('./FoundationUIBoundary')\nlocal UIManager={}\nlocal LifecycleTool=require('./LifecycleTool')\nlocal scope=LifecycleTool.new()\nlocal initialized=false\nlocal buttonScopes={}\nlocal uiTemplatesFolder=U.templates\nlocal ClientMsg,TextFitting,GameSoundTool=U.ClientMsg,U.TextFitting,U.Sound\nlocal tweenService,workspace,Enum,TweenInfo=U.TweenService,U.workspace,U.Enum,U.TweenInfo\nlocal userInputService={PreferredInput=Enum.PreferredInput.KeyboardAndMouse}\nlocal windowOrder={}\nlocal viewportScope=nil\nlocal ownedGui=nil\nlocal hudWrapper=nil\nlocal Players=U.Players\nlocal GameFrameWrapper=require('./GameFrameWrapper')\n"
+(OUT/"UIManager.luau").write_text(prefix+source[start:],encoding="utf-8")
+subprocess.run(["lune","run",str(OUT/"test_foundation_ui.luau")],cwd=ROOT,check=True)
+
+# Execute named wire and compatibility adapter against shared remote signals.
+for name in ("FoundationWireBoundary", "test_foundation_wire"):
+    (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
+foundation_module("FoundationWire", "Scripts/ReplicatedStorage/Scripts/Shared/NetMsg.luau", "local Net =", "local W=require('./FoundationWireBoundary')\nlocal folder,Processing=W.folder,W.Processing\nlocal Config=require('./GameConfig')\n")
+foundation_module("FoundationAdapter", "Scripts/ReplicatedStorage/Scripts/Shared/FoundationNet.luau", "local Net =", "local NetMsg=require('./FoundationWire')\n")
+foundation_module("PlayerSaveInfoVersionUpdateTool", "Scripts/ServerStorage/Scripts/PlayerSaveInfoVersionUpdateTool/init.luau", "local Tool =", "local Rules=require('./SaveRules')\n")
+foundation_module("PlayerContextTool", "Scripts/ServerStorage/Scripts/PlayerContextTool.luau", "local Tool =", "local Config=require('./GameConfig')\nlocal LocalizationService={GetCountryRegionForPlayerAsync=function()error('test unavailable region')end}\nlocal ConfigService={}\n")
+subprocess.run(["lune","run",str(OUT/"test_foundation_wire.luau")],cwd=ROOT,check=True)
+subprocess.run(["python",str(ROOT/"Tools/Gameplay/check_foundation_contracts.py")],cwd=ROOT,check=True)
+
+subprocess.run(["lune","run",str(ROOT/"Tools/Gameplay/test_foundation_assets.luau")],cwd=ROOT,check=True)

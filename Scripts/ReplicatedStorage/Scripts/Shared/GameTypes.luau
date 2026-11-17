@@ -1,5 +1,10 @@
 -- 类型契约：物品、画符采样、玩家请求及共享状态快照
 --!strict
+local SaveRules = require(script.Parent.SaveRules)
+export type PlayerSaveInfo = SaveRules.Profile
+export type PlayerSettingInfo = SaveRules.Settings
+export type ClientLocalPlayerSaveInfo = SaveRules.Profile
+export type PlayerConfigInfo = { gameVersion: string }
 export type BodyPose = { [string]: CFrame }
 export type Sample = { part: string, face: number, u: number, v: number, breakBefore: boolean?, triangle: number?, surfaceVersion: number? }
 export type Stroke = { key: string, samples: { Sample } }

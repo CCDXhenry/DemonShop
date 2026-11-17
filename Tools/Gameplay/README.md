@@ -2,6 +2,25 @@
 
 运行代码位于 `Scripts/`，通过现有 Script Sync 同步，禁止用 MCP 覆写脚本源码。集中数值位于 `Shared/GameConfig.luau`，独立布娃娃模块为 `ServerStorage/Scripts/Ragdoll.luau`。
 
+## 基础框架恢复（2026-11-17）
+
+- 以提交 `7933d7c` 的通用能力为依据恢复基础管理器、消息、设置、商城、统计和 UI 窗口，剥离旧农场依赖。`ServerGameManager` 统一维护玩家加入、退出、自动保存与关闭；`ProcessingManager` 只维护本局加工状态。`ClientGameManager` 完成资料握手后幂等启动 `ClientProcessingManager`，补发资料仅刷新缓存和设置。
+- `ServerGameInfo` 是存档唯一所有者。版本 1 的 `{version, coins}` 迁移为版本 2，金币保持不变；新增默认设置、首次进入信息、UTC 登录天数、累计在线时长和通行证列表。未知、损坏或旧农场结构拒绝加载，不默认覆盖。四个历史租约键保持原始持久化字符串。
+- `FoundationNet` 提供资料握手、设置和通行证通知。设置经服务端校验及限频；现有加工协议独立保留。商品目录默认为空，未配置商品不确认收据；外部统计、BGM、清档传送均默认关闭或未配置，不使用旧项目 ID。
+- `UIManager` 恢复窗口注册、单例、模态层级、按钮交互、文本拟合和销毁接口。`WindowCanvas` 固定 1920×1080，与现有 HUD 分别负责各自画布缩放；`ModalButton` 覆盖实际视口。窗口缩放动画只使用模板中预置的 `AnimationScale`。没有注册旧农场窗口。
+- 恢复实例时，在目标 Place Edit 执行 `build-foundation-assets.luau`，补齐基础 RemoteEvent、BindableEvent、窗口画布、模态遮罩及音量分组，并将模型中的音效接到 SoundEffects 分组。该安装器不创建或覆写脚本，不替换现有 HUD。然后按既有方式恢复模型和 UI 导出；模型位于 `ReplicatedStorage.Models`，若恢复模型后丢失外部分组引用，可再次执行此幂等安装器。
+- 本轮离线结果：原有 506 条回归、50 条基础框架断言、13 条 UI 框架断言，共 569 条通过；业务 strict 为 0 Error，全量检查仅保留共享 Core/TeleportTool 的两条既有诊断。Studio 保持 Edit，未启动 Play。
+- `python Tools/Gameplay/test_rules.py` 覆盖正式资料规则、版本迁移、设置/商城及双端装配、异步保存、UI 单例与模态栈；引擎服务与 GUI/Tween 使用离线边界。仍需按授权另做实机验收，离线通过不代表 Play、云端统计或商城交易验证。
+
+## 参考框架契约重构（2026-11-17）
+
+- 只读参考改为实际场景 `17432470623`，基线清单 `foundation-reference.json`；`check_foundation_contracts.py` 检查参考模块、公开方法参数数量、公开类型、事件及业务边界，并接入统一回归。它是结构门禁，参数类型由 strict 和正式网络行为测试补充验证。
+- `NetMsg` 恢复参考具名事件，加工实现迁入 `ProcessingNet`，原通用方法兼容转发。`FoundationNet` 是单传输路径适配器，组合连接通过 `Disconnect()` 完整释放；`FoundationRequest` 仅握手，`FoundationNotify` 不再使用。
+- `ServerGameInfo` 的参考字段是版本 2 权威资料的兼容视图；运行期持有地区、配置、通行证映射及修订号，保存快照只取持久化字段。GameConfig 已恢复参考框架的分段定义、原生 `PlayerSaveInfo.dataVersion` 与默认工厂（默认登录 1 天、UTC 当日零点）；`SaveRules.FromPlayerSaveInfo / ToPlayerSaveInfo` 显式转换基础结构与实际 version=2 存档，GameConfig 不再维护元表别名或持久化替身类型。客户端收到允许展示的本地资料与其他玩家公开资料，不接收服务端完整存档。迁移入口 `PlayerSaveInfoVersionUpdateTool.Update` 成功时兼容原地更新，失败保留输入，统一规则仍在 SaveRules。
+- UIManager 创建和销毁唯一 `GameScreenGui`，基础总控先初始化 UI，再将引用交给加工客户端。HUD 通过正式 GameFrameWrapper 管理缩放与清理；摄像机替换重新绑定，嵌套画布不重复缩放。StarterGui 不再保留第二份主界面模板。
+- Edit 安装器增量恢复基础事件、遮罩与音量组，重复执行不替换 HUD；删除退役的 FoundationNotify 和重复的 StarterGui.GameScreenGui。恢复导出映射见 `Assets/Foundation/README.md`。先恢复资源、再执行安装器，以重新连接跨导出文件的 SoundGroup 引用；脚本始终通过 Script Sync 同步。
+- 同步核验必须分别报告本地、GetEditorSource 编辑草稿与 Instance.Source。未提交草稿不等同于丢失源码；禁止通过 MCP 覆写或在 Studio 提交脚本草稿来消除差异。
+
 ## 曲面白膜（2026-11-17）
 
 - `WhiteR15` 已替换为 15 个独立曲面 MeshPart、15 个标准 R15 Motor6D，共 14,400 三角面；身体部件和模板带 `SurfaceVersion=1`。云端模型 `84781021841961` 属于体验群组 `33977495`，上传审核 Approved。正式恢复源为 `Assets/Models/GameModels.rbxm`，旧块状身体单独保存在 `Assets/Models/WhiteBody/WhiteR15Legacy.rbxm`。

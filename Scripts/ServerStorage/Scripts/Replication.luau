@@ -2,7 +2,7 @@
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Types = require(ReplicatedStorage.Scripts.Shared.GameTypes)
-local Net = require(ReplicatedStorage.Scripts.Shared.NetMsg)
+local Net = require(ReplicatedStorage.Scripts.Shared.ProcessingNet)
 local Replication = {}
 Replication.__index = Replication
 export type Replication = typeof(setmetatable({} :: { previous: { [string]: Types.ItemView }? }, Replication))
