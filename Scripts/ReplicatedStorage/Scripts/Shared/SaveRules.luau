@@ -1,19 +1,9 @@
--- 玩家存档纯规则：迁移金币旧档，校验基础资料并生成独立保存快照
+-- 玩家存档纯规则：校验初始版本的完整原生资料并生成独立保存快照
 --!strict
 local Config = require(script.Parent.GameConfig)
 export type Settings = Config.SettingInfo
--- 版本 2 的实际持久化形状仅属于保存边界，不污染基础 GameConfig 类型。
-export type Profile = {
-	version: number,
-	coins: number,
-	settingInfo: Settings,
-	firstEnterTime: number,
-	firstEnterVersion: string,
-	gameTime: number,
-	loginDays: number,
-	lastOnlineDateUTC: number,
-	ownedGamePassList: { number },
-}
+-- 原生 PlayerSaveInfo 同时用于运行时快照和持久化，不维护第二套字段。
+export type Profile = Config.PlayerSaveInfo
 local Rules = {}
 local function Finite(value: unknown): boolean
 	return type(value) == "number" and value == value and math.abs(value) < math.huge
@@ -22,40 +12,14 @@ local function Integer(value: unknown): boolean
 	return Finite(value) and (value :: number) >= 0 and (value :: number) % 1 == 0 and (value :: number) <= Config.MaximumCoins
 end
 function Rules.New(now: number?): Profile
-	return Rules.FromPlayerSaveInfo(Config.CreateDefaultPlayerSaveInfo(now))
-end
-function Rules.FromPlayerSaveInfo(info: Config.PlayerSaveInfo): Profile
-	return {
-		version = info.dataVersion,
-		coins = info.coins,
-		settingInfo = table.clone(info.settingInfo),
-		firstEnterTime = info.firstEnterTime,
-		firstEnterVersion = info.firstEnterVersion,
-		gameTime = info.gameTime,
-		loginDays = info.loginDays,
-		lastOnlineDateUTC = info.lastOnlineDateUTC,
-		ownedGamePassList = table.clone(info.ownedGamePassList),
-	}
-end
-function Rules.ToPlayerSaveInfo(profile: Profile): Config.PlayerSaveInfo
-	return {
-		dataVersion = profile.version,
-		coins = profile.coins,
-		settingInfo = table.clone(profile.settingInfo),
-		firstEnterTime = profile.firstEnterTime,
-		firstEnterVersion = profile.firstEnterVersion,
-		gameTime = profile.gameTime,
-		loginDays = profile.loginDays,
-		lastOnlineDateUTC = profile.lastOnlineDateUTC,
-		ownedGamePassList = table.clone(profile.ownedGamePassList),
-	}
+	return Config.CreateDefaultPlayerSaveInfo(now)
 end
 function Rules.Validate(value: unknown): (boolean, string?)
 	if type(value) ~= "table" then
 		return false, "invalidProfile"
 	end
 	local p = value :: { [string]: unknown }
-	if p.version ~= Config.SaveVersion then
+	if p.dataVersion ~= Config.PlayerSaveInfoDataVersion or p.version ~= nil then
 		return false, "invalidVersion"
 	end
 	if not Integer(p.coins) then
@@ -111,7 +75,7 @@ function Rules.Copy(profile: Profile): Profile
 	return result
 end
 function Rules.Equal(a: Profile, b: Profile): boolean
-	for _, key in { "version", "coins", "firstEnterTime", "firstEnterVersion", "gameTime", "loginDays", "lastOnlineDateUTC" } do
+	for _, key in { "dataVersion", "coins", "firstEnterTime", "firstEnterVersion", "gameTime", "loginDays", "lastOnlineDateUTC" } do
 		local left = (a :: unknown) :: { [string]: unknown }
 		local right = (b :: unknown) :: { [string]: unknown }
 		if left[key] ~= right[key] then
@@ -132,21 +96,5 @@ function Rules.Equal(a: Profile, b: Profile): boolean
 		end
 	end
 	return true
-end
-function Rules.Migrate(value: unknown, now: number?): (Profile?, string?)
-	if type(value) ~= "table" then
-		return nil, "invalidProfile"
-	end
-	local old = value :: { [string]: unknown }
-	if old.version == 1 then
-		if not Integer(old.coins) then
-			return nil, "invalidCoins"
-		end
-		local result = Rules.New(now)
-		result.coins = old.coins :: number
-		return result, nil
-	end
-	local valid, reason = Rules.Validate(value)
-	return if valid then Rules.Copy(value :: Profile) else nil, reason
 end
 return Rules

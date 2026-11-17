@@ -81,11 +81,11 @@ function Info.AcquirePlayerSaveInfo(player: Player): (Config.PlayerSaveInfo?, st
 		end
 		return nil, reason or "playerLeft"
 	end
-	return SaveRules.ToPlayerSaveInfo(value :: SaveRules.Profile), nil
+	return SaveRules.Copy(value :: SaveRules.Profile), nil
 end
 function Info.InitPlayerInfo(player: Player, playerSaveInfo: Config.PlayerSaveInfo, countryRegion: string, playerConfigInfo: Config.PlayerConfigInfo): ()
 	assert(records[player] == nil, "Player info already initialized")
-	local valid, reason = SaveRules.Validate(SaveRules.FromPlayerSaveInfo(playerSaveInfo))
+	local valid, reason = SaveRules.Validate(playerSaveInfo)
 	assert(valid, reason)
 	local session = sessions[player] or NewSession()
 	assert(not session.closing and not session.releasing, "Player session is closing")
@@ -214,10 +214,10 @@ function Info.Save(player: Player): (boolean, string?)
 	end
 	session.saving = true
 	local revision = session.revision
-	local snapshot = SaveRules.FromPlayerSaveInfo(Info.CreatePlayerSaveInfoByPlayerInfo(info))
+	local snapshot = Info.CreatePlayerSaveInfoByPlayerInfo(info)
 	local ok, reason = currentStore:Save(player.UserId, snapshot, revision)
 	if ok then
-		local current = SaveRules.FromPlayerSaveInfo(Info.CreatePlayerSaveInfoByPlayerInfo(info))
+		local current = Info.CreatePlayerSaveInfoByPlayerInfo(info)
 		info.playerInfoChanged = session.revision ~= revision or not SaveRules.Equal(snapshot, current)
 	end
 	session.saving = false

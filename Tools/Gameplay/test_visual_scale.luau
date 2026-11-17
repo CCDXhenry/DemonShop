@@ -23,14 +23,14 @@ for first=1,Config.PaintLocalSegmentBudget,Config.PaintVisualBatchSize do
 end
 assert(state.count==8192 and view.counts['scale-body']==8192,'full budget history reconstructed')
 local count=0
-for _ in view.frames do count+=1 end
+for _ in view.cells.cells do count+=1 end
 assert(count==8192,'every canonical segment has exactly one frame')
 view:DrawLocal('scale-body','next',1,{{part='UpperTorso',face=2,u=.5,v=.5}})
 assert(view.budgetReached and view.counts['scale-body']==8192,'client blocks unsavable new segment at full shared budget')
 view:Remove('scale-body')
-assert(next(view.frames)==nil and next(view.dirty)==nil and #view.pool<=Config.PaintPreviewPoolBudget,'full body removal bounds cached frames')
+assert(next(view.cells.cells)==nil and next(view.dirty)==nil and #view.cells.pool<=Config.PaintPreviewPoolBudget,'full body removal bounds cached frames')
 view:Bind('unpainted',model)
 view:Destroy()
-assert(next(view.models)==nil and #view.pool==0 and #Boundary.gui:GetChildren()==0,'destroy clears painted and unpainted bindings')
+assert(next(view.models)==nil and #view.cells.pool==0 and #Boundary.gui:GetChildren()==0,'destroy clears painted and unpainted bindings')
 model:Destroy()
 print(string.format('PASS: 5 full-budget visual assertions (%d batches, 8192 GUI frames, %.3fs Lune; not Studio FPS)',batches,os.clock()-started))

@@ -17,7 +17,7 @@ check(#C.calls==0,'unresolved player cannot reset')
 C.command:Fire({UserId=C.player.UserId})
 check(#C.calls==1 and C.calls[1].place==123 and C.calls[1].data.gameStartPlaceId==456,'teleport uses configured reset and entry places')
 local saved=C.calls[1].data.defaultPlayerSaveInfo
-check(saved.dataVersion==2 and saved.version==nil and saved.coins==0 and saved.loginDays==1,'reset payload carries native foundation save')
+check(saved.dataVersion==0 and saved.version==nil and saved.coins==0 and saved.loginDays==1,'reset payload carries native foundation save')
 check(C.options[1].destroyed,'successful teleport releases options')
 C.fail=true;C.command:Fire({UserId=C.player.UserId})
 check(C.options[2].destroyed,'failed teleport also releases options')

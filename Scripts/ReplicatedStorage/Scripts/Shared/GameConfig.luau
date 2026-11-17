@@ -13,7 +13,7 @@ GameConfig.GameVersion = "1.0.0"
 --本次AB测试版本
 GameConfig.ABTestVersion = "1.0.0"
 --玩家存档数据版本
-GameConfig.PlayerSaveInfoDataVersion = 2 -- 本项目资料版本，持久化兼容由 SaveRules 处理
+GameConfig.PlayerSaveInfoDataVersion = 0 -- 首次上线，沿用基础框架初始版本，不启用历史迁移
 --正式版游戏id
 GameConfig.GameId = 10776291771 -- 本项目正式体验 ID，已从目标 Studio 核对
 if game.GameId == GameConfig.GameId then
@@ -200,7 +200,6 @@ GameConfig.PaintPitchLimit = 1.2
 GameConfig.PaintCameraSeconds = 0.22
 GameConfig.SaveInterval = 30 -- 保存及续租间隔，秒
 GameConfig.LeaseSeconds = 120 -- 存档会话有效期，秒
-GameConfig.SaveVersion = GameConfig.PlayerSaveInfoDataVersion -- 持久化版本沿用基础资料版本
 GameConfig.MaximumCoins = 9007199254740000 -- 保持整数精确的金币上限
 GameConfig.WalkAnimation = "rbxassetid://507777826" -- Roblox 标准 R15 行走动画
 

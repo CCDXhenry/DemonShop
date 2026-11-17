@@ -2,47 +2,51 @@
 --!strict
 local Types = require(script.Parent.GameTypes)
 local Config = require(script.Parent.GameConfig)
+local GameTexts = require(script.Parent.GameTexts)
 local Hints = {}
-function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?): string
+local function Describe(textId: GameTexts.TextId, args: {string}?): GameTexts.Description
+	return { textId = textId, args = args }
+end
+function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?): GameTexts.Description
 	if held then
-		if held.kind == "Potion" then return "TAKE THE POTION TO THE SUMMONING SIGIL  (+100 COINS)" end
-		if held.stage == "Painted" then return "TAKE THE RUNE BODY TO THE CONVERSION ALTAR" end
-		return "TAKE THE BODY DOWNSTAIRS TO THE RUNE TABLE OR HOLDING POOL"
+		if held.kind == "Potion" then return Describe("TakePotion", { tostring(Config.PotionReward) }) end
+		if held.stage == "Painted" then return Describe("TakeRuneBody") end
+		return Describe("TakeBody")
 	end
 	if snapshot then
-		if snapshot.shelf > 0 then return "A POTION IS READY - COLLECT IT FROM THE SHELF" end
-		if snapshot.altarId then return "THE ALTAR IS WORKING - CHECK THE COUNTDOWN" end
-		if snapshot.tableId then return "RETURN TO THE RUNE TABLE TO CONTINUE OR COLLECT THE BODY" end
-		if snapshot.pool > 0 then return "THE RUNE TABLE CAN FETCH A BODY FROM THE SHARED POOL" end
+		if snapshot.shelf > 0 then return Describe("PotionReady") end
+		if snapshot.altarId then return Describe("AltarWorking") end
+		if snapshot.tableId then return Describe("ReturnTable") end
+		if snapshot.pool > 0 then return Describe("FetchPool") end
 	end
-	return "STUN A WHITE NPC WITH THREE CLUB HITS"
+	return Describe("StunNpc", { tostring(Config.StunHits) })
 end
-function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.ItemView?, userId: number): string
+function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.ItemView?, userId: number): GameTexts.Description
 	if target == "Pool" then
-		if held and (held.kind ~= "Body" or held.stage == "Painted") then return "POOL ACCEPTS UNFINISHED BODIES ONLY" end
-		return if held then "STORE UNFINISHED BODY" elseif snapshot and snapshot.pool > 0 then "TAKE FIRST SHARED BODY" else "POOL EMPTY - BRING A BODY"
+		if held and (held.kind ~= "Body" or held.stage == "Painted") then return Describe("PoolUnfinishedOnly") end
+		return if held then Describe("StoreBody") elseif snapshot and snapshot.pool > 0 then Describe("TakeSharedBody") else Describe("PoolEmpty")
 	elseif target == "Table" then
-		if snapshot and snapshot.painter and snapshot.painter ~= userId then return "TABLE IN USE - ANOTHER PLAYER IS PAINTING" end
+		if snapshot and snapshot.painter and snapshot.painter ~= userId then return Describe("TableOtherPainter") end
 		if held then
-			if snapshot and snapshot.tableId then return "TABLE OCCUPIED - PUT DOWN YOUR ITEM FIRST" end
-			return if held.kind == "Body" and held.stage ~= "Painted" then "PLACE BODY ON RUNE TABLE" else "TABLE NEEDS AN UNFINISHED BODY"
+			if snapshot and snapshot.tableId then return Describe("TableOccupied") end
+			return if held.kind == "Body" and held.stage ~= "Painted" then Describe("PlaceBody") else Describe("TableNeedsBody")
 		end
 		if snapshot and snapshot.tableId then
 			for _, item in snapshot.items do
-				if item.id == snapshot.tableId then return if item.stage == "Painted" then "COLLECT COMPLETED RUNE BODY" else "CONTINUE PAINTING THE BODY" end
+				if item.id == snapshot.tableId then return if item.stage == "Painted" then Describe("CollectRuneBody") else Describe("ContinuePainting") end
 			end
 		end
-		return if snapshot and snapshot.pool > 0 then "FETCH SHARED BODY AND PAINT" else "TABLE EMPTY - BRING A BODY"
+		return if snapshot and snapshot.pool > 0 then Describe("FetchAndPaint") else Describe("TableEmpty")
 	elseif target == "Altar" then
 		if snapshot and snapshot.altarId then
-			return if snapshot.shelf >= Config.ShelfCapacity then "POTION SHELF FULL - COLLECT A POTION" else "ALTAR BUSY - WAIT FOR CONVERSION"
+			return if snapshot.shelf >= Config.ShelfCapacity then Describe("ShelfFull") else Describe("AltarBusy")
 		end
-		return if held and held.kind == "Body" and held.stage == "Painted" then "INSERT COMPLETED RUNE BODY" else "ALTAR NEEDS A COMPLETED RUNE BODY"
+		return if held and held.kind == "Body" and held.stage == "Painted" then Describe("InsertRuneBody") else Describe("AltarNeedsRuneBody")
 	elseif target == "Shelf" then
-		return if held then "HANDS FULL - PUT DOWN YOUR ITEM" elseif snapshot and snapshot.shelf > 0 then "COLLECT READY POTION" else "NO POTION READY - USE THE ALTAR FIRST"
+		return if held then Describe("HandsFullHint") elseif snapshot and snapshot.shelf > 0 then Describe("CollectPotion") else Describe("NoPotion")
 	elseif target == "Sigil" then
-		return if held and held.kind == "Potion" then "OFFER POTION  (+100 COINS)" else "BRING A POTION TO OFFER"
+		return if held and held.kind == "Potion" then Describe("OfferPotion", { tostring(Config.PotionReward) }) else Describe("BringPotion")
 	end
-	return "SHOULDER CARRY BODY"
+	return Describe("CarryBody")
 end
 return Hints

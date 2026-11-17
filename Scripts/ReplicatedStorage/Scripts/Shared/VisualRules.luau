@@ -1,5 +1,6 @@
 -- 视觉线段协议规则：有界校验、稳定标识、版本去重及全身体预算，供网络和服务端共用
 --!strict
+local GameTexts = require(script.Parent.GameTexts)
 local Types = require(script.Parent.GameTypes)
 local Config = require(script.Parent.GameConfig)
 local Surface = require(script.Parent.PaintSurface)
@@ -34,17 +35,17 @@ function Rules.Validate(raw: unknown): boolean
 	elseif value.triangle0~=nil or value.triangle1~=nil then return false end
 	return true
 end
-function Rules.Apply(state: Types.VisualState, segments: {Types.VisualSegment}, session: string): ({Types.VisualSegment}?, string?)
+function Rules.Apply(state: Types.VisualState, segments: {Types.VisualSegment}, session: string): ({Types.VisualSegment}?, GameTexts.TextId?)
 	local additions, seen = 0, {} :: {[string]: boolean}
 	for _, segment in segments do
-		if not Rules.Validate(segment) or string.sub(segment.key,1,#session+1) ~= session .. ":" then return nil,"Invalid visual segment." end
-		if seen[segment.key] then return nil,"Duplicate visual segment in batch." end
+		if not Rules.Validate(segment) or string.sub(segment.key,1,#session+1) ~= session .. ":" then return nil,"InvalidVisualSegment" end
+		if seen[segment.key] then return nil,"DuplicateVisualSegment" end
 		seen[segment.key] = true
 		local old = state.segments[segment.key]
-		if old and (old.part ~= segment.part or old.face ~= segment.face or old.gesture ~= segment.gesture or old.u0 ~= segment.u0 or old.v0 ~= segment.v0 or old.triangle0~=segment.triangle0 or old.surfaceVersion~=segment.surfaceVersion) then return nil,"Segment origin changed." end
+		if old and (old.part ~= segment.part or old.face ~= segment.face or old.gesture ~= segment.gesture or old.u0 ~= segment.u0 or old.v0 ~= segment.v0 or old.triangle0~=segment.triangle0 or old.surfaceVersion~=segment.surfaceVersion) then return nil,"SegmentOriginChanged" end
 		if not old then additions += 1 end
 	end
-	if state.count + additions > Config.PaintLocalSegmentBudget then return nil,"Paint segment budget reached." end
+	if state.count + additions > Config.PaintLocalSegmentBudget then return nil,"PaintBudgetReached" end
 	local accepted: {Types.VisualSegment} = {}
 	for _, segment in segments do
 		local old = state.segments[segment.key]

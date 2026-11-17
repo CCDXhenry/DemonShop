@@ -7,12 +7,13 @@ local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Scripts"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("GameTypes"))
+local GameTexts = require(Shared.GameTexts)
+local UIManager = require(script.Parent.UIManager)
+local GameScreenGuiManager = require(script.Parent.UIManager.GameScreenGuiManager)
 local Hints = require(Shared:WaitForChild("Hints"))
 local Surface = require(Shared:WaitForChild("PaintSurface"))
 local Net = require(Shared:WaitForChild("ProcessingNet"))
 local Lifecycle = require(Shared:WaitForChild("LifecycleTool"))
-local TextFitting = require(script.Parent:WaitForChild("UIManager"):WaitForChild("TextFitting"))
-local PaintPointer = require(script.Parent.PaintPointer)
 local PaintView = require(script.Parent:WaitForChild("PaintView"))
 local Presentation = require(script.Parent.BodyPresentation)
 local CharacterPresentation = require(script.Parent.CharacterPresentation)
@@ -24,6 +25,7 @@ local player = Players.LocalPlayer
 export type Client = typeof(setmetatable(
 	{} :: {
 		scope: Lifecycle.Lifecycle,
+		ui: GameScreenGuiManager.Manager,
 		view: PaintView.View,
 		presentation: Presentation.Presentation,
 		characterView: CharacterPresentation.Presentation,
@@ -34,11 +36,8 @@ export type Client = typeof(setmetatable(
 		lastAttack: number,
 		attackTarget: string?,
 		comboEnds: number,
-		targetGui: BillboardGui?,
 		presentationId: string?,
 		lastFrame: number,
-		gui: ScreenGui?,
-		root: Frame?,
 		snapshot: Types.Snapshot?,
 		items: { [string]: Types.ItemView },
 		paintId: string?,
@@ -97,6 +96,7 @@ function Client.new(): Client
 	return setmetatable(
 		{
 			scope = Lifecycle.new(),
+			ui = UIManager.GetGameScreenGuiManager(),
 			view = PaintView.new(),
 			presentation = Presentation.new(),
 			characterView = CharacterPresentation.new(),
@@ -107,11 +107,8 @@ function Client.new(): Client
 			lastAttack = 0,
 			attackTarget = nil,
 			comboEnds = 0,
-			targetGui = nil,
 			presentationId = nil,
 			lastFrame = os.clock(),
-			gui = nil,
-			root = nil,
 			snapshot = nil,
 			items = {},
 			paintId = nil,
@@ -146,16 +143,11 @@ function Client.new(): Client
 		Client
 	)
 end
-function Client.Text(self: Client, name: string, text: string): ()
-	local root = self.root
-	if not root then
-		return
-	end
-	local label = root:FindFirstChild(name, true)
-	if label and label:IsA("TextLabel") and label.Text ~= text then
-		label.Text = text
-		TextFitting.FitTextLabel(label)
-	end
+function Client.Text(self: Client, name: string, description: GameTexts.Description?): ()
+	self.ui:SetText(name, description)
+end
+function Client.Notice(self: Client, notice: Types.Notice): ()
+	self.ui:ShowNotice(notice)
 end
 function Client.Held(self: Client): Types.ItemView?
 	for _, item in self.items do
@@ -187,12 +179,7 @@ function Client.ExitView(self: Client): ()
 		touchGui.Enabled = self.touchGuiEnabled
 	end
 	self.touchGuiEnabled = nil
-	local root = self.root
-	if root then
-		(root:FindFirstChild("PaintFrame") :: Frame).Visible = false
-		(root:FindFirstChild("ExitPaintButton") :: GuiButton).Visible = false
-		(root:FindFirstChild("ResetViewButton") :: GuiButton).Visible = false
-	end
+	self.ui:SetPainting(false)
 end
 function Client.EnterView(self: Client, id: string, session: string): ()
 	if self.paintId then
@@ -214,12 +201,7 @@ function Client.EnterView(self: Client, id: string, session: string): ()
 		touchGui.Enabled = false
 	end
 	self.paintCamera:Enter(CameraPose())
-	local root = self.root
-	if root then
-		(root:FindFirstChild("PaintFrame") :: Frame).Visible = true
-		(root:FindFirstChild("ExitPaintButton") :: GuiButton).Visible = true
-		(root:FindFirstChild("ResetViewButton") :: GuiButton).Visible = true
-	end
+	self.ui:SetPainting(true)
 end
 function Client.OnNotice(self: Client, notice: Types.Notice): ()
 	if (notice.kind == "State" or notice.kind == "Delta") and notice.snapshot then
@@ -294,7 +276,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		Net.FireRequest({action="EndPaint",session=self.session,sequence=notice.sequence or self.visualUpload.acked})
 		self.synced=false
 		self.lastSync=0
-		self:Text("NoticeText",notice.text or "Paint sync failed. Please reconnect.")
+		self:Notice(if notice.textId or notice.text then notice else {kind = "Message", textId = "PaintSyncFailed"})
 		self.messageEnds=os.clock()+10
 	elseif notice.kind == "FinishPaint" and notice.session == self.session then
 		self:RequestPaintEnd()
@@ -302,8 +284,8 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		self:EnterView(notice.id, notice.session)
 	elseif notice.kind == "EndPaint" and notice.session == self.session then
 		self:ExitView()
-	elseif notice.kind == "Message" and notice.text then
-		self:Text("NoticeText", notice.text)
+	elseif notice.kind == "Message" and (notice.textId or notice.text) then
+		self:Notice(notice)
 		self.messageEnds = os.clock() + 3
 	end
 end
@@ -437,12 +419,12 @@ function Client.Update(self: Client): ()
 		self.lastSync = now
 	end
 	if now > self.messageEnds then
-		self:Text("NoticeText", "")
+		self:Text("NoticeText", nil)
 	end
 	local curved=self.view.curved
 	if self.paintId and curved and curved.failed and not curved.textures[self.paintId] then
 		self:RequestPaintEnd()
-		self:Text("NoticeText","PAINT SURFACE UNAVAILABLE. PLEASE TRY AGAIN.")
+		self:Text("NoticeText", {textId = "PaintSurfaceUnavailable"})
 		self.messageEnds=now+5
 	end
 	if self.paintId then
@@ -473,18 +455,10 @@ function Client.Update(self: Client): ()
 		self.presentation:Clear()
 		self.presentationId = nil
 	end
-	if self.root and camera then PaintPointer.Update(self.root, self.presentation.model, camera, self.pointer, self.paintId ~= nil and (not UserInputService.TouchEnabled or self.drawing)) end
+	if camera then self.ui:UpdatePointer(self.presentation.model, camera, self.pointer, self.paintId ~= nil and (not UserInputService.TouchEnabled or self.drawing)) end
 	if self.paintId then
 		local item = self.items[self.paintId]
-		if item and item.model then
-			self:Text("ProgressText", string.format("%d%%", math.floor(item.progress * 100)))
-			if self.root then
-				local fill = self.root:FindFirstChild("FillFrame", true)
-				if fill and fill:IsA("Frame") then
-					fill.Size = UDim2.fromScale(item.progress, 1)
-				end
-			end
-		end
+		if item and item.model then self.ui:SetProgress(item.progress) end
 
 		if self.paintCamera.ready then self:Paint(now) end
 	end
@@ -493,7 +467,7 @@ function Client.Update(self: Client): ()
 	if self.paintId then
 		self.visualUpload:Update(self.view:Drain(self.paintId),now,workspace:GetServerTimeNow(),self.yaw,self.pitch,self.visualClosing or not self.drawing,self.presentation:CapturePose(),not self.finishPaint and self.view:IsReady(self.paintId))
 		if self.view.budgetReached then
-			self:Text("NoticeText","PAINT SEGMENT LIMIT REACHED")
+			self:Text("NoticeText", {textId = "PaintSegmentLimit"})
 			self.messageEnds=now+3
 			self.view.budgetReached=false
 		end
@@ -502,49 +476,28 @@ function Client.Update(self: Client): ()
 		return
 	end
 	self.lastHint = now
-	self:Text("CoinsText", string.format("COINS  %d", player:GetAttribute("Coins") or 0))
+	self:Text("CoinsText", {textId = "Coins", args = {tostring(player:GetAttribute("Coins") or 0)}})
 	local held = self:Held()
-	if self.targetGui then
-		local focused = if self.attackTarget then self.items[self.attackTarget] else nil
-		local head = focused and focused.model and focused.model:FindFirstChild("Head")
-		self.targetGui.Enabled = not self.paintId and not held and focused ~= nil and focused.location == "Street" and head ~= nil
-		if head and head:IsA("BasePart") then self.targetGui.Adornee = head end
-		local text = self.targetGui:FindFirstChild("CountText", true)
-		if focused and text and text:IsA("TextLabel") then text.Text = if focused.hits >= Config.StunHits then "STUNNED  [E]" else string.format("HIT %d / %d", focused.hits, Config.StunHits) end
-	end
-	self:Text(
-		"CarryText",
-		if held
-			then (if held.kind == "Potion" then "CARRYING POTION" elseif held.stage == "Painted" then "CARRYING RUNE BODY" else "CARRYING BODY")
-			else "HANDS EMPTY"
-	)
-
+	local focused = if self.attackTarget then self.items[self.attackTarget] else nil
+	local head = focused and focused.model and focused.model:FindFirstChild("Head")
+	UIManager.GetTargetGuiManager():Refresh({
+		adornee = if head and head:IsA("BasePart") then head else nil,
+		visible = not self.paintId and not held and focused ~= nil and focused.location == "Street",
+		hits = if focused then focused.hits else 0,
+		touch = UserInputService.TouchEnabled,
+	})
+	self:Text("CarryText", {textId = if held then (if held.kind == "Potion" then "CarryingPotion" elseif held.stage == "Painted" then "CarryingRuneBody" else "CarryingBody") else "HandsEmpty"})
 	if snapshot then
-		local stock = string.format("POOL %d/8  |  POTIONS %d/8", snapshot.pool, snapshot.shelf)
+		local stock: GameTexts.Description = {textId = "Stock", args = {tostring(snapshot.pool), tostring(Config.PoolCapacity), tostring(snapshot.shelf), tostring(Config.ShelfCapacity)}}
 		if snapshot.altarId then
 			local seconds = math.max(0, math.ceil(snapshot.altarEnds - workspace:GetServerTimeNow()))
-			stock = if seconds > 0 then string.format("ALTAR %ds  |  POTIONS %d/8", seconds, snapshot.shelf) else "ALTAR READY - SHELF FULL"
+			stock = if seconds > 0 then {textId = "AltarCountdown", args = {tostring(seconds), tostring(snapshot.shelf), tostring(Config.ShelfCapacity)}} else {textId = "AltarShelfFull"}
 		end
 		self:Text("StockText", stock)
 	end
-	local root = self.root
-	if not root then
-		return
-	end
-	local touch = UserInputService.TouchEnabled
-	local painting = self.paintId ~= nil
-	for _, name in { "InteractButton", "DropButton", "AttackButton" } do
-		(root:FindFirstChild(name) :: GuiButton).Visible = not painting and not touch
-	end
-	(root:FindFirstChild("ExitPaintButton") :: GuiButton).Visible = painting and not touch;
-	(root:FindFirstChild("ResetViewButton") :: GuiButton).Visible = painting and not touch
-	if self.gui and camera then
-		(self.gui:FindFirstChild("TouchLandscapeFrame") :: Frame).Visible = touch and not painting and camera.ViewportSize.X >= camera.ViewportSize.Y;
-		(self.gui:FindFirstChild("TouchPortraitFrame") :: Frame).Visible = touch and not painting and camera.ViewportSize.X < camera.ViewportSize.Y;
-		(self.gui:FindFirstChild("TouchPaintFrame") :: Frame).Visible = touch and painting
-	end
+	self.ui:Refresh({painting=self.paintId~=nil,hasTarget=false})
 	if self.paintId then
-		self:Text("HintText", "DRAG ON THE BODY TO PAINT + ROTATE")
+		self:Text("HintText", {textId = "Painting"})
 		return
 	end
 	local character = player.Character
@@ -580,14 +533,9 @@ function Client.Update(self: Client): ()
 		end
 	end
 	local target = self.target
-	self:Text("HintText", if target then "E  " .. Hints.Action(target, snapshot, held, player.UserId) else Hints.Next(snapshot, held))
-	local drop = root:FindFirstChild("DropButton") :: GuiButton
-	local dropText = drop:FindFirstChild("LabelText") :: TextLabel
-	local text = if not held and self.nearTable and snapshot and snapshot.tableId then "Q  TAKE TABLE BODY" else "Q  DROP"
-	if dropText.Text ~= text then
-		dropText.Text = text
-		TextFitting.FitTextLabel(dropText)
-	end
+	self:Text("HintText", if target then Hints.Action(target, snapshot, held, player.UserId) else Hints.Next(snapshot, held));
+	local dropDescription: GameTexts.Description = {textId = if not held and self.nearTable and snapshot and snapshot.tableId then "TakeTableBody" else "Drop"}
+	self.ui:Refresh({painting=false,hasTarget=target~=nil,dropDescription=dropDescription})
 end
 function Client.OnInput(self: Client, input: InputObject, processed: boolean): ()
 	if self.visualClosing then return end
@@ -659,56 +607,19 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		return
 	end
 	self.initialized = true
-	self.gui = gui
-	local targetGui = (ReplicatedStorage.UI:WaitForChild("TargetGui") :: BillboardGui):Clone()
-	targetGui.Parent = player:WaitForChild("PlayerGui")
-	self.targetGui = targetGui
-	self.scope:Own(targetGui)
-	local root = gui:WaitForChild("CenterFrame") :: Frame
-	self.root = root
-	for _, v in gui:GetDescendants() do
-		if v:IsA("TextLabel") then
-			TextFitting.FitTextLabel(v)
-		end
-	end
+	if not self.scope.alive then self.scope=Lifecycle.new() end
+	self.ui:Init(gui)
+	UIManager.GetTargetGuiManager():Init()
+	self.ui:BindActions({
+		interact=function(): () self:Interact() end,
+		drop=function(): () self:Drop() end,
+		attack=function(): () self:Attack() end,
+		exitPaint=function(): () self:RequestPaintEnd() end,
+		resetView=function(): () self:ResetPaintView() end,
+	})
 	self.scope:Connect(Net.ConnectNotify(function(notice: Types.Notice): ()
 		self:OnNotice(notice)
 	end))
-	self.scope:Connect((root:WaitForChild("InteractButton") :: GuiButton).Activated:Connect(function(): ()
-		self:Interact()
-	end))
-	self.scope:Connect((root:WaitForChild("DropButton") :: GuiButton).Activated:Connect(function(): ()
-		self:Drop()
-	end))
-	self.scope:Connect((root:WaitForChild("AttackButton") :: GuiButton).Activated:Connect(function(): ()
-		self:Attack()
-	end))
-	self.scope:Connect((root:WaitForChild("ExitPaintButton") :: GuiButton).Activated:Connect(function(): ()
-		self:RequestPaintEnd()
-	end))
-	self.scope:Connect((root:WaitForChild("ResetViewButton") :: GuiButton).Activated:Connect(function(): ()
-		self:ResetPaintView()
-	end))
-	for _, frameName in { "TouchLandscapeFrame", "TouchPortraitFrame", "TouchPaintFrame" } do
-		local controls = gui:WaitForChild(frameName)
-		for _, button in controls:GetChildren() do
-			if button:IsA("GuiButton") then
-				self.scope:Connect(button.Activated:Connect(function(): ()
-					if button.Name == "InteractButton" then
-						self:Interact()
-					elseif button.Name == "DropButton" then
-						self:Drop()
-					elseif button.Name == "AttackButton" then
-						self:Attack()
-					elseif button.Name == "ExitPaintButton" then
-						self:RequestPaintEnd()
-					else
-						self:ResetPaintView()
-					end
-				end))
-			end
-		end
-	end
 	self.scope:Connect(UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean): ()
 		self:OnInput(input, processed)
 	end))
@@ -735,11 +646,12 @@ end
 function Client.Destroy(self: Client): ()
 	self:ExitView()
 	self.paintCamera:Destroy()
+	self.ui:UnbindActions()
+	UIManager.GetTargetGuiManager():Destroy()
 	self.scope:Destroy()
 	self.view:Destroy()
 	self.presentation:Clear()
 	self.characterView:Destroy()
-	self.gui,self.root=nil,nil
 	self.initialized = false
 end
 return Client

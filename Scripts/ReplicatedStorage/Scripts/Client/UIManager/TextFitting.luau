@@ -76,10 +76,12 @@ local function DesignBox(label: TextLabel, padding: Vector2): Vector2
 end
 
 local function PlainText(label: TextLabel, options: TextFitOptions?): string
+	-- 引擎自动本地化保留英文 Text；按实际显示内容测量静态模板文字。
+	local text = if label.AutoLocalize and label.ContentText ~= "" then label.ContentText else label.Text
 	if label.RichText and (options == nil or options.stripRichText ~= false) then
-		return string.gsub(label.Text, "<[^>]->", "")
+		return string.gsub(text, "<[^>]->", "")
 	end
-	return label.Text
+	return text
 end
 
 -- 在设计框内二分查找能放下整行的最大字号，上限不超过设计上限

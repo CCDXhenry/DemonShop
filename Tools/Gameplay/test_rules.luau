@@ -10,7 +10,7 @@ local checks=0
 local function check(condition,message) assert(condition,message);checks+=1 end
 check(Save.Validate(Save.New()),"new save valid")
 for _,coins in {-1,0/0,math.huge,.5,Config.MaximumCoins+1} do local invalid=Save.New();invalid.coins=coins;check(not Save.Validate(invalid),"invalid coins rejected") end
-local future=Save.New();future.version=Config.SaveVersion+1;check(not Save.Validate(future),"future version rejected")
+local future=Save.New();future.dataVersion=Config.PlayerSaveInfoDataVersion+1;check(not Save.Validate(future),"future version rejected")
 local function withCoins(coins) local result=Save.New();result.coins=coins;return result end
 local a=Rules.Acquire({},"A",100,120);check(a~=nil,"lease acquired")
 check(Rules.Acquire(a,"B",110,120)==nil,"concurrent lease refused")
@@ -63,7 +63,7 @@ db.fail=false;check(first:Save(42,withCoins(200),2),"retry saves newer snapshot"
 check(first:Release(42),"release succeeds")
 local ok2,reloaded=second:Acquire(42);check(ok2 and reloaded.coins==200,"rejoin loads coins")
 second:Release(42)
-db.values['99']={version=1,coins='broken'}
+db.values['99']=Save.New();db.values['99'].coins='broken'
 local broken=Store.new(db);check(not broken:Acquire(99),"malformed data does not load default")
 check(db.values['99'].coins=='broken',"malformed data untouched")
 print(string.format('PASS: %d rule assertions (production modules; mocked storage boundary)',checks))

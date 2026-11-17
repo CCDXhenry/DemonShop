@@ -5,6 +5,7 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local Shared = ReplicatedStorage.Scripts.Shared
 local Config = require(Shared.GameConfig)
+local GameTexts = require(Shared.GameTexts)
 local Types = require(Shared.GameTypes)
 local Net = require(Shared.ProcessingNet)
 local Lifecycle = require(Shared.LifecycleTool)
@@ -130,8 +131,8 @@ function Manager.Changed(self: Manager): ()
 	self.revision += 1
 	self.replication:Broadcast(self:Snapshot())
 end
-function Manager.Tell(_self: Manager, player: Player, text: string): ()
-	Net.FireNotify(player, { kind = "Message", text = text })
+function Manager.Tell(_self: Manager, player: Player, textId: GameTexts.TextId, args: {string}?): ()
+	Net.FireNotify(player, { kind = "Message", textId = textId, textArgs = args })
 end
 function Manager.Held(self: Manager, player: Player): Types.Item?
 	for _, item in self.items do
@@ -210,7 +211,7 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 end
 function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
 	if self.paint then
-		self:Tell(player, "The table is in use.")
+		self:Tell(player, "TableInUse")
 		return
 	end
 	local character = player.Character
@@ -252,11 +253,11 @@ function Manager.Pool(self: Manager, player: Player): ()
 	local held = self:Held(player)
 	if held then
 		if held.kind ~= "Body" or held.stage == "Painted" then
-			self:Tell(player, "Store unfinished bodies here.")
+			self:Tell(player, "StoreUnfinished")
 			return
 		end
 		if #self.pool >= Config.PoolCapacity then
-			self:Tell(player, "The holding pool is full.")
+			self:Tell(player, "PoolFull")
 			return
 		end
 		Carry.Detach(held)
@@ -270,19 +271,19 @@ function Manager.Pool(self: Manager, player: Player): ()
 			table.remove(self.pool, 1)
 		end
 	else
-		self:Tell(player, "The holding pool is empty.")
+		self:Tell(player, "PoolIsEmpty")
 	end
 	self:Arrange()
 end
 function Manager.Table(self: Manager, player: Player): ()
 	if self.paint then
-		self:Tell(player, "The table is in use.")
+		self:Tell(player, "TableInUse")
 		return
 	end
 	local held = self:Held(player)
 	if self.tableId then
 		if held then
-			self:Tell(player, "The table is occupied.")
+			self:Tell(player, "TableIsOccupied")
 			return
 		end
 		local item = self.items[self.tableId]
@@ -299,7 +300,7 @@ function Manager.Table(self: Manager, player: Player): ()
 		return
 	end
 	if held and (held.kind ~= "Body" or held.stage == "Painted") then
-		self:Tell(player, "Bring an unfinished body.")
+		self:Tell(player, "BringUnfinished")
 		return
 	end
 	local item = held
@@ -309,7 +310,7 @@ function Manager.Table(self: Manager, player: Player): ()
 		self:Arrange()
 	end
 	if not item then
-		self:Tell(player, "Bring a stunned body or fill the pool.")
+		self:Tell(player, "BringStunned")
 		return
 	end
 	Carry.Static(item, Scene.TablePose())
@@ -322,11 +323,11 @@ end
 function Manager.Altar(self: Manager, player: Player): ()
 	local item = self:Held(player)
 	if self.altarId then
-		self:Tell(player, "The altar is occupied.")
+		self:Tell(player, "AltarOccupied")
 		return
 	end
 	if not item or item.kind ~= "Body" or item.stage ~= "Painted" then
-		self:Tell(player, "The altar needs a completed rune body.")
+		self:Tell(player, "AltarNeedsCompleted")
 		return
 	end
 	Carry.Static(item, Scene.Altar.CFrame * CFrame.new(0, 2, 0) * CFrame.Angles(math.pi / 2, 0, 0))
@@ -336,11 +337,11 @@ function Manager.Altar(self: Manager, player: Player): ()
 end
 function Manager.Shelf(self: Manager, player: Player): ()
 	if self:Held(player) then
-		self:Tell(player, "Your hands are full.")
+		self:Tell(player, "HandsFull")
 		return
 	end
 	if #self.shelf == 0 then
-		self:Tell(player, "No potions are ready.")
+		self:Tell(player, "PotionsNotReady")
 		return
 	end
 	local item = self.items[self.shelf[1]]
@@ -356,11 +357,11 @@ function Manager.Submit(self: Manager, player: Player): ()
 		return
 	end
 	if not item or item.kind ~= "Potion" then
-		self:Tell(player, "Bring a potion to the summoning sigil.")
+		self:Tell(player, "BringPotionSigil")
 		return
 	end
 	if not self.data.CanAddCoins(player, Config.PotionReward) then
-		self:Tell(player, "Coin limit reached.")
+		self:Tell(player, "CoinLimit")
 		return
 	end
 	Carry.Detach(item)
@@ -369,7 +370,7 @@ function Manager.Submit(self: Manager, player: Player): ()
 	item.model:Destroy()
 	self.stationVersions.Sigil += 1
 	self.data.AddCoins(player, Config.PotionReward)
-	self:Tell(player, "+100 COINS")
+	self:Tell(player, "CoinsAwarded", { tostring(Config.PotionReward) })
 end
 function Manager.Attack(self: Manager, player: Player, request: Types.Request): ()
 	local record = self.players[player]
@@ -415,7 +416,11 @@ function Manager.Attack(self: Manager, player: Player, request: Types.Request): 
 			return
 		end
 		NPC.Hit(item, root.CFrame.LookVector)
-		self:Tell(player, if item.hits >= Config.StunHits then "STUNNED - E TO CARRY" else string.format("HIT %d/%d", item.hits, Config.StunHits))
+		if item.hits >= Config.StunHits then
+			self:Tell(player, "StunnedCarry")
+		else
+			self:Tell(player, "HitCount", { tostring(item.hits), tostring(Config.StunHits) })
+		end
 		self:Changed()
 	end)
 end
@@ -446,21 +451,21 @@ function Manager.PaintVisual(self: Manager,player: Player,request: Types.Request
 		Net.FireNotify(player,{kind="VisualDelta",id=item.id,session=session.token,sequence=previous,segments={}})
 		return
 	end
-	local reason: string?=nil
+	local reason: GameTexts.TextId?=nil
 	local now=workspace:GetServerTimeNow()
 	if now-(session.visualWindow or 0)>=1 then session.visualWindow=now;session.visualPackets=0 end
-	if sequence~=previous+1 then reason="Paint batch out of sequence."
-	elseif (session.visualPackets or 0)>=Config.PaintVisualPacketsPerSecond then reason="Paint upload rate exceeded." end
+	if sequence~=previous+1 then reason="PaintOutOfSequence"
+	elseif (session.visualPackets or 0)>=Config.PaintVisualPacketsPerSecond then reason="PaintRateExceeded" end
 	for _,segment in request.segments do
 		local part=item.model:FindFirstChild(segment.part)
-		if not part or not part:IsA("BasePart") or not part:GetAttribute("Paintable") then reason="Invalid paint body part.";break end
-		if part:GetAttribute("SurfaceVersion")~=segment.surfaceVersion then reason="Paint surface version mismatch.";break end
+		if not part or not part:IsA("BasePart") or not part:GetAttribute("Paintable") then reason="InvalidPaintPart";break end
+		if part:GetAttribute("SurfaceVersion")~=segment.surfaceVersion then reason="PaintVersionMismatch";break end
 	end
 	local state=item.visualState or VisualRules.New()
 	local accepted: {Types.VisualSegment}?=nil
 	if not reason then accepted,reason=VisualRules.Apply(state,request.segments,session.token) end
 	if reason or not accepted then
-		Net.FireNotify(player,{kind="VisualRejected",id=item.id,session=session.token,sequence=previous,text=reason or "Paint upload rejected."})
+		Net.FireNotify(player,{kind="VisualRejected",id=item.id,session=session.token,sequence=previous,textId=reason or "PaintRejected"})
 		return
 	end
 	item.visualState=state
@@ -523,7 +528,7 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 		if session and session.player==player and session.token==request.session and (request.sequence or 0)==(session.visualSequence or 0) then
 			local complete=session.finishing
 			self:EndPaint(player)
-			if complete then self:Tell(player,"Rune complete. Pick up the body.") end
+			if complete then self:Tell(player,"RuneComplete") end
 			self:Changed()
 		end
 		return
@@ -575,11 +580,11 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 		local position = positions[target]
 		if position then
 			if request.version ~= self.stationVersions[target] then
-				self:Tell(player, "Station changed. Try interacting again.")
+				self:Tell(player, "StationChanged")
 				return
 			end
 			if not self:Near(player, position, Config.InteractionRange, nil) then
-				self:Tell(player, "Move closer with a clear path to the station.")
+				self:Tell(player, "StationTooFar")
 				return
 			end
 			if target == "Pool" then
@@ -596,20 +601,20 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 		else
 			local item = self.items[target]
 			if self:Held(player) then
-				self:Tell(player, "Your hands are full.")
+				self:Tell(player, "HandsFull")
 				return
 			end
 			if not item or item.version ~= request.version then
-				self:Tell(player, "Item changed or was taken. Choose it again.")
+				self:Tell(player, "ItemChanged")
 			elseif item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits) then
 				local primary = item.model.PrimaryPart
 				if primary and self:Near(player, primary.Position, Config.InteractionRange, item.model) then
 					Carry.Take(item, player)
 				else
-					self:Tell(player, "Move closer with a clear path to the item.")
+					self:Tell(player, "ItemTooFar")
 				end
 			else
-				self:Tell(player, "This item is occupied or cannot be carried yet.")
+				self:Tell(player, "ItemUnavailable")
 			end
 		end
 	end

@@ -3,7 +3,11 @@ local B=require('./FoundationBoundary')
 local U={Enum=B.Enum,TweenInfo={new=function() return {} end},messages={},sounds=0}
 local methods={}
 local mt={}
-function mt.__index(self,key) return methods[key] or self.props[key] end
+function mt.__index(self,key)
+ local value=self.props[key]
+ if value~=nil then return value end
+ return methods[key]
+end
 function mt.__newindex(self,key,value)
  if key=='Parent' then
   local old=self.props.Parent
@@ -17,10 +21,27 @@ function mt.__newindex(self,key,value)
  else self.props[key]=value end
 end
 function U.Node(name,class)
- return setmetatable({props={Name=name,ClassName=class,ZIndex=1,Visible=true,Active=true,attributes={},Destroying=B.Signal(),DescendantAdded=B.Signal(),Activated=B.Signal(),MouseEnter=B.Signal(),MouseLeave=B.Signal()},children={}},mt)
+ return setmetatable({props={Name=name,ClassName=class,ZIndex=1,Visible=true,Active=true,attributes={},Destroying=B.Signal(),DescendantAdded=B.Signal(),Activated=B.Signal(),MouseEnter=B.Signal(),MouseLeave=B.Signal()},children={},signals={}},mt)
 end
 function methods:IsA(class) return self.ClassName==class or (class=='GuiObject' and (self.ClassName=='Frame' or self.ClassName=='ImageButton' or self.ClassName=='TextLabel')) or (class=='GuiButton' and self.ClassName=='ImageButton') end
-function methods:FindFirstChild(name) for _,c in self.children do if c.Name==name then return c end end end
+function methods:FindFirstChild(name,recursive)
+ for _,c in self.children do if c.Name==name then return c end end
+ if recursive then for _,c in self.children do local found=c:FindFirstChild(name,true);if found then return found end end end
+end
+function methods:IsDescendantOf(parent)
+ local ancestor=self.Parent
+ while ancestor do if ancestor==parent then return true end;ancestor=ancestor.Parent end
+ return false
+end
+function methods:FindFirstAncestorWhichIsA(class)
+ local ancestor=self.Parent
+ while ancestor do if ancestor:IsA(class) then return ancestor end;ancestor=ancestor.Parent end
+end
+function methods:GetPropertyChangedSignal(key)
+ if not self.signals[key] then self.signals[key]=B.Signal() end
+ return self.signals[key]
+end
+function methods:ResetPropertyToDefault(key) self.props[key]=nil end
 function methods:FindFirstChildOfClass(class) for _,c in self.children do if c.ClassName==class then return c end end end
 function methods:WaitForChild(name) local child=self:FindFirstChild(name);assert(child,name);return child end
 function methods:GetChildren() return table.clone(self.children) end
@@ -64,6 +85,32 @@ U.Players={LocalPlayer=U.Node('LocalPlayer','Player')}
 U.playerGui=U.Node('PlayerGui','PlayerGui');U.playerGui.Parent=U.Players.LocalPlayer
 local root=U.Node('CenterFrame','Frame');root.Parent=U.gui
 local scale=U.Node('UIScale','UIScale');scale.Parent=root
+for _,name in {'CoinsText','CarryText','StockText','HintText','NoticeText','HintKeyText','ProgressText'} do
+ local label=U.Node(name,'TextLabel');label.Parent=root
+end
+for _,name in {'InteractButton','DropButton','AttackButton','ExitPaintButton','ResetViewButton'} do
+ local button=U.Node(name,'ImageButton');button.Parent=root
+ local label=U.Node('LabelText','TextLabel');label.Parent=button
+end
+local paint=U.Node('PaintFrame','Frame');paint.Parent=root
+local fill=U.Node('FillFrame','Frame');fill.Parent=paint
+for _,name in {'TouchLandscapeFrame','TouchPortraitFrame','TouchPaintFrame'} do
+ local frame=U.Node(name,'Frame');frame.Parent=U.gui
+ local names=if name=='TouchPaintFrame' then {'ExitPaintButton','ResetViewButton'} else {'InteractButton','DropButton','AttackButton'}
+ for _,buttonName in names do
+  local button=U.Node(buttonName,'ImageButton');button.Parent=frame
+  local label=U.Node('LabelText','TextLabel');label.Parent=button
+ end
+end
 U.gui:Clone().Parent=U.templates
+local target=U.Node('TargetGui','BillboardGui');target.Parent=U.templates
+for _,name in {'CountText','KeyText'} do local label=U.Node(name,'TextLabel');label.Parent=target end
+local guide=U.Node('ScreenLayoutGuideFrame','Frame');guide.Parent=U.templates
+U.UserInputService={TouchEnabled=false,PreferredInput=U.Enum.PreferredInput.KeyboardAndMouse}
+U.TranslationTool={
+ CustomAutoLocalizeTextLabel=function(label,source,key,args) label.Text=source;label.translationKey=key;label.translationArgs=args end,
+ RemoveCustomAutoLocalizeGui=function(label) label.translationKey=nil end,
+}
+U.PaintPointer={Update=function(root) U.pointerRoot=root end}
 U.GameFrameWrapper={new=function()return {Init=function()end,OnDestroy=function()end}end}
 return U

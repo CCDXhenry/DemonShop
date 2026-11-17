@@ -6,16 +6,16 @@
   "playStarted": false,
   "referenceSnapshotUnchanged": true,
   "comparison": "UTF-8 length and Adler-32 after CRLF normalization; local files vs ScriptEditorService.GetEditorSource",
-  "localScriptCount": 60,
-  "studioScriptCount": 60,
+  "localScriptCount": 59,
+  "studioScriptCount": 59,
   "editorMismatches": [],
-  "committedSourceMatches": 47,
-  "committedSourceDifferences": 13,
+  "committedSourceMatches": 53,
+  "committedSourceDifferences": 6,
   "checks": {
-    "offline": 1062,
-    "targetStrictFiles": 13,
+    "offline": 1059,
+    "targetStrictFiles": 6,
     "targetStrictErrors": 0,
-    "allStrictFiles": 83,
+    "allStrictFiles": 82,
     "existingSharedStrictErrors": 2
   },
   "scripts": [
@@ -46,9 +46,9 @@
     {
       "editorHash": 3556277844,
       "path": "ReplicatedStorage.Scripts.Client.ClientGameManager",
-      "sourceHash": 861606931,
+      "sourceHash": 3556277844,
       "editorRead": true,
-      "sourceLength": 2907,
+      "sourceLength": 3118,
       "editorLength": 3118
     },
     {
@@ -180,12 +180,12 @@
       "editorLength": 4004
     },
     {
-      "editorHash": 2964647648,
+      "editorHash": 3040528334,
       "path": "ReplicatedStorage.Scripts.Shared.GameConfig",
-      "sourceHash": 1935706228,
+      "sourceHash": 2964647648,
       "editorRead": true,
-      "sourceLength": 8708,
-      "editorLength": 8899
+      "sourceLength": 8899,
+      "editorLength": 8804
     },
     {
       "editorHash": 1683791061,
@@ -270,9 +270,9 @@
     {
       "editorHash": 2121108687,
       "path": "ReplicatedStorage.Scripts.Shared.PlayerProfileRules",
-      "sourceHash": 665152855,
+      "sourceHash": 2121108687,
       "editorRead": true,
-      "sourceLength": 1721,
+      "sourceLength": 1857,
       "editorLength": 1857
     },
     {
@@ -284,12 +284,12 @@
       "editorLength": 4205
     },
     {
-      "editorHash": 339266336,
+      "editorHash": 3201085386,
       "path": "ReplicatedStorage.Scripts.Shared.SaveRules",
-      "sourceHash": 684250137,
+      "sourceHash": 339266336,
       "editorRead": true,
-      "sourceLength": 4226,
-      "editorLength": 4963
+      "sourceLength": 4963,
+      "editorLength": 3390
     },
     {
       "editorHash": 3712364741,
@@ -318,9 +318,9 @@
     {
       "editorHash": 3583581192,
       "path": "ServerStorage.Scripts.AnalyticsTool",
-      "sourceHash": 2865210945,
+      "sourceHash": 3583581192,
       "editorRead": true,
-      "sourceLength": 4126,
+      "sourceLength": 6854,
       "editorLength": 6854
     },
     {
@@ -364,28 +364,20 @@
       "editorLength": 1958
     },
     {
-      "editorHash": 3328047108,
+      "editorHash": 3059932063,
       "path": "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool",
-      "sourceHash": 2419862452,
+      "sourceHash": 3328047108,
       "editorRead": true,
-      "sourceLength": 697,
-      "editorLength": 2156
+      "sourceLength": 2156,
+      "editorLength": 526
     },
     {
-      "editorHash": 4110376917,
+      "editorHash": 2060747765,
       "path": "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool.PlayerSaveInfoVersionUpdate1",
-      "sourceHash": 311845410,
+      "sourceHash": 4110376917,
       "editorRead": true,
-      "sourceLength": 198,
-      "editorLength": 197
-    },
-    {
-      "editorHash": 2125952536,
-      "path": "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool.PlayerSaveInfoVersionUpdate2",
-      "sourceHash": 1,
-      "editorRead": true,
-      "sourceLength": 0,
-      "editorLength": 259
+      "sourceLength": 197,
+      "editorLength": 272
     },
     {
       "editorHash": 2830888731,
@@ -430,25 +422,25 @@
     {
       "editorHash": 3770532116,
       "path": "ServerStorage.Scripts.ServerConfig",
-      "sourceHash": 4025770265,
+      "sourceHash": 3770532116,
       "editorRead": true,
-      "sourceLength": 188,
+      "sourceLength": 363,
       "editorLength": 363
     },
     {
-      "editorHash": 2881171138,
+      "editorHash": 3527608435,
       "path": "ServerStorage.Scripts.ServerGameInfo",
-      "sourceHash": 2097652809,
+      "sourceHash": 2881171138,
       "editorRead": true,
-      "sourceLength": 8526,
-      "editorLength": 9407
+      "sourceLength": 9407,
+      "editorLength": 9305
     },
     {
       "editorHash": 4216350785,
       "path": "ServerStorage.Scripts.ServerGameManager",
-      "sourceHash": 1579135386,
+      "sourceHash": 4216350785,
       "editorRead": true,
-      "sourceLength": 6421,
+      "sourceLength": 6952,
       "editorLength": 6952
     },
     {
@@ -462,9 +454,9 @@
     {
       "editorHash": 242487909,
       "path": "ServerStorage.Scripts.ServerGameManager.ServerPlayerChatCommandManager",
-      "sourceHash": 599270724,
+      "sourceHash": 242487909,
       "editorRead": true,
-      "sourceLength": 2200,
+      "sourceLength": 2195,
       "editorLength": 2195
     },
     {
@@ -484,12 +476,12 @@
       "editorLength": 657
     },
     {
-      "editorHash": 1578669170,
+      "editorHash": 1925093769,
       "path": "ServerStorage.Scripts.ServerPlayerSaveStore",
-      "sourceHash": 666481357,
+      "sourceHash": 1578669170,
       "editorRead": true,
-      "sourceLength": 6180,
-      "editorLength": 6105
+      "sourceLength": 6105,
+      "editorLength": 6126
     },
     {
       "editorHash": 1965476533,
@@ -503,25 +495,19 @@
   "gameConfigStructureRestored": true,
   "referenceComparison": "24 foundation script sources compared before/after; reference receives read-only calls only",
   "nativePlayerInfoRestored": true,
-  "nativeVersionStepsRestored": [
-    1,
-    2
-  ],
+  "nativeVersionStepsRestored": [],
   "analyticsBatchAndDeadlineRestored": true,
   "latestExactEditorComparisons": [
-    "ServerStorage.Scripts.AnalyticsTool",
-    "ServerStorage.Scripts.ServerConfig",
     "ServerStorage.Scripts.ServerGameInfo",
     "ServerStorage.Scripts.ServerPlayerSaveStore",
     "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool",
     "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool.PlayerSaveInfoVersionUpdate1",
-    "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool.PlayerSaveInfoVersionUpdate2",
-    "ServerStorage.Scripts.ServerGameManager",
-    "ServerStorage.Scripts.ServerGameManager.ServerPlayerChatCommandManager",
-    "ReplicatedStorage.Scripts.Client.ClientGameManager",
     "ReplicatedStorage.Scripts.Shared.GameConfig",
-    "ReplicatedStorage.Scripts.Shared.PlayerProfileRules",
     "ReplicatedStorage.Scripts.Shared.SaveRules"
   ],
-  "latestExactEditorMismatches": []
+  "latestExactEditorMismatches": [],
+  "currentSaveDataVersion": 0,
+  "legacySaveMigrationEnabled": false,
+  "usesNativeSaveSchemaDirectly": true,
+  "validationScope": "Initial save schema simplification; full regression ran before unrelated parallel gameplay/text changes appeared; final targeted strict and exact editor comparison cover only the six save-related scripts."
 }

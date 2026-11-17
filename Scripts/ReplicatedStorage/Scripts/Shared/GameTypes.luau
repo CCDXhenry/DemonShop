@@ -1,5 +1,6 @@
 -- 类型契约：物品、画符采样、玩家请求及共享状态快照
 --!strict
+local GameTexts = require(script.Parent.GameTexts)
 local SaveRules = require(script.Parent.SaveRules)
 export type PlayerSaveInfo = SaveRules.Profile
 export type PlayerSettingInfo = SaveRules.Settings
@@ -69,5 +70,5 @@ export type Snapshot = {
 	painter: number?,
 	session: string?,
 }
-export type Notice = { kind: string, removed: { string }?, actor: number?, started: number?, text: string?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, yaw: number?, pitch: number?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
+export type Notice = { kind: string, removed: { string }?, actor: number?, started: number?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, yaw: number?, pitch: number?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
 return {}

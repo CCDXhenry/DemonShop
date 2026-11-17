@@ -57,14 +57,14 @@ function Store.Acquire(self: ServerPlayerSaveStore, userId: number): (boolean, u
 			reason = errorReason
 			return nil
 		end
-		local profile: SaveRules.Profile? = default
-		local migrationReason: string? = nil
+		local profile: SaveRules.Profile = default
 		if current ~= nil then
-			profile, migrationReason = SaveRules.Migrate(current)
-		end
-		if not profile then
-			reason = migrationReason or "invalidData"
-			return nil
+			local valid, invalidReason = SaveRules.Validate(current)
+			if not valid then
+				reason = invalidReason or "invalidData"
+				return nil
+			end
+			profile = SaveRules.Copy(current :: SaveRules.Profile)
 		end
 		accepted, storedMetadata = true, metadata
 		return profile, GetUserIds(keyInfo, userId), metadata

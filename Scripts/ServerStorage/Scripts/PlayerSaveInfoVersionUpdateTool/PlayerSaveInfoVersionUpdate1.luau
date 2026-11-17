@@ -1,5 +1,6 @@
--- 原生存档第一步迁移：保留基础框架 dataVersion 从零升级到一的语义
+-- 基础框架保留的历史示例入口：当前初始版本零未注册，也不会调用本模块
 --!strict
-return function(playerSaveInfo: { [string]: unknown }): ()
+local function PlayerSaveInfoVersionUpdate1(playerSaveInfo: { [string]: unknown }): ()
 	playerSaveInfo.dataVersion = 1
 end
+return PlayerSaveInfoVersionUpdate1

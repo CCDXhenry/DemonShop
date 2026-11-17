@@ -21,6 +21,7 @@ local function client()
   presentation={CapturePose=function() return nil end},
   paintCamera={ready=true,Exit=function() table.insert(log,'camera-exit') end},
   Text=function() end,
+  ui={SetPainting=function() end,UpdatePointer=function() end,SetProgress=function() end},
  },Client)
  c.visualUpload:Begin('session')
  function c:Paint() table.insert(log,'sample');self.finishPaint=false end

@@ -3,7 +3,6 @@
 local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
 local tweenService: TweenService = game:GetService("TweenService")
 local userInputService: UserInputService = game:GetService("UserInputService")
-local Players = game:GetService("Players")
 local UIManager = {}
 local LifecycleTool = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("LifecycleTool"))
 local scope = LifecycleTool.new()
@@ -25,7 +24,18 @@ local windowOrder: { string } = {}
 local viewportScope: LifecycleTool.Lifecycle? = nil
 
 local GameFrameWrapper = require(script.GameFrameWrapper)
-local ownedGui: ScreenGui? = nil
+local GameScreenGuiManager = require(script.GameScreenGuiManager)
+local TargetGuiManager = require(script.TargetGuiManager)
+local PaintFaceGuiManager = require(script.PaintFaceGuiManager)
+local PaintCellFrameManager = require(script.PaintCellFrameManager)
+local ScreenLayoutGuideFrameManager = require(script.ScreenLayoutGuideFrameManager)
+local screenManager = GameScreenGuiManager.new()
+local targetManager = TargetGuiManager.new()
+local faceManager = PaintFaceGuiManager.new()
+local cellManager = PaintCellFrameManager.new()
+local guideManager = ScreenLayoutGuideFrameManager.new()
+export type PaintFaceManager = PaintFaceGuiManager.Manager
+export type PaintCellManager = PaintCellFrameManager.Manager
 local hudWrapper: GameFrameWrapper.GameFrameWrapper? = nil
 
 local ModalTransparency: number = 0.4
@@ -155,22 +165,7 @@ function UIManager.CreateGameScreenGui(): ScreenGui
 	if gameScreenGui then
 		return gameScreenGui
 	end
-	local player = Players.LocalPlayer
-	assert(player, "UI requires a local player")
-	local parent = player:WaitForChild("PlayerGui")
-	assert(not parent:FindFirstChild("GameScreenGui"), "Duplicate GameScreenGui outside UIManager")
-	local template = uiTemplatesFolder:FindFirstChild("GameScreenGui")
-	assert(template and template:IsA("ScreenGui"), "Missing GameScreenGui template")
-	for _, name in { "CenterFrame", "WindowCanvas", "ModalButton" } do
-		local child = template:FindFirstChild(name)
-		assert(child and child:IsA(if name == "ModalButton" then "ImageButton" else "Frame"), "Missing UI template node: " .. name)
-		if name ~= "ModalButton" then
-			assert(child:FindFirstChildOfClass("UIScale"), "Missing canvas UIScale: " .. name)
-		end
-	end
-	local gui = template:Clone()
-	gui.Parent = parent
-	ownedGui = gui
+	local gui = screenManager:Create()
 	UIManager.Init(gui)
 	return gui
 end
@@ -184,6 +179,7 @@ function UIManager.Init(gameScreenGuiNew: ScreenGui): ()
 	if not scope.alive then
 		scope = LifecycleTool.new()
 	end
+	screenManager:Init(gameScreenGuiNew)
 	gameScreenGui = gameScreenGuiNew
 	if gameScreenGui == nil then
 		return
@@ -250,6 +246,15 @@ end
 
 --非窗口方式创建界面
 function UIManager.CreateFrame(frameName: string, frameParent: GuiBase2d?, ZIndex: number?): Frame
+	if frameName == "ScreenLayoutGuideFrame" then
+		assert(frameParent, "Design guide requires an explicit parent")
+		local frame = guideManager:Create(frameParent)
+		if ZIndex then frame.ZIndex=ZIndex end
+		return frame
+	end
+	if frameName == "PaintCellFrame" then
+		return cellManager:Create(frameParent or gameScreenGui, ZIndex)
+	end
 	local template = uiTemplatesFolder:FindFirstChild(frameName)
 	assert(template and template:IsA("Frame"), "Missing UI template: " .. frameName)
 	local frame: Frame = template:Clone()
@@ -384,10 +389,24 @@ function UIManager.GetUIActions(): UIActions
 	return uiActions
 end
 
+function UIManager.GetGameScreenGuiManager(): GameScreenGuiManager.Manager
+	return screenManager
+end
+function UIManager.GetTargetGuiManager(): TargetGuiManager.Manager
+	return targetManager
+end
+function UIManager.GetPaintFaceGuiManager(): PaintFaceGuiManager.Manager
+	return faceManager
+end
+function UIManager.GetPaintCellFrameManager(): PaintCellFrameManager.Manager
+	return cellManager
+end
+function UIManager.GetScreenLayoutGuideFrameManager(): ScreenLayoutGuideFrameManager.Manager
+	return guideManager
+end
+
 function UIManager.Destroy(): ()
-	if not initialized then
-		return
-	end
+	screenManager:UnbindActions()
 	UIManager.CloseAllWindow()
 	for _, buttonScope in buttonScopes do
 		buttonScope:Destroy()
@@ -405,10 +424,10 @@ function UIManager.Destroy(): ()
 	end
 	gameScreenGui = nil
 	initialized = false
-	local gui = ownedGui
-	ownedGui = nil
-	if gui then
-		gui:Destroy()
-	end
+	cellManager:Destroy()
+	faceManager:Destroy()
+	targetManager:Destroy()
+	guideManager:Destroy()
+	screenManager:Destroy()
 end
 return UIManager
