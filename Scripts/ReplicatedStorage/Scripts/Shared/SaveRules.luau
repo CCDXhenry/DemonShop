@@ -110,6 +110,29 @@ function Rules.Copy(profile: Profile): Profile
 	result.ownedGamePassList = table.clone(profile.ownedGamePassList)
 	return result
 end
+function Rules.Equal(a: Profile, b: Profile): boolean
+	for _, key in { "version", "coins", "firstEnterTime", "firstEnterVersion", "gameTime", "loginDays", "lastOnlineDateUTC" } do
+		local left = (a :: unknown) :: { [string]: unknown }
+		local right = (b :: unknown) :: { [string]: unknown }
+		if left[key] ~= right[key] then
+			return false
+		end
+	end
+	if
+		a.settingInfo.bgmVolume ~= b.settingInfo.bgmVolume
+		or a.settingInfo.soundEffectVolume ~= b.settingInfo.soundEffectVolume
+		or a.settingInfo.vibrationOn ~= b.settingInfo.vibrationOn
+		or #a.ownedGamePassList ~= #b.ownedGamePassList
+	then
+		return false
+	end
+	for i, id in a.ownedGamePassList do
+		if b.ownedGamePassList[i] ~= id then
+			return false
+		end
+	end
+	return true
+end
 function Rules.Migrate(value: unknown, now: number?): (Profile?, string?)
 	if type(value) ~= "table" then
 		return nil, "invalidProfile"

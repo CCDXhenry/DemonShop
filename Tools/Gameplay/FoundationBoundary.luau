@@ -28,7 +28,7 @@ B.Net.FireNotifyPlayerInfoInit=function(player,info,others,config)
  table.insert(B.notices,{player=player,notice={kind='PlayerInfoInit',localInfo=info,otherPlayers=others,playerConfigInfo=config}})
  B.notify:Fire('PlayerInfoInit',info,others,config)
 end
-B.Net.FireNotifyPlayersOtherPlayerInfoInit=function(id,info) B.notify:Fire('OtherPlayerInfoInit',id,info) end
+B.Net.FireNotifyPlayersOtherPlayerInfoInit=function(id,info) B.otherNotices=(B.otherNotices or 0)+1;B.notify:Fire('OtherPlayerInfoInit',id,info) end
 B.Net.FireNotifyPlayerAcquiredGamePass=function(player,id) B.notify:Fire('GamePassAcquired',id) end
 B.Net.FireNotifyPlayerLeft=function(id) B.notify:Fire('PlayerLeft',id) end
 for name,kind in {NotifyPlayerInfoInit='PlayerInfoInit',NotifyPlayersOtherPlayerInfoInit='OtherPlayerInfoInit',NotifyPlayerAcquiredGamePass='GamePassAcquired',NotifyPlayerLeft='PlayerLeft'} do
@@ -52,7 +52,8 @@ B.Sound={Init=function() B.soundStarts+=1 end,PlayBGM=function() end,SetBGMVolum
 B.MarketplaceService={PromptGamePassPurchaseFinished=B.Signal(),UserOwnsGamePassAsync=function() return false end}
 B.Analytics={Init=function() end,Destroy=function() end,AddPlayerEnterGameEvent=function() end,AddPlayerLeaveGameEvent=function() end,AddPassPurchaseEvent=function() end}
 B.Chat={new=function() return {Init=function() end,Destroy=function() end} end}
-B.ServerMsg={FirePlayerInfoInit=function() end}
+B.serverInit=B.Signal()
+B.ServerMsg={FirePlayerInfoInit=function(player) B.serverInit:Fire(player) end}
 B.ClientMsg={FireOtherPlayerInfoInit=function(id) B.lastOther=id end,FireLocalPlayerInfoInit=function() end,FireLocalPlayerAcquiredGamePass=function() B.grants=(B.grants or 0)+1 end}
 function B.Player(id)
  local p={UserId=id,Parent=true,attributes={}}
@@ -61,6 +62,9 @@ function B.Player(id)
  function p:IsA(name) return name=='Player' end
  return p
 end
+B.Analytics.Flush=function()return true end
+B.Analytics.Close=function()return true end
+B.StarterGui={SetCoreGuiEnabled=function(_,kind,enabled) B.backpackCalls=(B.backpackCalls or 0)+1;B.backpackEnabled=enabled;B.backpackKind=kind end}
 B.Analytics.AddPlayer=B.Analytics.AddPlayerEnterGameEvent
 B.Analytics.RemovePlayer=B.Analytics.AddPlayerLeaveGameEvent
 B.Players.LocalPlayer=B.Player(1001)

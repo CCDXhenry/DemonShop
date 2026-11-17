@@ -41,10 +41,19 @@ Net.FireNotifyPlayerAcquiredGamePass(B.player,43);Adapter.RequestPlayerInfoInit(
 check(requests==4 and #notices==4 and not requestConnection.Connected,'composite connection disconnect is complete and idempotent')
 for _,connection in connections do connection:Disconnect() end
 for _,event in W.events do check(event.OnServerEvent:Count()==0 and event.OnClientEvent:Count()==0,'all network connections released') end
-local old={version=1,coins=77}
-local migrated=Version.Update(old)
-check(migrated and old.version==2 and old.coins==77 and old.settingInfo,'reference in-place migration and returned snapshot agree')
-local bad={version=99,coins=5};check(Version.Update(bad)==nil and bad.version==99 and bad.coins==5,'failed version migration preserves input')
+for _,version in {0,1,2} do
+ local old=Config.CreateDefaultPlayerSaveInfo(100000);old.dataVersion=version
+ if version<2 then old.coins=nil end
+ old.gameTime=123.5;old.settingInfo.bgmVolume=.4
+ local migrated=Version.Update(old)
+ check(migrated==old and old.dataVersion==2 and old.version==nil and old.coins==0,'native version migration succeeds in place')
+ check(old.gameTime==123.5 and old.settingInfo.bgmVolume==.4 and old.firstEnterTime==100000,'migration preserves existing foundation fields')
+end
+local bad=Config.CreateDefaultPlayerSaveInfo();bad.dataVersion=99
+check(Version.Update(bad)==nil and bad.dataVersion==99,'future native version rejected without mutation')
+local corrupt=Config.CreateDefaultPlayerSaveInfo();corrupt.dataVersion=0;corrupt.coins=nil;corrupt.settingInfo.bgmVolume=math.huge
+check(Version.Update(corrupt)==nil and corrupt.dataVersion==0 and corrupt.coins==nil and corrupt.settingInfo.bgmVolume==math.huge,'failed migration does not partially apply steps')
+check(Version.Update({version=1,coins=77})==nil and Version.Update({dataVersion=1,farm={}})==nil,'native migration rejects storage and unrelated business shapes')
 local region,config=Context.Get(B.player)
 check(region=='unknown' and next(config)==nil,'country lookup failure falls back without blocking')
 check(next(Context.ResolveConfig(B.player,'1.0.0'))==nil,'disabled remote configuration uses local defaults')

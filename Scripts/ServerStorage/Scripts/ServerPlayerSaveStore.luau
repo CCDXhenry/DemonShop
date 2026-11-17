@@ -8,7 +8,6 @@ local Shared = ReplicatedStorage:WaitForChild("Scripts"):WaitForChild("Shared")
 local SaveRules = require(Shared:WaitForChild("SaveRules"))
 
 local Rules = require(script.Parent:WaitForChild("PlayerSaveLeaseRules"))
-local VersionUpdate = require(script.Parent.PlayerSaveInfoVersionUpdateTool)
 type Record = { token: string, revision: number, expiresAt: number, lastChangeRevision: number, busy: boolean, closing: boolean }
 local Store = {}
 Store.__index = Store
@@ -60,7 +59,9 @@ function Store.Acquire(self: ServerPlayerSaveStore, userId: number): (boolean, u
 		end
 		local profile: SaveRules.Profile? = default
 		local migrationReason: string? = nil
-		if current ~= nil then profile, migrationReason = VersionUpdate.Update(current) end
+		if current ~= nil then
+			profile, migrationReason = SaveRules.Migrate(current)
+		end
 		if not profile then
 			reason = migrationReason or "invalidData"
 			return nil

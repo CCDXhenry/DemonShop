@@ -6,16 +6,17 @@
   "playStarted": false,
   "referenceSnapshotUnchanged": true,
   "comparison": "UTF-8 length and Adler-32 after CRLF normalization; local files vs ScriptEditorService.GetEditorSource",
-  "localScriptCount": 59,
-  "studioScriptCount": 59,
+  "localScriptCount": 60,
+  "studioScriptCount": 60,
   "editorMismatches": [],
-  "committedSourceMatches": 25,
-  "committedSourceDifferences": 34,
+  "committedSourceMatches": 47,
+  "committedSourceDifferences": 13,
   "checks": {
-    "offline": 994,
+    "offline": 1062,
+    "targetStrictFiles": 13,
     "targetStrictErrors": 0,
-    "existingSharedStrictErrors": 2,
-    "installerExecutions": 2
+    "allStrictFiles": 83,
+    "existingSharedStrictErrors": 2
   },
   "scripts": [
     {
@@ -23,478 +24,504 @@
       "path": "ReplicatedStorage.Scripts.Client.BodyPresentation",
       "sourceHash": 4239836603,
       "editorRead": true,
-      "editorLength": 4764,
-      "sourceLength": 4764
+      "sourceLength": 4764,
+      "editorLength": 4764
     },
     {
       "editorHash": 2040283382,
       "path": "ReplicatedStorage.Scripts.Client.CharacterPresentation",
       "sourceHash": 2040283382,
       "editorRead": true,
-      "editorLength": 6644,
-      "sourceLength": 6644
+      "sourceLength": 6644,
+      "editorLength": 6644
     },
     {
       "editorHash": 4234919034,
       "path": "ReplicatedStorage.Scripts.Client.ClientGameInfo",
-      "sourceHash": 1,
+      "sourceHash": 4234919034,
       "editorRead": true,
-      "editorLength": 1912,
-      "sourceLength": 0
+      "sourceLength": 1912,
+      "editorLength": 1912
     },
     {
-      "editorHash": 861606931,
+      "editorHash": 3556277844,
       "path": "ReplicatedStorage.Scripts.Client.ClientGameManager",
-      "sourceHash": 1239941454,
+      "sourceHash": 861606931,
       "editorRead": true,
-      "editorLength": 2907,
-      "sourceLength": 30313
+      "sourceLength": 2907,
+      "editorLength": 3118
     },
     {
       "editorHash": 2926941027,
       "path": "ReplicatedStorage.Scripts.Client.ClientMsg",
-      "sourceHash": 1,
+      "sourceHash": 2926941027,
       "editorRead": true,
-      "editorLength": 2368,
-      "sourceLength": 0
+      "sourceLength": 2368,
+      "editorLength": 2368
     },
     {
       "editorHash": 3261030650,
       "path": "ReplicatedStorage.Scripts.Client.ClientProcessingManager",
-      "sourceHash": 1,
+      "sourceHash": 3261030650,
       "editorRead": true,
-      "editorLength": 29819,
-      "sourceLength": 0
+      "sourceLength": 29819,
+      "editorLength": 29819
     },
     {
       "editorHash": 779967926,
       "path": "ReplicatedStorage.Scripts.Client.CurvedPaintView",
       "sourceHash": 779967926,
       "editorRead": true,
-      "editorLength": 11456,
-      "sourceLength": 11456
+      "sourceLength": 11456,
+      "editorLength": 11456
     },
     {
       "editorHash": 4067053205,
       "path": "ReplicatedStorage.Scripts.Client.PaintCamera",
       "sourceHash": 4067053205,
       "editorRead": true,
-      "editorLength": 3040,
-      "sourceLength": 3040
+      "sourceLength": 3040,
+      "editorLength": 3040
     },
     {
       "editorHash": 951337045,
       "path": "ReplicatedStorage.Scripts.Client.PaintPointer",
       "sourceHash": 951337045,
       "editorRead": true,
-      "editorLength": 1570,
-      "sourceLength": 1570
+      "sourceLength": 1570,
+      "editorLength": 1570
     },
     {
       "editorHash": 4225110007,
       "path": "ReplicatedStorage.Scripts.Client.PaintView",
       "sourceHash": 4225110007,
       "editorRead": true,
-      "editorLength": 8519,
-      "sourceLength": 8519
+      "sourceLength": 8519,
+      "editorLength": 8519
     },
     {
       "editorHash": 163911946,
       "path": "ReplicatedStorage.Scripts.Client.UIManager",
-      "sourceHash": 1167150077,
+      "sourceHash": 163911946,
       "editorRead": true,
-      "editorLength": 13705,
-      "sourceLength": 150
+      "sourceLength": 13705,
+      "editorLength": 13705
     },
     {
       "editorHash": 4167167716,
       "path": "ReplicatedStorage.Scripts.Client.UIManager.GameFrameWrapper",
-      "sourceHash": 1,
+      "sourceHash": 4167167716,
       "editorRead": true,
-      "editorLength": 2110,
-      "sourceLength": 0
+      "sourceLength": 2110,
+      "editorLength": 2110
     },
     {
       "editorHash": 4114796758,
       "path": "ReplicatedStorage.Scripts.Client.UIManager.GuiWrapperBase",
-      "sourceHash": 1,
+      "sourceHash": 4114796758,
       "editorRead": true,
-      "editorLength": 2011,
-      "sourceLength": 0
+      "sourceLength": 2011,
+      "editorLength": 2011
     },
     {
       "editorHash": 3239064485,
       "path": "ReplicatedStorage.Scripts.Client.UIManager.TextFitting",
       "sourceHash": 3239064485,
       "editorRead": true,
-      "editorLength": 8316,
-      "sourceLength": 8316
+      "sourceLength": 8316,
+      "editorLength": 8316
     },
     {
       "editorHash": 2174785801,
       "path": "ReplicatedStorage.Scripts.Client.UIManager.UIActions",
-      "sourceHash": 1,
+      "sourceHash": 2174785801,
       "editorRead": true,
-      "editorLength": 399,
-      "sourceLength": 0
+      "sourceLength": 399,
+      "editorLength": 399
     },
     {
       "editorHash": 3007848929,
       "path": "ReplicatedStorage.Scripts.Client.UIManager.WindowBase",
-      "sourceHash": 1,
+      "sourceHash": 3007848929,
       "editorRead": true,
-      "editorLength": 2985,
-      "sourceLength": 0
+      "sourceLength": 2985,
+      "editorLength": 2985
     },
     {
       "editorHash": 1395525147,
       "path": "ReplicatedStorage.Scripts.Client.VisualUpload",
-      "sourceHash": 3910730533,
+      "sourceHash": 1395525147,
       "editorRead": true,
-      "editorLength": 3478,
-      "sourceLength": 3471
+      "sourceLength": 3478,
+      "editorLength": 3478
     },
     {
       "editorHash": 417260226,
       "path": "ReplicatedStorage.Scripts.Shared.BodySurfaceData",
       "sourceHash": 417260226,
       "editorRead": true,
-      "editorLength": 850806,
-      "sourceLength": 850806
+      "sourceLength": 850806,
+      "editorLength": 850806
     },
     {
       "editorHash": 4137817514,
       "path": "ReplicatedStorage.Scripts.Shared.CurvedSurface",
       "sourceHash": 4137817514,
       "editorRead": true,
-      "editorLength": 5964,
-      "sourceLength": 5964
+      "sourceLength": 5964,
+      "editorLength": 5964
     },
     {
       "editorHash": 1159820676,
       "path": "ReplicatedStorage.Scripts.Shared.FoundationNet",
-      "sourceHash": 1,
+      "sourceHash": 1159820676,
       "editorRead": true,
-      "editorLength": 4004,
-      "sourceLength": 0
+      "sourceLength": 4004,
+      "editorLength": 4004
     },
     {
-      "editorHash": 1935706228,
+      "editorHash": 2964647648,
       "path": "ReplicatedStorage.Scripts.Shared.GameConfig",
-      "sourceHash": 2299605060,
+      "sourceHash": 1935706228,
       "editorRead": true,
-      "sourceLength": 3323,
-      "editorLength": 8708
+      "sourceLength": 8708,
+      "editorLength": 8899
     },
     {
       "editorHash": 1683791061,
       "path": "ReplicatedStorage.Scripts.Shared.GameSoundTool",
-      "sourceHash": 1,
+      "sourceHash": 1683791061,
       "editorRead": true,
-      "editorLength": 4782,
-      "sourceLength": 0
+      "sourceLength": 4782,
+      "editorLength": 4782
     },
     {
       "editorHash": 4146344053,
       "path": "ReplicatedStorage.Scripts.Shared.GameTexts",
-      "sourceHash": 1,
+      "sourceHash": 4146344053,
       "editorRead": true,
-      "editorLength": 85,
-      "sourceLength": 0
+      "sourceLength": 85,
+      "editorLength": 85
     },
     {
       "editorHash": 1597706890,
       "path": "ReplicatedStorage.Scripts.Shared.GameTypes",
-      "sourceHash": 3117658572,
+      "sourceHash": 1597706890,
       "editorRead": true,
-      "editorLength": 2923,
-      "sourceLength": 2661
+      "sourceLength": 2923,
+      "editorLength": 2923
     },
     {
       "editorHash": 3043728319,
       "path": "ReplicatedStorage.Scripts.Shared.Hints",
       "sourceHash": 3043728319,
       "editorRead": true,
-      "editorLength": 2911,
-      "sourceLength": 2911
+      "sourceLength": 2911,
+      "editorLength": 2911
     },
     {
       "editorHash": 4265582946,
       "path": "ReplicatedStorage.Scripts.Shared.LifecycleTool",
       "sourceHash": 4265582946,
       "editorRead": true,
-      "editorLength": 2649,
-      "sourceLength": 2649
+      "sourceLength": 2649,
+      "editorLength": 2649
     },
     {
       "editorHash": 2091270428,
       "path": "ReplicatedStorage.Scripts.Shared.NetCallbacks",
-      "sourceHash": 1,
+      "sourceHash": 2091270428,
       "editorRead": true,
-      "editorLength": 105,
-      "sourceLength": 0
+      "sourceLength": 105,
+      "editorLength": 105
     },
     {
       "editorHash": 2670773956,
       "path": "ReplicatedStorage.Scripts.Shared.NetMsg",
-      "sourceHash": 3521680124,
+      "sourceHash": 2670773956,
       "editorRead": true,
-      "editorLength": 4768,
-      "sourceLength": 4199
+      "sourceLength": 4768,
+      "editorLength": 4768
     },
     {
       "editorHash": 684563404,
       "path": "ReplicatedStorage.Scripts.Shared.PaintBodyPose",
       "sourceHash": 684563404,
       "editorRead": true,
-      "editorLength": 4089,
-      "sourceLength": 4089
+      "sourceLength": 4089,
+      "editorLength": 4089
     },
     {
       "editorHash": 2283636958,
       "path": "ReplicatedStorage.Scripts.Shared.PaintSurface",
       "sourceHash": 2283636958,
       "editorRead": true,
-      "editorLength": 4427,
-      "sourceLength": 4427
+      "sourceLength": 4427,
+      "editorLength": 4427
     },
     {
       "editorHash": 154876486,
       "path": "ReplicatedStorage.Scripts.Shared.PhysicsConfig",
       "sourceHash": 154876486,
       "editorRead": true,
-      "editorLength": 1665,
-      "sourceLength": 1665
+      "sourceLength": 1665,
+      "editorLength": 1665
     },
     {
-      "editorHash": 665152855,
+      "editorHash": 2121108687,
       "path": "ReplicatedStorage.Scripts.Shared.PlayerProfileRules",
-      "sourceHash": 1,
+      "sourceHash": 665152855,
       "editorRead": true,
-      "editorLength": 1721,
-      "sourceLength": 0
+      "sourceLength": 1721,
+      "editorLength": 1857
     },
     {
       "editorHash": 2542114636,
       "path": "ReplicatedStorage.Scripts.Shared.ProcessingNet",
-      "sourceHash": 1,
+      "sourceHash": 2542114636,
       "editorRead": true,
-      "editorLength": 4205,
-      "sourceLength": 0
+      "sourceLength": 4205,
+      "editorLength": 4205
     },
     {
-      "editorHash": 684250137,
+      "editorHash": 339266336,
       "path": "ReplicatedStorage.Scripts.Shared.SaveRules",
-      "sourceHash": 1110646127,
+      "sourceHash": 684250137,
       "editorRead": true,
-      "sourceLength": 760,
-      "editorLength": 4226
+      "sourceLength": 4226,
+      "editorLength": 4963
     },
     {
       "editorHash": 3712364741,
       "path": "ReplicatedStorage.Scripts.Shared.StrokePath",
       "sourceHash": 3712364741,
       "editorRead": true,
-      "editorLength": 1530,
-      "sourceLength": 1530
+      "sourceLength": 1530,
+      "editorLength": 1530
     },
     {
       "editorHash": 2025433108,
       "path": "ReplicatedStorage.Scripts.Shared.VisualRules",
       "sourceHash": 2025433108,
       "editorRead": true,
-      "editorLength": 3352,
-      "sourceLength": 3352
+      "sourceLength": 3352,
+      "editorLength": 3352
     },
     {
       "editorHash": 43955298,
       "path": "ServerScriptService.ServerRoot",
       "sourceHash": 43955298,
       "editorRead": true,
-      "editorLength": 456,
-      "sourceLength": 456
+      "sourceLength": 456,
+      "editorLength": 456
     },
     {
-      "editorHash": 2865210945,
+      "editorHash": 3583581192,
       "path": "ServerStorage.Scripts.AnalyticsTool",
-      "sourceHash": 1,
+      "sourceHash": 2865210945,
       "editorRead": true,
-      "editorLength": 4126,
-      "sourceLength": 0
+      "sourceLength": 4126,
+      "editorLength": 6854
     },
     {
       "editorHash": 3353151185,
       "path": "ServerStorage.Scripts.Carry",
       "sourceHash": 3353151185,
       "editorRead": true,
-      "editorLength": 10092,
-      "sourceLength": 10092
+      "sourceLength": 10092,
+      "editorLength": 10092
     },
     {
       "editorHash": 3894467036,
       "path": "ServerStorage.Scripts.Door",
       "sourceHash": 3894467036,
       "editorRead": true,
-      "editorLength": 2181,
-      "sourceLength": 2181
+      "sourceLength": 2181,
+      "editorLength": 2181
     },
     {
       "editorHash": 3162042218,
       "path": "ServerStorage.Scripts.NPC",
       "sourceHash": 3162042218,
       "editorRead": true,
-      "editorLength": 8991,
-      "sourceLength": 8991
+      "sourceLength": 8991,
+      "editorLength": 8991
     },
     {
       "editorHash": 2099847449,
       "path": "ServerStorage.Scripts.Painting",
       "sourceHash": 2099847449,
       "editorRead": true,
-      "editorLength": 5002,
-      "sourceLength": 5002
+      "sourceLength": 5002,
+      "editorLength": 5002
     },
     {
       "editorHash": 1889194083,
       "path": "ServerStorage.Scripts.PlayerContextTool",
-      "sourceHash": 1,
+      "sourceHash": 1889194083,
       "editorRead": true,
-      "editorLength": 1958,
-      "sourceLength": 0
+      "sourceLength": 1958,
+      "editorLength": 1958
     },
     {
-      "editorHash": 2419862452,
+      "editorHash": 3328047108,
       "path": "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool",
-      "sourceHash": 1,
+      "sourceHash": 2419862452,
       "editorRead": true,
-      "editorLength": 697,
-      "sourceLength": 0
+      "sourceLength": 697,
+      "editorLength": 2156
     },
     {
-      "editorHash": 311845410,
+      "editorHash": 4110376917,
       "path": "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool.PlayerSaveInfoVersionUpdate1",
+      "sourceHash": 311845410,
+      "editorRead": true,
+      "sourceLength": 198,
+      "editorLength": 197
+    },
+    {
+      "editorHash": 2125952536,
+      "path": "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool.PlayerSaveInfoVersionUpdate2",
       "sourceHash": 1,
       "editorRead": true,
-      "editorLength": 198,
-      "sourceLength": 0
+      "sourceLength": 0,
+      "editorLength": 259
     },
     {
       "editorHash": 2830888731,
       "path": "ServerStorage.Scripts.PlayerSaveLeaseRules",
       "sourceHash": 2830888731,
       "editorRead": true,
-      "editorLength": 3424,
-      "sourceLength": 3424
+      "sourceLength": 3424,
+      "editorLength": 3424
     },
     {
       "editorHash": 248887316,
       "path": "ServerStorage.Scripts.ProcessingManager",
-      "sourceHash": 1,
+      "sourceHash": 248887316,
       "editorRead": true,
-      "editorLength": 27165,
-      "sourceLength": 0
+      "sourceLength": 27165,
+      "editorLength": 27165
     },
     {
       "editorHash": 263169613,
       "path": "ServerStorage.Scripts.Ragdoll",
       "sourceHash": 263169613,
       "editorRead": true,
-      "editorLength": 6307,
-      "sourceLength": 6307
+      "sourceLength": 6307,
+      "editorLength": 6307
     },
     {
       "editorHash": 1625110915,
       "path": "ServerStorage.Scripts.Replication",
-      "sourceHash": 2304128653,
+      "sourceHash": 1625110915,
       "editorRead": true,
-      "editorLength": 1503,
-      "sourceLength": 1496
+      "sourceLength": 1503,
+      "editorLength": 1503
     },
     {
       "editorHash": 754072910,
       "path": "ServerStorage.Scripts.Scene",
       "sourceHash": 754072910,
       "editorRead": true,
-      "editorLength": 3160,
-      "sourceLength": 3160
+      "sourceLength": 3160,
+      "editorLength": 3160
     },
     {
-      "editorHash": 4025770265,
+      "editorHash": 3770532116,
       "path": "ServerStorage.Scripts.ServerConfig",
-      "sourceHash": 1,
+      "sourceHash": 4025770265,
       "editorRead": true,
-      "editorLength": 188,
-      "sourceLength": 0
+      "sourceLength": 188,
+      "editorLength": 363
     },
     {
-      "editorHash": 2097652809,
+      "editorHash": 2881171138,
       "path": "ServerStorage.Scripts.ServerGameInfo",
-      "sourceHash": 1,
+      "sourceHash": 2097652809,
       "editorRead": true,
-      "sourceLength": 0,
-      "editorLength": 8526
+      "sourceLength": 8526,
+      "editorLength": 9407
     },
     {
-      "editorHash": 1579135386,
+      "editorHash": 4216350785,
       "path": "ServerStorage.Scripts.ServerGameManager",
-      "sourceHash": 644136940,
+      "sourceHash": 1579135386,
       "editorRead": true,
-      "editorLength": 6421,
-      "sourceLength": 29496
+      "sourceLength": 6421,
+      "editorLength": 6952
     },
     {
       "editorHash": 2483014505,
       "path": "ServerStorage.Scripts.ServerGameManager.ServerMarketplaceManager",
-      "sourceHash": 1,
+      "sourceHash": 2483014505,
       "editorRead": true,
-      "editorLength": 2587,
-      "sourceLength": 0
+      "sourceLength": 2587,
+      "editorLength": 2587
     },
     {
-      "editorHash": 599270724,
+      "editorHash": 242487909,
       "path": "ServerStorage.Scripts.ServerGameManager.ServerPlayerChatCommandManager",
-      "sourceHash": 1,
+      "sourceHash": 599270724,
       "editorRead": true,
-      "editorLength": 2200,
-      "sourceLength": 0
+      "sourceLength": 2200,
+      "editorLength": 2195
     },
     {
       "editorHash": 1536209520,
       "path": "ServerStorage.Scripts.ServerGameManager.ServerPlayerSettingManager",
-      "sourceHash": 1,
+      "sourceHash": 1536209520,
       "editorRead": true,
-      "editorLength": 1936,
-      "sourceLength": 0
+      "sourceLength": 1936,
+      "editorLength": 1936
     },
     {
       "editorHash": 509477428,
       "path": "ServerStorage.Scripts.ServerMsg",
-      "sourceHash": 1,
+      "sourceHash": 509477428,
       "editorRead": true,
-      "editorLength": 657,
-      "sourceLength": 0
+      "sourceLength": 657,
+      "editorLength": 657
     },
     {
-      "editorHash": 666481357,
+      "editorHash": 1578669170,
       "path": "ServerStorage.Scripts.ServerPlayerSaveStore",
-      "sourceHash": 3196218701,
+      "sourceHash": 666481357,
       "editorRead": true,
-      "editorLength": 6180,
-      "sourceLength": 5988
+      "sourceLength": 6180,
+      "editorLength": 6105
     },
     {
       "editorHash": 1965476533,
       "path": "StarterPlayer.StarterPlayerScripts.ClientRoot",
       "sourceHash": 1965476533,
       "editorRead": true,
-      "editorLength": 519,
-      "sourceLength": 519
+      "sourceLength": 519,
+      "editorLength": 519
     }
   ],
   "gameConfigStructureRestored": true,
+  "referenceComparison": "24 foundation script sources compared before/after; reference receives read-only calls only",
+  "nativePlayerInfoRestored": true,
+  "nativeVersionStepsRestored": [
+    1,
+    2
+  ],
+  "analyticsBatchAndDeadlineRestored": true,
   "latestExactEditorComparisons": [
+    "ServerStorage.Scripts.AnalyticsTool",
+    "ServerStorage.Scripts.ServerConfig",
+    "ServerStorage.Scripts.ServerGameInfo",
+    "ServerStorage.Scripts.ServerPlayerSaveStore",
+    "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool",
+    "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool.PlayerSaveInfoVersionUpdate1",
+    "ServerStorage.Scripts.PlayerSaveInfoVersionUpdateTool.PlayerSaveInfoVersionUpdate2",
+    "ServerStorage.Scripts.ServerGameManager",
+    "ServerStorage.Scripts.ServerGameManager.ServerPlayerChatCommandManager",
+    "ReplicatedStorage.Scripts.Client.ClientGameManager",
     "ReplicatedStorage.Scripts.Shared.GameConfig",
-    "ReplicatedStorage.Scripts.Shared.SaveRules",
-    "ServerStorage.Scripts.ServerGameInfo"
-  ]
+    "ReplicatedStorage.Scripts.Shared.PlayerProfileRules",
+    "ReplicatedStorage.Scripts.Shared.SaveRules"
+  ],
+  "latestExactEditorMismatches": []
 }

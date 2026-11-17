@@ -1,4 +1,5 @@
--- 历史迁移入口：委托统一迁移规则，不维护第二份版本逻辑
+-- 原生存档第一步迁移：保留基础框架 dataVersion 从零升级到一的语义
 --!strict
-local Rules = require(game:GetService("ReplicatedStorage").Scripts.Shared.SaveRules)
-return Rules.Migrate
+return function(playerSaveInfo: { [string]: unknown }): ()
+	playerSaveInfo.dataVersion = 1
+end

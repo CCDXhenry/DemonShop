@@ -66,34 +66,37 @@ function Manager.AddPlayer(self: Manager, player: Player): ()
 	end
 	self.loading[player] = true
 	player:SetAttribute("GameReady", false)
-	local region, config = Context.Get(player)
-	if self.closing or not player.Parent then
+	local playerSaveInfo, reason = Info.AcquirePlayerSaveInfo(player)
+	if not playerSaveInfo then
 		self.loading[player] = nil
-		return
-	end
-	local ok, reason = Info.Load(player, region, config)
-	if not ok then
-		self.loading[player] = nil
-		if player.Parent then
+		if player.Parent and not self.closing then
 			warn("[ServerGameManager] Load failed", player.UserId, reason)
 			player:Kick("Saved data unavailable. Please rejoin.")
 		end
 		return
-	end
-	local record = Info.GetPlayerInfo(player)
-	if record then
-		record.playerConfigInfo = Context.ResolveConfig(player, record.profile.firstEnterVersion)
 	end
 	if self.closing or not player.Parent then
 		Info.RemovePlayerInfo(player)
 		self.loading[player] = nil
 		return
 	end
+	local region = Context.Get(player)
+	if self.closing or not player.Parent then
+		Info.RemovePlayerInfo(player)
+		self.loading[player] = nil
+		return
+	end
+	local config = Context.ResolveConfig(player, playerSaveInfo.firstEnterVersion)
+	if self.closing or not player.Parent then
+		Info.RemovePlayerInfo(player)
+		self.loading[player] = nil
+		return
+	end
+	Info.InitPlayerInfo(player, playerSaveInfo, region, config)
 	self.loading[player] = nil
 	self.players[player] = true
 	self.processing:AddPlayer(player)
 	player:SetAttribute("GameReady", true)
-	Info.SendPlayerInfo(player)
 	self.marketplace:CheckOwnedGamePasses(player)
 	Analytics.AddPlayer(player)
 end
@@ -104,7 +107,15 @@ function Manager.SavePlayer(self: Manager, player: Player): ()
 	end
 end
 function Manager.RemovePlayer(self: Manager, player: Player): ()
-	if self.removing[player] or not self.players[player] then
+	if self.removing[player] then
+		return
+	end
+	if self.loading[player] and not self.players[player] then
+		Info.Freeze(player)
+		Info.RemovePlayerInfo(player)
+		return
+	end
+	if not self.players[player] then
 		return
 	end
 	self.removing[player] = true
@@ -147,19 +158,30 @@ function Manager.Update(self: Manager, seconds: number): ()
 	end
 end
 function Manager.Close(self: Manager): ()
+	if self.closing then
+		return
+	end
 	self.closing = true
+	local deadline = os.clock() + Config.FoundationShutdownSeconds
+	for player in self.loading do
+		task.spawn(function(): ()
+			Info.Freeze(player)
+			Info.RemovePlayerInfo(player)
+		end)
+	end
 	for player in self.players do
 		task.spawn(function(): ()
 			self:RemovePlayer(player)
 		end)
 	end
-	local deadline = os.clock() + 25
 	while (next(self.players) or next(self.loading)) and os.clock() < deadline do
+		Analytics.Flush()
 		task.wait(0.1)
 	end
 	if next(self.players) or next(self.loading) then
 		warn("[ServerGameManager] Shutdown timed out with pending data operations")
 	end
+	Analytics.Close(deadline)
 end
 function Manager.Init(self: Manager): ()
 	if self.initialized then

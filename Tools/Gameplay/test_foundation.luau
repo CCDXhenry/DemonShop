@@ -42,26 +42,37 @@ check(Market.ProcessReceipt({PlayerId=1001,ProductId=1,PurchaseId='x'})==R.Enum.
 B.db.values['1001']={version=1,coins=321}
 local server=Server.new();server:Init();server:Init()
 check(B.processingStarts==1 and B.Players.PlayerAdded:Count()==1 and B.RunService.Heartbeat:Count()==1 and B.binds==1,'server Init is idempotent')
+local initCount=0
+local initConnection=B.serverInit:Connect(function(player)
+ initCount+=1
+ local info=Info.GetPlayerInfo(player)
+ check(info~=nil and info.playerConfigInfo.final==true,'server initialization listeners see final resolved config')
+ check(player.attributes.GameReady==false,'business remains gated at initialization signal')
+end)
+B.Context.ResolveConfig=function()return {final=true}end
 server:AddPlayer(B.player);server:AddPlayer(B.player)
-check(B.processingAdds==1 and B.player.attributes.GameReady and Info.GetPlayerInfo(B.player).profile.coins==321,'single load and processing attach')
+check(B.processingAdds==1 and B.player.attributes.GameReady and Info.GetPlayerInfo(B.player).coins==321,'single load and processing attach')
+check(initCount==1 and #B.notices==1 and B.otherNotices==1,'native initialization emits each notification once')
+initConnection:Disconnect()
 local client=Client.new();client:Init();client:Init()
+check(B.backpackCalls==1 and B.backpackEnabled==false and B.backpackKind==R.Enum.CoreGuiType.Backpack,'foundation disables native backpack exactly once')
 check(B.clientStarts==1 and B.uiStarts==1 and B.soundStarts==1,'client starts after profile exactly once')
 Info.SendPlayerInfo(B.player)
-check(B.clientStarts==1 and B.uiStarts==1,'profile replay cannot restart client')
+check(B.clientStarts==1 and B.uiStarts==1 and B.backpackCalls==1,'profile replay cannot restart client or reset backpack')
 check(B.bgm==1 and B.sfx==1 and B.vibration==true,'loaded settings applied')
 B.request:Fire(B.player,{action='SetBGMVolume',value=.4})
-check(Info.GetPlayerInfo(B.player).profile.settingInfo.bgmVolume==1,'rate limit blocks immediate repeat')
+check(Info.GetPlayerInfo(B.player).settingInfo.bgmVolume==1,'rate limit blocks immediate repeat')
 -- Exercise actual setting handler after the clock boundary advances.
 local Settings=require('./ServerPlayerSettingManager')
 local settings=server.settings;settings.lastRequest[B.player]=-math.huge
 B.request:Fire(B.player,{action='SetBGMVolume',value=.4})
-check(B.bgm==.4 and Info.GetPlayerInfo(B.player).profile.settingInfo.bgmVolume==.4,'server setting update and client application')
-check(Info.AddCoins(B.player,100) and Info.GetPlayerInfo(B.player).profile.coins==421,'reward uses shared data owner')
+check(B.bgm==.4 and Info.GetPlayerInfo(B.player).settingInfo.bgmVolume==.4,'server setting update and client application')
+check(Info.AddCoins(B.player,100) and Info.GetPlayerInfo(B.player).coins==421,'reward uses shared data owner')
 Info.Tick(B.player,2.5)
-check(Info.GetPlayerInfo(B.player).profile.gameTime==2.5,'foundation owns online statistics')
+check(Info.GetPlayerInfo(B.player).gameTime==2.5,'foundation owns online statistics')
 check(Info.SetPlayerGamePassAcquired(B.player,42) and not Info.SetPlayerGamePassAcquired(B.player,42),'server pass notification idempotent')
 check(B.grants==1 and table.find(ClientInfo.GetLocalPlayerInfo().ownedGamePassList,42),'client pass cache receives one grant')
-check(Info.GetPlayerInfo(B.player).coins==421 and Info.GetPlayerInfo(B.player).dataVersion==2,'reference player view aliases authoritative profile')
+check(Info.GetPlayerInfo(B.player).coins==421 and Info.GetPlayerInfo(B.player).dataVersion==2,'reference fields live directly on PlayerInfo')
 check(Info.GetPlayerInfo(B.player).ownedGamePassMap[42] and ClientInfo.GetLocalPlayerInfo().ownedGamePassMap[42],'reference pass maps built on both peers')
 local publicSave=Info.CreatePlayerSaveInfoByPlayerInfo(Info.GetPlayerInfo(B.player))
 check(publicSave.version==nil and publicSave.dataVersion==2 and rawget(publicSave,'dataVersion')==2,'reference save snapshot uses native dataVersion field')
@@ -75,21 +86,26 @@ Info.SendPlayerInfo(B.player)
 check(B.notices[#B.notices].notice.otherPlayers['2002']~=nil,'profile replay includes connected other players')
 server:RemovePlayer(second)
 check(ClientInfo.GetOtherPlayerInfo(2002)==nil,'server departure reaches client cleanup')
-local snapshot=Save.Copy(Info.GetPlayerInfo(B.player).profile)
+local info=Info.GetPlayerInfo(B.player)
+check(getmetatable(info)==nil and rawget(info,'coins')==421 and rawget(info,'dataVersion')==2,'public PlayerInfo is a plain native table')
+check(info.profile==nil and info.revision==nil and info.savedRevision==nil and info.closing==nil,'session internals are not public fields')
+local nativeClone=table.clone(info);nativeClone.coins=1
+check(info.coins==421,'cloned scalar does not mutate authoritative coins')
+info.playerInfoChanged=false;check(info.playerInfoChanged==false,'native dirty flag can be cleared')
+info.playerInfoChanged=true;check(info.playerInfoChanged==true,'native dirty flag can be set')
+local snapshot=Save.FromPlayerSaveInfo(Info.CreatePlayerSaveInfoByPlayerInfo(Info.GetPlayerInfo(B.player)))
 Info.UpdateSetting(B.player,'vibrationOn',false)
 check(snapshot.settingInfo.vibrationOn==true,'pending snapshot does not change during new edits')
 check(Info.Save(B.player),'latest profile saved')
-local revision=Info.GetPlayerInfo(B.player).revision
-check(server.store:Save(1001,snapshot,revision-1),'older revision safely superseded')
-check(B.db.values['1001'].settingInfo.vibrationOn==false,'stale snapshot cannot roll back setting')
+check(not Info.GetPlayerInfo(B.player).playerInfoChanged,'successful unchanged snapshot clears native dirty flag')
 local stranger=B.Player(3003);settings.lastRequest[stranger]=-math.huge
 B.request:Fire(stranger,{action='SetBGMVolume',value=.1})
 check(Info.GetPlayerInfo(stranger)==nil,'unloaded player cannot modify settings')
 server:RemovePlayer(B.player);server:RemovePlayer(B.player)
 check(B.processingRemoves==2 and Info.GetPlayerInfo(B.player)==nil and B.player.attributes.GameReady==false,'exit freezes and detaches exactly once')
 server:AddPlayer(B.player)
-check(Info.GetPlayerInfo(B.player).profile.coins==421 and not Info.GetPlayerInfo(B.player).profile.settingInfo.vibrationOn,'rejoin restores coins and settings')
-check(Info.GetPlayerInfo(B.player).profile.loginDays==1,'same UTC day rejoin keeps login count')
+check(Info.GetPlayerInfo(B.player).coins==421 and not Info.GetPlayerInfo(B.player).settingInfo.vibrationOn,'rejoin restores coins and settings')
+check(Info.GetPlayerInfo(B.player).loginDays==1,'same UTC day rejoin keeps login count')
 -- 保存失败不能污染已存数据；异步旧快照不能覆盖保存期间的新金币。
 local Mock=require('./Mock')
 B.db.fail=true
@@ -109,6 +125,32 @@ Info.AddCoins(B.player,10)
 check(Info.Save(B.player),'new revision saves after pending write')
 check(saved and B.db.values['1001'].coins==441,'pending old snapshot cannot erase concurrent coin change')
 Mock.DataStoreTool.SafeUpdate=previousUpdate
+-- 普通表直接写入也必须在保存期间保留脏状态，随后快照使用最新字段。
+local current=Info.GetPlayerInfo(B.player)
+local savedCoins=current.coins
+Mock.DataStoreTool.SafeUpdate=function(...)task.wait(.02);return previousUpdate(...)end
+local firstDone=false
+task.spawn(function()Info.Save(B.player);firstDone=true end)
+task.wait(.005)
+current.coins+=7;current.settingInfo.bgmVolume=.7;current.playerInfoChanged=true
+task.wait(.03)
+check(firstDone and current.playerInfoChanged,'direct native writes during save remain dirty')
+check(B.db.values['1001'].coins==savedCoins,'pending snapshot owns scalar fields')
+check(Info.Save(B.player) and B.db.values['1001'].coins==savedCoins+7 and not current.playerInfoChanged,'follow-up save persists direct writes and clears only current snapshot')
+Mock.DataStoreTool.SafeUpdate=previousUpdate
+local interrupted=B.Player(4004)
+local baseResolve=B.Context.ResolveConfig
+B.Context.ResolveConfig=function()task.wait(.02);return {final=true}end
+local noticeCount=#B.notices
+task.spawn(function()server:AddPlayer(interrupted)end)
+task.wait(.005);interrupted.Parent=nil
+server:RemovePlayer(interrupted)
+check(not server.store:IsActive(interrupted.UserId),'disconnect releases lease before slow config resolver finishes')
+task.wait(.04)
+B.Context.ResolveConfig=baseResolve
+check(Info.GetPlayerInfo(interrupted)==nil and #B.notices==noticeCount and not server.loading[interrupted],'departure during config resolution never publishes native info')
+local Lease=require('./PlayerSaveLeaseRules')
+check(B.db.metadata['4004'][Lease.MetadataKeys.SessionId]==nil,'config cancellation releases acquired lease')
 local leaving=B.Player(5005)
 Mock.DataStoreTool.SafeUpdate=function(...)
  task.wait(.02)
@@ -117,17 +159,41 @@ end
 local addsBefore=B.processingAdds
 task.spawn(function()server:AddPlayer(leaving)end)
 task.wait(.005);leaving.Parent=nil
-task.wait(.06)
+task.spawn(function()server:RemovePlayer(leaving)end)
+task.wait(.07)
 Mock.DataStoreTool.SafeUpdate=previousUpdate
 check(Info.GetPlayerInfo(leaving)==nil and not server.loading[leaving] and B.processingAdds==addsBefore,'leaving during data acquisition never attaches gameplay')
-local Lease=require('./PlayerSaveLeaseRules')
-check(B.db.metadata['5005'][Lease.MetadataKeys.SessionId]==nil,'leaving during acquire releases acquired lease')
+check((not B.db.metadata['5005']) or B.db.metadata['5005'][Lease.MetadataKeys.SessionId]==nil,'leaving during acquire releases acquired lease')
 local expiredPlayer=B.Player(6006);server:AddPlayer(expiredPlayer)
 server.store.records[6006].expiresAt=0
 local coinsBefore=Info.GetPlayerInfo(expiredPlayer).coins
 check(not Info.AddCoins(expiredPlayer,100) and Info.GetPlayerInfo(expiredPlayer).coins==coinsBefore,'expired lease cannot award coins')
 server:RemovePlayer(expiredPlayer)
 check(Info.GetPlayerInfo(expiredPlayer)==nil,'expired player cleans up owner record')
+-- 串联原生默认资料、逐版本迁移、初始化及真实存储边界。
+local NativeConfig=require('./GameConfig')
+local Version=require('./PlayerSaveInfoVersionUpdateTool')
+local pipelinePlayer=B.Player(9009)
+local beforeAcquire=#B.notices
+local acquired=Info.AcquirePlayerSaveInfo(pipelinePlayer)
+check(acquired and acquired.dataVersion==2 and Info.GetPlayerInfo(pipelinePlayer)==nil and #B.notices==beforeAcquire,'acquisition holds lease without publishing PlayerInfo')
+local legacyNative=NativeConfig.CreateDefaultPlayerSaveInfo(100000);legacyNative.dataVersion=0;legacyNative.coins=nil
+check(Version.Update(legacyNative)==legacyNative and legacyNative.dataVersion==2,'default native legacy save migrates through version steps')
+Info.InitPlayerInfo(pipelinePlayer,legacyNative,'unknown',{final=true})
+check(#B.notices==beforeAcquire+1 and Info.GetPlayerInfo(pipelinePlayer).dataVersion==2,'native InitPlayerInfo publishes local notice without root compensation')
+local nativeSnapshot=Info.CreatePlayerSaveInfoByPlayerInfo(Info.GetPlayerInfo(pipelinePlayer))
+check(nativeSnapshot.version==nil and nativeSnapshot.dataVersion==2 and Save.Validate(Save.FromPlayerSaveInfo(nativeSnapshot)),'native snapshot converts at storage boundary')
+check(Info.Save(pipelinePlayer) and B.db.values['9009'].version==2 and B.db.values['9009'].dataVersion==nil,'end-to-end native pipeline retains durable version-2 shape')
+Info.RemovePlayerInfo(pipelinePlayer)
+local closingLoad=B.Player(8008)
+local beforeCloseNotices=#B.notices
+B.Context.ResolveConfig=function()task.wait(.03);return {final=true}end
+task.spawn(function()server:AddPlayer(closingLoad)end)
+task.wait(.005)
+server:Close()
+B.Context.ResolveConfig=baseResolve
+check(Info.GetPlayerInfo(closingLoad)==nil and #B.notices==beforeCloseNotices,'shutdown during config resolution never publishes half initialized player')
+check(not server.store:IsActive(closingLoad.UserId) and not server.loading[closingLoad],'shutdown releases loading lease and waits within common deadline')
 client:Destroy();server:Destroy();task.wait()
 check(B.request:Count()==0 and B.notify:Count()==0 and B.Players.PlayerAdded:Count()==0 and B.RunService.Heartbeat:Count()==0,'destroy disconnects lifecycle hooks')
 check(Info.GetPlayerInfo(B.player)==nil,'shutdown releases sole data owner')

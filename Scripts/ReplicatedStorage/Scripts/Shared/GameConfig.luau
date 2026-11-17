@@ -132,6 +132,9 @@ export type ClientOtherPlayerSaveInfo = {}
 export type ClientOtherPlayerSyncInfo = ClientOtherPlayerSaveInfo & {}
 export type ClientOtherPlayerInfo = ClientOtherPlayerSyncInfo & {}
 
+GameConfig.AnalyticsFlushInterval = 8 -- 自定义统计批量发送及失败重试间隔，秒
+GameConfig.FoundationShutdownSeconds = 25 -- 基础存档和统计共用的关服预算，秒
+
 -- 本项目扩展参数：保持基础定义及类型顺序，业务参数在此追加。
 GameConfig.RemoteConfigEnabled = false -- 默认不调用 ConfigService
 GameConfig.DefaultPlayerConfig = {} :: PlayerConfigInfo -- 未启用或获取配置失败时使用

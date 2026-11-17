@@ -2,24 +2,19 @@
 
 运行代码位于 `Scripts/`，通过现有 Script Sync 同步，禁止用 MCP 覆写脚本源码。集中数值位于 `Shared/GameConfig.luau`，独立布娃娃模块为 `ServerStorage/Scripts/Ragdoll.luau`。
 
-## 基础框架恢复（2026-11-17）
+## 基础框架结构与行为修复（2026-11-17）
 
-- 以提交 `7933d7c` 的通用能力为依据恢复基础管理器、消息、设置、商城、统计和 UI 窗口，剥离旧农场依赖。`ServerGameManager` 统一维护玩家加入、退出、自动保存与关闭；`ProcessingManager` 只维护本局加工状态。`ClientGameManager` 完成资料握手后幂等启动 `ClientProcessingManager`，补发资料仅刷新缓存和设置。
-- `ServerGameInfo` 是存档唯一所有者。版本 1 的 `{version, coins}` 迁移为版本 2，金币保持不变；新增默认设置、首次进入信息、UTC 登录天数、累计在线时长和通行证列表。未知、损坏或旧农场结构拒绝加载，不默认覆盖。四个历史租约键保持原始持久化字符串。
-- `FoundationNet` 提供资料握手、设置和通行证通知。设置经服务端校验及限频；现有加工协议独立保留。商品目录默认为空，未配置商品不确认收据；外部统计、BGM、清档传送均默认关闭或未配置，不使用旧项目 ID。
-- `UIManager` 恢复窗口注册、单例、模态层级、按钮交互、文本拟合和销毁接口。`WindowCanvas` 固定 1920×1080，与现有 HUD 分别负责各自画布缩放；`ModalButton` 覆盖实际视口。窗口缩放动画只使用模板中预置的 `AnimationScale`。没有注册旧农场窗口。
-- 恢复实例时，在目标 Place Edit 执行 `build-foundation-assets.luau`，补齐基础 RemoteEvent、BindableEvent、窗口画布、模态遮罩及音量分组，并将模型中的音效接到 SoundEffects 分组。该安装器不创建或覆写脚本，不替换现有 HUD。然后按既有方式恢复模型和 UI 导出；模型位于 `ReplicatedStorage.Models`，若恢复模型后丢失外部分组引用，可再次执行此幂等安装器。
-- 本轮离线结果：原有 506 条回归、50 条基础框架断言、13 条 UI 框架断言，共 569 条通过；业务 strict 为 0 Error，全量检查仅保留共享 Core/TeleportTool 的两条既有诊断。Studio 保持 Edit，未启动 Play。
-- `python Tools/Gameplay/test_rules.py` 覆盖正式资料规则、版本迁移、设置/商城及双端装配、异步保存、UI 单例与模态栈；引擎服务与 GUI/Tween 使用离线边界。仍需按授权另做实机验收，离线通过不代表 Play、云端统计或商城交易验证。
-
-## 参考框架契约重构（2026-11-17）
-
-- 只读参考改为实际场景 `17432470623`，基线清单 `foundation-reference.json`；`check_foundation_contracts.py` 检查参考模块、公开方法参数数量、公开类型、事件及业务边界，并接入统一回归。它是结构门禁，参数类型由 strict 和正式网络行为测试补充验证。
-- `NetMsg` 恢复参考具名事件，加工实现迁入 `ProcessingNet`，原通用方法兼容转发。`FoundationNet` 是单传输路径适配器，组合连接通过 `Disconnect()` 完整释放；`FoundationRequest` 仅握手，`FoundationNotify` 不再使用。
-- `ServerGameInfo` 的参考字段是版本 2 权威资料的兼容视图；运行期持有地区、配置、通行证映射及修订号，保存快照只取持久化字段。GameConfig 已恢复参考框架的分段定义、原生 `PlayerSaveInfo.dataVersion` 与默认工厂（默认登录 1 天、UTC 当日零点）；`SaveRules.FromPlayerSaveInfo / ToPlayerSaveInfo` 显式转换基础结构与实际 version=2 存档，GameConfig 不再维护元表别名或持久化替身类型。客户端收到允许展示的本地资料与其他玩家公开资料，不接收服务端完整存档。迁移入口 `PlayerSaveInfoVersionUpdateTool.Update` 成功时兼容原地更新，失败保留输入，统一规则仍在 SaveRules。
-- UIManager 创建和销毁唯一 `GameScreenGui`，基础总控先初始化 UI，再将引用交给加工客户端。HUD 通过正式 GameFrameWrapper 管理缩放与清理；摄像机替换重新绑定，嵌套画布不重复缩放。StarterGui 不再保留第二份主界面模板。
-- Edit 安装器增量恢复基础事件、遮罩与音量组，重复执行不替换 HUD；删除退役的 FoundationNotify 和重复的 StarterGui.GameScreenGui。恢复导出映射见 `Assets/Foundation/README.md`。先恢复资源、再执行安装器，以重新连接跨导出文件的 SoundGroup 引用；脚本始终通过 Script Sync 同步。
-- 同步核验必须分别报告本地、GetEditorSource 编辑草稿与 Instance.Source。未提交草稿不等同于丢失源码；禁止通过 MCP 覆写或在 Studio 提交脚本草稿来消除差异。
+- 只读参考为场景 `17432470623`，清单 `foundation-reference.json`。结构门禁除模块、方法、公开类型和事件外，还约束原生资料结构、迁移边界、初始化顺序和必要的基础行为；运行语义由执行正式模块的离线测试补充。
+- `ServerGameInfo.GetPlayerInfo` 返回普通 `GameConfig.PlayerInfo`，基础字段可枚举，`playerInfoChanged` 可读写。权威资料不再包装在 profile 中；租约、修订号、关闭状态和保存串行锁放在私有记录中。快照在获得保存锁后生成，成功后仅当资料内容及修订号未变化才清除脏标记。
+- 初始化顺序为取得原生存档及租约、解析地区/最终配置、调用 `InitPlayerInfo`，再装配加工并设置 GameReady。`InitPlayerInfo` 自身发送服务端事件、本玩家资料和其他玩家通知；总控不重复派发。离场/关服取消尚未发布的初始化，释放加载中的租约；多个流程不并发 Release 同一租约。
+- `GameConfig` 保持参考分段结构，默认工厂返回原生 dataVersion 表。`PlayerSaveInfoVersionUpdateTool` 只接受原生存档，按 0→1→2 迁移，第二步补金币，先验证再原地更新；失败不触碰输入。`ServerPlayerSaveStore` 仅调用 `SaveRules.Migrate` 处理实际 version=2 存储；两种结构由 SaveRules 显式转换，历史租约键不变。
+- 基础网络保留 NetMsg 具名接口，加工协议位于 ProcessingNet。FoundationNet 是组合连接可释放的兼容适配层，FoundationRequest 只握手，FoundationNotify 已退役。设置限频、空商城目录和未配置商品不确认收据的规则保留。
+- UIManager 创建唯一主 GUI，加工客户端只接收引用；HUD/窗口各自的根画布固定 1920×1080，嵌套包装器不重复缩放。客户端基础初始化禁用原生 Backpack，资料重发不重复执行。
+- 自定义统计每玩家缓存并每 8 秒批量发送，失败留队重试，在途发送期间的新增事件保留到下一批。离场事件保存在独立于玩家资料的队列中，总控在同一个 25 秒期限内等待最终发送；期限到达后报告数量并释放任务。默认关闭时无发送循环或 HTTP。清档命令继续默认禁用，配置后传送原生默认存档及 GameConfig.GamePlaceId；ServerConfig 恢复分段赋值，密钥为空。
+- `python Tools/Gameplay/test_rules.py`：1062 项通过，包含原玩法/保存规则 506、基础资料/装配 83、UI 21、网络/迁移/上下文 37、参考契约 243、恢复 RBXM 144、统计队列 18、清档命令 10。HTTP、传送和引擎服务均使用离线边界，失败警告来自显式负向用例，不表示访问了真实服务。
+- 业务 strict 13 个文件 0 Error；全量 83 个目标仅保留共享 Core/TeleportTool 的两条既有类型错误，不修改共享库来消除。
+- 本轮仅脚本与测试/说明变化，没有重新运行 Edit 资源构建器或导出资产。资源恢复映射仍见 `Assets/Foundation/README.md`；已有项目优先增量安装，导入模型后可重跑安装器修复 SoundGroup 外部引用。
+- 最终 60 份项目脚本的本地内容与编辑草稿长度/校验值匹配，本轮 13 份修改另经逐字比较一致；已提交 Source 中 47 份匹配、13 份保留草稿差异。核验本地、`GetEditorSource` 与已提交 Instance.Source 时分别报告，遵守不在 Studio 提交草稿的规则；源码一致与离线通过不等于 Play 或云服务验证。
 
 ## 曲面白膜（2026-11-17）
 

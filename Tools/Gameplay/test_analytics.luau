@@ -1,0 +1,43 @@
+-- 正式统计模块回归：批量、失败保留、异步追加、离场队列和限期收尾
+local task=require('@lune/task')
+local A=require('./AnalyticsBoundary')
+local Analytics=require('./AnalyticsTool')
+local checks=0
+local function check(v,label)assert(v,label);checks+=1 end
+Analytics.Init();Analytics.Init();Analytics.AddPlayer(A.player)
+check(A.Heartbeat:Count()==0 and A.started==0 and Analytics.GetPendingEventCount()==0,'disabled analytics owns no loop, network or queue')
+check(Analytics.Close(A.clock+1),'disabled analytics closes without waiting')
+A.Config.AnalyticsEnabled=true
+Analytics.Init();Analytics.Init()
+check(A.Heartbeat:Count()==1,'one batch scheduler after idempotent Init')
+Analytics.AddPlayer(A.player);Analytics.AddPassPurchaseEvent(A.player,42,10)
+check(A.started==0 and Analytics.GetPendingEventCount()==2,'events queue instead of per-event HTTP')
+A.clock+=7;A.Heartbeat:Fire();task.wait()
+check(A.started==0,'batch does not send before eight seconds')
+A.clock+=1;A.Heartbeat:Fire();task.wait()
+check(A.started==1 and #A.requests[1].events==2 and Analytics.GetPendingEventCount()==0,'scheduled batch preserves both events')
+check(A.requests[1].first_time==10 and A.requests[1].country=='unknown' and A.requests[1].events[1].event_name=='PlayerAdded','reference event envelope retained')
+A.fail=true
+Analytics.AddEvent(A.player,'RetryMe');Analytics.Flush();task.wait()
+check(Analytics.GetPendingEventCount()==1 and A.started==2,'failed batch retained')
+Analytics.Flush();task.wait();check(A.started==2,'failed batch waits for retry interval')
+A.fail=false;A.clock+=8;Analytics.Flush();task.wait()
+check(A.started==3 and Analytics.GetPendingEventCount()==0 and A.requests[3].events[1].event_name=='RetryMe','next interval retries original event')
+A.delay=.02
+Analytics.AddEvent(A.player,'Before');Analytics.Flush();Analytics.Flush()
+Analytics.AddEvent(A.player,'During')
+task.wait(.03)
+check(A.started==4 and Analytics.GetPendingEventCount()==1,'in-flight batch sends once and preserves later arrivals')
+Analytics.RemovePlayer(A.player)
+check(Analytics.GetPendingEventCount()==2,'leaving player retains tail events after info removal')
+check(Analytics.Close(A.clock+5) and A.finished==5 and Analytics.GetPendingEventCount()==0,'close waits for final in-flight batch')
+check(A.Heartbeat:Count()==0 and A.requests[5].events[2].event_name=='PlayerRemoving','close disconnects scheduler after departure event')
+local count=A.started
+Analytics.AddPlayer(A.player);check(A.started==count and Analytics.GetPendingEventCount()==0,'closed analytics rejects new work')
+Analytics.Init();A.delay=1;Analytics.AddPlayer(A.player)
+check(not Analytics.Close(A.clock+.1),'deadline reports incomplete requests')
+check(#A.warnings>=2 and A.Heartbeat:Count()==0 and Analytics.GetPendingEventCount()==0,'deadline warns and releases pending tasks')
+local finished=A.finished;task.wait(.02)
+check(A.finished==finished,'timed out request task is cancelled only after deadline')
+Analytics.Destroy()
+print(string.format('PASS: %d production analytics queue/shutdown assertions (mock HTTP only)',checks))

@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 local Shared = ReplicatedStorage.Scripts.Shared
 local Net = require(Shared.NetMsg)
 local Config = require(Shared.GameConfig)
@@ -45,6 +46,8 @@ function Manager.Init(self: Manager): ()
 		return
 	end
 	self.initialized = true
+	-- 只在基础初始化阶段设置，资料重发和重生不会重新启用原生工具栏。
+	StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 	Sound.Init()
 	self.scope:Connect(Net.ConnectNotifyPlayerInfoInit(function(value, others, config): ()
 		self:OnPlayerInfo(value, others, config)
