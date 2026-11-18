@@ -11,7 +11,6 @@ local PaintPointer = require(script.Parent.Parent.PaintPointer)
 local Manager = {}
 Manager.__index = Manager
 export type Actions = {
-	interact: () -> (),
 	drop: () -> (),
 	attack: () -> (),
 	exitPaint: () -> (),
@@ -80,7 +79,7 @@ function Manager.Refresh(self: Manager, state: DisplayState): ()
 	local touch = UserInputService.TouchEnabled
 	local camera = workspace.CurrentCamera
 	local landscape = not camera or camera.ViewportSize.X >= camera.ViewportSize.Y
-	for _, name in { "InteractButton", "DropButton", "AttackButton" } do
+	for _, name in { "DropButton", "AttackButton" } do
 		self.buttons[name].Visible = not state.painting and not touch
 	end
 	self.buttons.ExitPaintButton.Visible = state.painting and not touch
@@ -88,7 +87,6 @@ function Manager.Refresh(self: Manager, state: DisplayState): ()
 	self.touchFrames.TouchLandscapeFrame.Visible = touch and not state.painting and landscape
 	self.touchFrames.TouchPortraitFrame.Visible = touch and not state.painting and not landscape
 	self.touchFrames.TouchPaintFrame.Visible = touch and state.painting
-	self.labels.HintKeyText.Visible = state.hasTarget and not state.painting and not touch
 	local paintFrame = self.paintFrame
 	if paintFrame then
 		paintFrame.Visible = state.painting
@@ -125,7 +123,6 @@ end
 function Manager.BindActions(self: Manager, actions: Actions): ()
 	self:UnbindActions()
 	local callbacks: { [string]: () -> () } = {
-		InteractButton = actions.interact,
 		DropButton = actions.drop,
 		AttackButton = actions.attack,
 		ExitPaintButton = actions.exitPaint,
@@ -161,7 +158,7 @@ function Manager.Init(self: Manager, gui: ScreenGui, owned: boolean?): ()
 			end
 		end
 	end
-	for _, name in { "InteractButton", "DropButton", "AttackButton", "ExitPaintButton", "ResetViewButton" } do
+	for _, name in { "DropButton", "AttackButton", "ExitPaintButton", "ResetViewButton" } do
 		self.buttons[name] = root:WaitForChild(name) :: GuiButton
 	end
 	table.insert(self.dropLabels, self.buttons.DropButton:WaitForChild("LabelText") :: TextLabel)

@@ -26,11 +26,9 @@ for _, value in gui:GetDescendants() do
 		if dynamic and value.Name ~= "ProgressText" then value.Text = "" end
 	end
 end
-SplitKey(root.HintText, "HintKeyText", "E", 48)
-local interactKey = SplitKey(root.InteractButton.LabelText, "KeyText", "E", 48)
-interactKey.Visible = true
-root.InteractButton.LabelText.Text = "INTERACT"
-root.InteractButton.LabelText.AutoLocalize = true
+for _, node in gui:GetDescendants() do
+	if node.Name == "InteractButton" or node.Name == "HintKeyText" then node:Destroy() end
+end
 local dropKey = SplitKey(root.DropButton.LabelText, "KeyText", "Q", 48)
 dropKey.Visible = true
 root.DropButton.LabelText.Text = ""
@@ -39,6 +37,19 @@ local target = ui:FindFirstChild("TargetGui")
 if target then
 	local count = target.ContentFrame.CountText
 	count.AutoLocalize, count.Text = false, ""
-	SplitKey(count, "KeyText", "E", 32)
+	local key = count.Parent:FindFirstChild("KeyText"); if key then key:Destroy() end
 end
+
+local prompt = ui:FindFirstChild("WorldInteractionPrompt") :: ProximityPrompt?
+if not prompt then prompt = Instance.new("ProximityPrompt"); prompt.Name = "WorldInteractionPrompt"; prompt.Parent = ui end
+prompt.Style = Enum.ProximityPromptStyle.Default
+prompt.HoldDuration = 0.5
+prompt.KeyboardKeyCode = Enum.KeyCode.E
+prompt.GamepadKeyCode = Enum.KeyCode.ButtonX
+prompt.ClickablePrompt = true
+prompt.RequiresLineOfSight = true
+prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+prompt.MaxActivationDistance = 8
+prompt.Enabled = false
+prompt.AutoLocalize = false
 return "Updated processing localization templates"

@@ -1,0 +1,3 @@
+Local report links verified: 12
+Original status entries preserved: True
+Run finished: 2026-11-18T05:53:39.371535+08:00

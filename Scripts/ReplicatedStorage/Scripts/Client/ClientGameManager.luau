@@ -12,14 +12,15 @@ local Lifecycle = require(Shared.LifecycleTool)
 local Info = require(script.Parent.ClientGameInfo)
 local UIManager = require(script.Parent.UIManager)
 local Processing = require(script.Parent.ClientProcessingManager)
+local Toolbar = require(script.Parent.ClientToolbar)
 local Manager = {}
 Manager.__index = Manager
 export type Manager = typeof(setmetatable(
-	{} :: { initialized: boolean, started: boolean, scope: Lifecycle.Lifecycle, processing: Processing.Client?, lastSync: number },
+	{} :: { initialized: boolean, started: boolean, scope: Lifecycle.Lifecycle, processing: Processing.Client?, toolbar: Toolbar.Controller?, lastSync: number },
 	Manager
 ))
 function Manager.new(): Manager
-	return setmetatable({ initialized = false, started = false, scope = Lifecycle.new(), processing = nil, lastSync = -math.huge }, Manager)
+	return setmetatable({ initialized = false, started = false, scope = Lifecycle.new(), processing = nil, toolbar = nil, lastSync = -math.huge }, Manager)
 end
 function Manager.OnPlayerInfo(
 	self: Manager,
@@ -35,6 +36,9 @@ function Manager.OnPlayerInfo(
 		return
 	end
 	local gui = UIManager.CreateGameScreenGui()
+	local toolbar = Toolbar.new()
+	self.toolbar = toolbar
+	toolbar:Init(gui)
 	local processing = Processing.new()
 	self.processing = processing
 	processing:Init(gui)
@@ -76,6 +80,10 @@ function Manager.Destroy(self: Manager): ()
 	if self.processing then
 		self.processing:Destroy()
 		self.processing = nil
+	end
+	if self.toolbar then
+		self.toolbar:Destroy()
+		self.toolbar = nil
 	end
 	UIManager.Destroy()
 	Sound.Destroy()

@@ -37,7 +37,7 @@ function Manager.Refresh(self: Manager, state: DisplayState): ()
 		)
 	end
 	if key then
-		key.Visible = state.hits >= Config.StunHits and not state.touch
+		key.Visible = false
 	end
 end
 function Manager.Init(self: Manager): ()

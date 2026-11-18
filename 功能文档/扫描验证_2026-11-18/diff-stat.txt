@@ -1,0 +1,214 @@
+git diff --stat 7933d7c HEAD
+exit=0
+ .agents/skills/demonshop-project/SKILL.md          |   14 +-
+ .agents/skills/local-toolchain-mcp-guide/SKILL.md  |   90 ++
+ .../references/creative-software-paths.md          |  108 ++
+ .../references/local-cli-toolchain.md              |  166 +++
+ .../references/mcp-blender-and-others.md           |   79 ++
+ .../references/mcp-roblox-studio.md                |  223 ++++
+ .../references/mcp-spline.md                       |  101 ++
+ .../references/project-automation-patterns.md      |  126 ++
+ .../references/troubleshooting-and-faq.md          |   89 ++
+ Assets/Foundation/README.md                        |   15 +
+ Assets/Foundation/ReplicatedStorage.rbxm           |  Bin 0 -> 1725 bytes
+ Assets/Foundation/ServerStorage.rbxm               |  Bin 0 -> 1018 bytes
+ Assets/Foundation/SoundService.rbxm                |  Bin 0 -> 1078 bytes
+ Assets/Models/ClassicSword.rbxm                    |  Bin 0 -> 5767 bytes
+ Assets/Models/GameModels.rbxm                      |  Bin 0 -> 102737 bytes
+ Assets/Models/SceneAnchors.rbxm                    |  Bin 0 -> 5333 bytes
+ Assets/Models/WhiteBody/WhiteBody.blend            |  Bin 0 -> 143573 bytes
+ Assets/Models/WhiteBody/WhiteBody.blend1           |  Bin 0 -> 143574 bytes
+ Assets/Models/WhiteBody/WhiteBody.fbx              |  Bin 0 -> 336108 bytes
+ Assets/Models/WhiteBody/WhiteR15Legacy.rbxm        |  Bin 0 -> 13267 bytes
+ Assets/Models/WhiteBody/four_views.png             |  Bin 0 -> 853536 bytes
+ Assets/Models/WhiteBody/paint_fix_reenter.png      |  Bin 0 -> 3460675 bytes
+ Assets/Models/WhiteBody/perspective_back.png       |  Bin 0 -> 350603 bytes
+ Assets/Models/WhiteBody/perspective_front.png      |  Bin 0 -> 363831 bytes
+ Assets/Models/WhiteBody/play-validation.json       |  145 +++
+ Assets/Models/WhiteBody/side.png                   |  Bin 0 -> 327440 bytes
+ Assets/Models/WhiteBody/studio.png                 |  Bin 0 -> 2490803 bytes
+ Assets/Models/WhiteBody/surface.json               |    1 +
+ Assets/Models/WhiteBody/table_hanging_paint.png    |  Bin 0 -> 3468266 bytes
+ Assets/Models/WhiteBody/top.png                    |  Bin 0 -> 292201 bytes
+ Assets/Models/WhiteBody/upload.json                |   29 +
+ Assets/Models/WhiteBody/validation.json            |    6 +
+ Assets/UI/CommonTemplates.rbxm                     |  Bin 6607 -> 2868 bytes
+ Assets/UI/ProjectTemplates.rbxm                    |  Bin 9936 -> 16615 bytes
+ .../Scripts/Client/BodyPresentation.luau           |   95 ++
+ .../Scripts/Client/CharacterPresentation.luau      |  142 ++
+ .../Scripts/Client/ClientBillboardManager.luau     |  237 ----
+ .../Scripts/Client/ClientCameraController.luau     |  145 ---
+ .../Scripts/Client/ClientFarmSpeciesManager.luau   |  245 ----
+ .../Scripts/Client/ClientFarmToolbar.luau          |  293 -----
+ .../Scripts/Client/ClientGameInfo.luau             |  183 +--
+ .../Scripts/Client/ClientGameManager.luau          |  182 +--
+ .../Scripts/Client/ClientHatchController.luau      |   87 --
+ .../Scripts/Client/ClientMsg.luau                  |    9 +-
+ .../Scripts/Client/ClientProcessingManager.luau    |  657 ++++++++++
+ .../Client/ClientRoastChickenFarmManager.luau      |  269 ----
+ .../Scripts/Client/CookedFoodBillboardBinder.luau  |  108 --
+ .../Scripts/Client/CurvedPaintView.luau            |  209 +++
+ .../Scripts/Client/EggBillboardBinder.luau         |  101 --
+ .../Scripts/Client/FarmModelPreview.luau           |   57 -
+ .../Scripts/Client/FarmTextTool.luau               |  182 ---
+ .../Scripts/Client/FarmVisualEffects.luau          | 1373 --------------------
+ .../Scripts/Client/FarmWindows/BasketShop.luau     |    9 -
+ .../Scripts/Client/FarmWindows/CollectorShop.luau  |    9 -
+ .../Scripts/Client/FarmWindows/Common.luau         |  107 --
+ .../Scripts/Client/FarmWindows/Confirmation.luau   |   30 -
+ .../Scripts/Client/FarmWindows/Equipment.luau      |   29 -
+ .../Scripts/Client/FarmWindows/Hatch.luau          |   42 -
+ .../Scripts/Client/FarmWindows/Purchase.luau       |   70 -
+ .../Scripts/Client/FarmWindows/Restaurant.luau     |    9 -
+ .../Scripts/Client/FarmWindows/Species.luau        |   30 -
+ .../Scripts/Client/FarmWindows/ToolShop.luau       |   13 -
+ .../Scripts/Client/FarmWindows/WeaponEnhance.luau  |    9 -
+ .../Scripts/Client/FarmWindows/WeaponShop.luau     |   32 -
+ .../Scripts/Client/FarmZapPrediction.luau          |   60 -
+ .../Scripts/Client/PaintCamera.luau                |   62 +
+ .../Scripts/Client/PaintPointer.luau               |   27 +
+ .../Scripts/Client/PaintView.luau                  |  151 +++
+ .../Scripts/Client/ProcessingTextTool.luau         |   75 ++
+ .../Scripts/Client/RoastChickenHUDFrame.luau       |  220 ----
+ .../Scripts/Client/UIManager/GameFrameWrapper.luau |   93 +-
+ .../Client/UIManager/GameScreenGuiManager.luau     |  219 ++++
+ .../Scripts/Client/UIManager/GuiWrapperBase.luau   |    1 +
+ .../Client/UIManager/PaintCellFrameManager.luau    |   65 +
+ .../Client/UIManager/PaintFaceGuiManager.luau      |   39 +
+ .../UIManager/ScreenLayoutGuideFrameManager.luau   |   36 +
+ .../Scripts/Client/UIManager/TargetGuiManager.luau |   68 +
+ .../Scripts/Client/UIManager/TextFitting.luau      |    6 +-
+ .../Scripts/Client/UIManager/WindowBase.luau       |   46 +-
+ .../Scripts/Client/UIManager/init.luau             |  165 ++-
+ .../Scripts/Client/VisualUpload.luau               |   64 +
+ .../Scripts/Shared/BodySurfaceData.luau            |   65 +
+ .../Scripts/Shared/CurvedSurface.luau              |  121 ++
+ .../Scripts/Shared/FarmBusiness.luau               |  217 ----
+ .../Scripts/Shared/FarmCombatRules.luau            |  136 --
+ .../Scripts/Shared/FarmConfig.luau                 |  132 --
+ .../Scripts/Shared/FarmEconomyConfig.luau          |  352 -----
+ .../Scripts/Shared/FarmHatchRules.luau             |   21 -
+ .../Scripts/Shared/FarmNumberFormat.luau           |   25 -
+ .../Scripts/Shared/FarmRequest.luau                |   89 --
+ .../Scripts/Shared/FarmRestaurantConfig.luau       |   12 -
+ .../Scripts/Shared/FarmSaveData.luau               |  230 ----
+ .../Scripts/Shared/FarmScenePaths.luau             |   65 -
+ .../Scripts/Shared/FarmSoundTool.luau              |  265 ----
+ .../Scripts/Shared/FarmUIConfig.luau               |   16 -
+ .../Scripts/Shared/FarmVillageConfig.luau          |   18 -
+ .../Scripts/Shared/FoundationNet.luau              |  104 ++
+ .../Scripts/Shared/GameConfig.luau                 |  206 +++
+ .../Scripts/Shared/GameConfig/BasketData.luau      |   43 -
+ .../Scripts/Shared/GameConfig/CollectorData.luau   |   53 -
+ .../Scripts/Shared/GameConfig/QualityData.luau     |   59 -
+ .../Scripts/Shared/GameConfig/RestaurantData.luau  |   48 -
+ .../Shared/GameConfig/SpeciesAppearanceData.luau   |   63 -
+ .../Scripts/Shared/GameConfig/SpeciesData.luau     |   78 --
+ .../Scripts/Shared/GameConfig/WeaponData.luau      |   78 --
+ .../Scripts/Shared/GameConfig/init.luau            |  292 -----
+ .../Scripts/Shared/GameSoundTool.luau              |  116 ++
+ .../Scripts/Shared/GameTexts.luau                  |  290 +++--
+ .../Scripts/Shared/GameTypes.luau                  |   74 ++
+ .../ReplicatedStorage/Scripts/Shared/Hints.luau    |   52 +
+ .../Scripts/Shared/NetCallbacks.luau               |    6 +-
+ .../ReplicatedStorage/Scripts/Shared/NetMsg.luau   |  312 +----
+ .../Scripts/Shared/PaintBodyPose.luau              |   87 ++
+ .../Scripts/Shared/PaintSurface.luau               |  113 ++
+ .../Scripts/Shared/PhysicsConfig.luau              |   42 +
+ .../Scripts/Shared/PlayerProfileRules.luau         |   59 +
+ .../Scripts/Shared/ProcessingNet.luau              |  104 ++
+ .../Scripts/Shared/SaveRules.luau                  |  100 ++
+ .../Scripts/Shared/StrokePath.luau                 |   30 +
+ .../Scripts/Shared/VisualRules.luau                |   63 +
+ Scripts/ServerStorage/Scripts/AnalyticsTool.luau   |  378 +++---
+ Scripts/ServerStorage/Scripts/Carry.luau           |  206 +++
+ Scripts/ServerStorage/Scripts/Door.luau            |   65 +
+ Scripts/ServerStorage/Scripts/NPC.luau             |  229 ++++
+ Scripts/ServerStorage/Scripts/Painting.luau        |   93 ++
+ .../ServerStorage/Scripts/PlayerContextTool.luau   |   53 +
+ .../PlayerSaveInfoVersionUpdate1.luau              |   11 +-
+ .../PlayerSaveInfoVersionUpdateTool/init.luau      |   43 +-
+ .../Scripts/PlayerSaveLeaseRules.luau              |   83 +-
+ .../ServerStorage/Scripts/ProcessingManager.luau   |  826 ++++++++++++
+ Scripts/ServerStorage/Scripts/Ragdoll.luau         |  142 ++
+ Scripts/ServerStorage/Scripts/Replication.luau     |   28 +
+ Scripts/ServerStorage/Scripts/Scene.luau           |   65 +
+ Scripts/ServerStorage/Scripts/ServerConfig.luau    |    8 +-
+ .../Scripts/ServerFarmVillageTool.luau             |   73 --
+ Scripts/ServerStorage/Scripts/ServerGameInfo.luau  |  344 +++--
+ .../ServerMarketplaceManager.luau                  |  110 +-
+ .../ServerPlayerChatCommandManager.luau            |   96 +-
+ .../ServerPlayerSettingManager.luau                |   99 +-
+ .../Scripts/ServerGameManager/init.luau            |  479 +++----
+ .../Scripts/ServerPersonalFarmManager.luau         |  741 -----------
+ .../Scripts/ServerPersonalFarmTypes.luau           |   38 -
+ .../Scripts/ServerPersonalFarmView.luau            |  229 ----
+ .../Scripts/ServerPersonalRestaurant.luau          |  213 ---
+ .../Scripts/ServerPlayerSaveStore.luau             |   89 +-
+ .../Scripts/ServerRestaurantPackageView.luau       |   38 -
+ .../ServerBasketBuilder.luau                       |   41 -
+ .../ServerCollectorBuilder.luau                    |   30 -
+ .../ServerCreatureBuilder.luau                     |  118 --
+ .../ServerFarmSceneTool.luau                       |   50 -
+ .../ServerWeaponBuilder.luau                       |   27 -
+ Tools/Gameplay/AnalyticsBoundary.luau              |   27 +
+ Tools/Gameplay/ChatBoundary.luau                   |   24 +
+ Tools/Gameplay/CurvedRasterBoundary.luau           |   44 +
+ Tools/Gameplay/CurvedRasterReference.luau          |   53 +
+ Tools/Gameplay/FoundationBoundary.luau             |   72 +
+ Tools/Gameplay/FoundationDateBoundary.luau         |   13 +
+ Tools/Gameplay/FoundationUIBoundary.luau           |  116 ++
+ Tools/Gameplay/FoundationWireBoundary.luau         |   15 +
+ Tools/Gameplay/Mock.luau                           |   15 +
+ Tools/Gameplay/PaintClientBoundary.luau            |    8 +
+ Tools/Gameplay/PaintingWorld.luau                  |    7 +
+ Tools/Gameplay/ProcessingTextBoundary.luau         |   42 +
+ Tools/Gameplay/README.md                           |   76 ++
+ Tools/Gameplay/ReplicationNet.luau                 |    4 +
+ Tools/Gameplay/StrokeViewBoundary.luau             |   13 +
+ Tools/Gameplay/VisualNet.luau                      |    4 +
+ Tools/Gameplay/WeaponPresentationBoundary.luau     |   48 +
+ Tools/Gameplay/build-foundation-assets.luau        |   50 +
+ Tools/Gameplay/build-game-assets.luau              |  166 +++
+ Tools/Gameplay/build-quality-samples.luau          |  120 ++
+ Tools/Gameplay/build-white-assets.luau             |  110 ++
+ Tools/Gameplay/build_white_body.py                 |  130 ++
+ Tools/Gameplay/check_foundation_contracts.py       |   94 ++
+ Tools/Gameplay/foundation-reference.json           |  672 ++++++++++
+ Tools/Gameplay/foundation-validation.json          |  513 ++++++++
+ Tools/Gameplay/play-coverage-sweep.luau            |   42 +
+ Tools/Gameplay/play-server-checks.luau             |   68 +
+ Tools/Gameplay/play-visual-finish-checks.luau      |   59 +
+ Tools/Gameplay/play-white-body-checks.luau         |   84 ++
+ Tools/Gameplay/render_white_body.py                |   39 +
+ Tools/Gameplay/test_analytics.luau                 |   43 +
+ Tools/Gameplay/test_curved_raster.luau             |  151 +++
+ Tools/Gameplay/test_curved_surface.luau            |   56 +
+ Tools/Gameplay/test_curved_visual_pipeline.luau    |   62 +
+ Tools/Gameplay/test_foundation.luau                |  203 +++
+ Tools/Gameplay/test_foundation_assets.luau         |   34 +
+ Tools/Gameplay/test_foundation_chat.luau           |   25 +
+ Tools/Gameplay/test_foundation_ui.luau             |   57 +
+ Tools/Gameplay/test_foundation_wire.luau           |   65 +
+ Tools/Gameplay/test_paint_client_lifecycle.luau    |   86 ++
+ Tools/Gameplay/test_painting.luau                  |   59 +
+ Tools/Gameplay/test_processing_texts.luau          |  122 ++
+ Tools/Gameplay/test_processing_texts.py            |   58 +
+ Tools/Gameplay/test_replication.luau               |   33 +
+ Tools/Gameplay/test_rules.luau                     |   69 +
+ Tools/Gameplay/test_rules.py                       |  171 +++
+ Tools/Gameplay/test_stroke_path.luau               |   30 +
+ Tools/Gameplay/test_stroke_view.luau               |   57 +
+ Tools/Gameplay/test_table_body_pose.luau           |   62 +
+ Tools/Gameplay/test_ui_template_managers.luau      |   66 +
+ Tools/Gameplay/test_visual_scale.luau              |   36 +
+ Tools/Gameplay/test_visual_sync.luau               |   87 ++
+ Tools/Gameplay/test_weapon_presentation.luau       |   72 +
+ Tools/Gameplay/update-processing-localization.luau |   44 +
+ Tools/Gameplay/upload_white_body.py                |   50 +
+ Tools/Gameplay/white-rig-spec.json                 |  338 +++++
+ ...256\236\346\226\275\351\252\214\346\224\266.md" |   44 +
+ ...226\275\344\270\216\351\252\214\346\224\266.md" |   63 +
+ ...256\214\345\226\204\346\226\271\346\241\210.md" |  293 +++++
+ ...252\214\346\224\266\350\256\260\345\275\225.md" |   96 ++
+ 211 files changed, 12978 insertions(+), 9215 deletions(-)

@@ -1,0 +1,42 @@
+ M Assets/UI/ProjectTemplates.rbxm
+ M Scripts/ReplicatedStorage/Scripts/Client/CharacterPresentation.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/ClientGameManager.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/ClientProcessingManager.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/CurvedPaintView.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/UIManager/GameScreenGuiManager.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/UIManager/TargetGuiManager.luau
+ M Scripts/ReplicatedStorage/Scripts/Shared/CurvedSurface.luau
+ M Scripts/ReplicatedStorage/Scripts/Shared/GameConfig.luau
+ M Scripts/ReplicatedStorage/Scripts/Shared/GameTexts.luau
+ M Scripts/ReplicatedStorage/Scripts/Shared/GameTypes.luau
+ M Scripts/ReplicatedStorage/Scripts/Shared/Hints.luau
+ M Scripts/ReplicatedStorage/Scripts/Shared/ProcessingNet.luau
+ M Scripts/ServerStorage/Scripts/NPC.luau
+ M Scripts/ServerStorage/Scripts/ProcessingManager.luau
+ M Tools/Gameplay/CurvedRasterBoundary.luau
+ M Tools/Gameplay/CurvedRasterReference.luau
+ M Tools/Gameplay/FoundationBoundary.luau
+ M Tools/Gameplay/FoundationUIBoundary.luau
+ M Tools/Gameplay/README.md
+ M Tools/Gameplay/WeaponPresentationBoundary.luau
+ M Tools/Gameplay/build-game-assets.luau
+ M Tools/Gameplay/build-quality-samples.luau
+ M Tools/Gameplay/test_curved_raster.luau
+ M Tools/Gameplay/test_processing_texts.luau
+ M Tools/Gameplay/test_rules.py
+ M Tools/Gameplay/test_ui_template_managers.luau
+ M Tools/Gameplay/test_weapon_presentation.luau
+ M Tools/Gameplay/update-processing-localization.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/ClientToolbar.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/HitPresentation.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/WorldInteractionManager.luau
+?? Scripts/ReplicatedStorage/Scripts/Shared/HitFeedbackRules.luau
+?? Scripts/ReplicatedStorage/Scripts/Shared/WorldInteractionRules.luau
+?? Tools/Gameplay/AttackFeedbackBoundary.luau
+?? Tools/Gameplay/HitPresentationBoundary.luau
+?? Tools/Gameplay/WorldInteractionBoundary.luau
+?? Tools/Gameplay/test_attack_feedback.luau
+?? Tools/Gameplay/test_curved_raster_stream.luau
+?? Tools/Gameplay/test_hit_feedback.luau
+?? Tools/Gameplay/test_world_interaction.luau
+?? Tools/Gameplay/test_world_interaction.py

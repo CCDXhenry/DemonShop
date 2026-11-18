@@ -27,7 +27,8 @@ function Boundary.Character()
 		Boundary.loads += 1
 		assert(animation.AnimationId ~= "")
 		if Boundary.failLoad then error("test unavailable animation") end
-		local track = { IsPlaying = false }
+		local track = { IsPlaying = false, Speed = 1 }
+		function track:AdjustSpeed(speed) self.Speed = speed end
 		function track:Play() self.IsPlaying = true; Boundary.plays += 1 end
 		function track:Stop() self.IsPlaying = false end
 		function track:Destroy() Boundary.destroyed += 1 end

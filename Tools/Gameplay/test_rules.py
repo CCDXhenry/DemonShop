@@ -1,6 +1,7 @@
 """Run production coverage/save/lease rules with Lune; only service boundaries are mocked."""
 from pathlib import Path
 import subprocess
+import sys
 ROOT=Path(__file__).resolve().parents[2]
 OUT=ROOT/".cache"/"ragdoll-rules"
 OUT.mkdir(parents=True,exist_ok=True)
@@ -15,10 +16,44 @@ for name in ("GameConfig","GameTexts","GameTypes","SaveRules","PlayerProfileRule
         start=text.index('local replicatedStorage:')
         end=text.index('--游戏版本')
         text=text[:start]+"local D=require('./FoundationDateBoundary')\nlocal DateTimeExtension,DateTime=D.DateTimeExtension,D.DateTime\n"+text[end:]
-        text="local game={GameId=0}\n"+text
+        text="local Color3=require('@lune/roblox').Color3\nlocal game={GameId=0}\n"+text
     if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose"):
         text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame,Enum=roblox.Vector2,roblox.Vector3,roblox.CFrame,roblox.Enum\n"+text
     (OUT/(name+".luau")).write_text(text,encoding="utf-8")
+def run_hit_feedback_tests():
+    # Execute production hit rules and rendering against real Lune instances; only services are replaced.
+    (OUT/"HitFeedbackRules.luau").write_text((shared/"HitFeedbackRules.luau").read_text(encoding="utf-8"),encoding="utf-8")
+    text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/HitPresentation.luau").read_text(encoding="utf-8")
+    start=text.index('local ReplicatedStorage =')
+    end=text.index('local Presentation =')
+    text=text[:start]+"local R=require('@lune/roblox')\nlocal Instance,Enum,CFrame,Vector3=R.Instance,R.Enum,R.CFrame,R.Vector3\nlocal workspace=require('./HitPresentationBoundary')\nlocal Config=require('./GameConfig')\nlocal Rules=require('./HitFeedbackRules')\n"+text[end:]
+    text=text.replace("model.Parent=workspace", "model.Parent=workspace.world")
+    (OUT/"HitPresentation.luau").write_text(text,encoding="utf-8")
+    for name in ("HitPresentationBoundary","test_hit_feedback"):
+        (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
+    subprocess.run(["lune","run",str(OUT/"test_hit_feedback.luau")],cwd=ROOT,check=True)
+
+    source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientProcessingManager.luau").read_text(encoding="utf-8")
+    start=source.index("function Client.CancelHitFeedback(")
+    end=source.index("function Client.OnNotice(",start)
+    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,player,Config,HitRules=B.workspace,B.player,require('./GameConfig'),require('./HitFeedbackRules')\nlocal Client={}\n"
+    (OUT/"AttackFeedbackClient.luau").write_text(prefix+source[start:end]+"\nreturn Client\n",encoding="utf-8")
+    source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
+    start=source.index("function Manager.Attack(")
+    end=source.index("function Manager.Paint(",start)
+    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,task,Net,NPC=B.workspace,B.task,B.Net,B.NPC\nlocal Config=require('./GameConfig')\nlocal Manager={}\n"
+    (OUT/"AttackFeedbackServer.luau").write_text(prefix+source[start:end]+"\nreturn Manager\n",encoding="utf-8")
+    text=(shared/"ProcessingNet.luau").read_text(encoding="utf-8")
+    prefix="local Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal VisualRules=require('./VisualRules')\nlocal Curve=require('./CurvedSurface')\nlocal Config=require('./GameConfig')\nlocal requestEvent,notifyEvent={},{}\nlocal BodyPose=require('./PaintBodyPose')\n"
+    (OUT/"VisualProtocol.luau").write_text(prefix+text[text.index('local Net ='):],encoding="utf-8")
+    for name in ("AttackFeedbackBoundary","test_attack_feedback"):
+        (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
+    subprocess.run(["lune","run",str(OUT/"test_attack_feedback.luau")],cwd=ROOT,check=True)
+
+if "--hit-only" in sys.argv:
+    run_hit_feedback_tests()
+    raise SystemExit(0)
+
 (OUT/"PlayerSaveLeaseRules.luau").write_text((server/"PlayerSaveLeaseRules.luau").read_text(encoding="utf-8"),encoding="utf-8")
 (OUT/"test_curved_surface.luau").write_text((ROOT/"Tools/Gameplay/test_curved_surface.luau").read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_curved_surface.luau")],cwd=ROOT,check=True)
@@ -49,6 +84,15 @@ for name in ("WeaponPresentationBoundary","test_weapon_presentation"):
 subprocess.run(["lune","run",str(OUT/"test_weapon_presentation.luau")],cwd=ROOT,check=True)
 
 subprocess.run(["lune","run",str(OUT/"test_painting.luau")],cwd=ROOT,check=True)
+
+# Exercise the complete production request dispatcher with real painting rules.
+source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
+prefix="local Config=require('./GameConfig')\nlocal Painting=require('./Painting')\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\n"
+(OUT/"PaintRequestManager.luau").write_text(prefix+source[source.index('type PlayerData ='):],encoding="utf-8")
+for name in ("PaintRequestBoundary","test_paint_requests"):
+    (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
+subprocess.run(["lune","run",str(OUT/"test_paint_requests.luau")],cwd=ROOT,check=True)
+
 
 text=(server/"Replication.luau").read_text(encoding="utf-8")
 start=text.index('local ReplicatedStorage =')
@@ -95,11 +139,16 @@ subprocess.run(["lune","run",str(OUT/"test_visual_scale.luau")],cwd=ROOT,check=T
 # Execute the actual curved rasterizer. Only engine image binding and clock are mocked.
 text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/CurvedPaintView.luau").read_text(encoding="utf-8")
 start=text.index('local View=')
-text="local R=require('@lune/roblox')\nlocal Vector2=R.Vector2\nlocal B=require('./CurvedRasterBoundary')\nlocal AssetService,Content,workspace,os=B.AssetService,B.Content,B.workspace,B.os\nlocal Curve=require('./CurvedSurface')\nlocal Data=require('./BodySurfaceData')\nlocal Config=require('./GameConfig')\nlocal Types=require('./GameTypes')\n"+text[start:]
+text="local R=require('@lune/roblox')\nlocal Vector2,Vector3=R.Vector2,R.Vector3\nlocal B=require('./CurvedRasterBoundary')\nlocal AssetService,Content,workspace,os=B.AssetService,B.Content,B.workspace,B.os\nlocal Curve=require('./CurvedSurface')\nlocal Data=require('./BodySurfaceData')\nlocal Config=require('./GameConfig')\nlocal Types=require('./GameTypes')\n"+text[start:]
 (OUT/"CurvedPaintView.luau").write_text(text,encoding="utf-8")
 for name in ("CurvedRasterBoundary","CurvedRasterReference","test_curved_raster"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_curved_raster.luau")],cwd=ROOT,check=True)
+(OUT/"test_curved_raster_stream.luau").write_text((ROOT/"Tools/Gameplay/test_curved_raster_stream.luau").read_text(encoding="utf-8"),encoding="utf-8")
+for fps in (30, 60):
+    for pixels in (100, 300):
+        # Isolate large stress fixtures so another case's retained memory does not skew timing.
+        subprocess.run(["lune","run",str(OUT/"test_curved_raster_stream.luau"),str(fps),str(pixels)],cwd=ROOT,check=True)
 
 # Exercise production client lifecycle methods with input/camera/network boundaries.
 source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientProcessingManager.luau").read_text(encoding="utf-8")
@@ -127,7 +176,7 @@ foundation_module("ClientGameInfo", "Scripts/ReplicatedStorage/Scripts/Client/Cl
 foundation_module("ServerMarketplaceManager", "Scripts/ServerStorage/Scripts/ServerGameManager/ServerMarketplaceManager.luau", "local Manager =", "local B=require('./FoundationBoundary')\nlocal MarketplaceService,Enum=B.MarketplaceService,B.Enum\nlocal Config=require('./GameConfig')\nlocal Lifecycle=require('./LifecycleTool')\nlocal Info=require('./ServerGameInfo')\nlocal Analytics=B.Analytics\n")
 foundation_module("ServerPlayerSettingManager", "Scripts/ServerStorage/Scripts/ServerGameManager/ServerPlayerSettingManager.luau", "local Manager =", "local Net=require('./FoundationBoundary').Net\nlocal Config=require('./GameConfig')\nlocal Lifecycle=require('./LifecycleTool')\nlocal Info=require('./ServerGameInfo')\n")
 foundation_module("ServerGameManager", "Scripts/ServerStorage/Scripts/ServerGameManager/init.luau", "local Manager =", "local B=require('./FoundationBoundary')\nlocal Players,RunService,DataStoreService,game=B.Players,B.RunService,B.DataStoreService,B.game\nlocal task=require('@lune/task')\nlocal Lifecycle=require('./LifecycleTool')\nlocal Config=require('./GameConfig')\nlocal Info=require('./ServerGameInfo')\nlocal Store=require('./ServerPlayerSaveStore')\nlocal Processing,Analytics,Chat=B.Processing,B.Analytics,B.Chat\nlocal Settings=require('./ServerPlayerSettingManager')\nlocal Marketplace=require('./ServerMarketplaceManager')\nlocal Context=B.Context\n")
-foundation_module("ClientGameManager", "Scripts/ReplicatedStorage/Scripts/Client/ClientGameManager.luau", "local Manager =", "local B=require('./FoundationBoundary')\nlocal Players=B.Players\nlocal StarterGui,Enum=B.StarterGui,B.Enum\nlocal Config=require('./GameConfig')\nlocal RunService,Net,Sound,UIManager,Processing=B.RunService,B.Net,B.Sound,B.UI,B.ClientProcessing\nlocal Lifecycle=require('./LifecycleTool')\nlocal SaveRules=require('./SaveRules')\nlocal Info=require('./ClientGameInfo')\n")
+foundation_module("ClientGameManager", "Scripts/ReplicatedStorage/Scripts/Client/ClientGameManager.luau", "local Manager =", "local B=require('./FoundationBoundary')\nlocal Players=B.Players\nlocal StarterGui,Enum=B.StarterGui,B.Enum\nlocal Config=require('./GameConfig')\nlocal RunService,Net,Sound,UIManager,Processing=B.RunService,B.Net,B.Sound,B.UI,B.ClientProcessing\nlocal Toolbar=B.ClientToolbar\nlocal Lifecycle=require('./LifecycleTool')\nlocal SaveRules=require('./SaveRules')\nlocal Info=require('./ClientGameInfo')\n")
 foundation_module("PlayerSaveInfoVersionUpdateTool", "Scripts/ServerStorage/Scripts/PlayerSaveInfoVersionUpdateTool/init.luau", "local Tool =", "local Config=require('./GameConfig')\nlocal Rules=require('./SaveRules')\n")
 subprocess.run(["lune","run",str(OUT/"test_foundation.luau")],cwd=ROOT,check=True)
 
@@ -169,3 +218,9 @@ for name in ("ChatBoundary", "test_foundation_chat"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
 foundation_module("ServerPlayerChatCommandManager", "Scripts/ServerStorage/Scripts/ServerGameManager/ServerPlayerChatCommandManager.luau", "local Manager =", "local C=require('./ChatBoundary')\nlocal Players,RunService,TextChatService,TeleportService,Config,GMConfig,Instance=C.Players,C.RunService,C.TextChatService,C.TeleportService,C.Config,C.GMConfig,C.Instance\nlocal Lifecycle=require('./LifecycleTool')\n")
 subprocess.run(["lune","run",str(OUT/"test_foundation_chat.luau")],cwd=ROOT,check=True)
+
+
+run_hit_feedback_tests()
+
+# World prompts use production rules/controller with only native service boundaries mocked.
+subprocess.run(["python",str(ROOT/"Tools/Gameplay/test_world_interaction.py")],cwd=ROOT,check=True)

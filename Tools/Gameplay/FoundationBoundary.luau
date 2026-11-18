@@ -45,6 +45,7 @@ B.Processing={new=function() return {
  Init=function() B.processingStarts+=1 end,AddPlayer=function() B.processingAdds+=1 end,
  RemovePlayer=function() B.processingRemoves+=1 end,Destroy=function() end,
 } end}
+B.ClientToolbar={new=function() return {Init=function() end,Destroy=function() end} end}
 B.ClientProcessing={new=function() return {gui={},Init=function() B.clientStarts+=1 end,Destroy=function() end} end}
 B.UI={CreateGameScreenGui=function() B.uiStarts+=1;return {} end,Destroy=function() end}
 B.Sound={Init=function() B.soundStarts+=1 end,PlayBGM=function() end,SetBGMVolume=function(v) B.bgm=v end,

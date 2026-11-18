@@ -30,19 +30,25 @@ function Tool.Watch(self: Controller, label: TextLabel): ()
 end
 
 function Tool.Bind(self: Controller, label: TextLabel, description: GameTexts.Description): ()
+	local textId: GameTexts.TextId = description.textId
+	local requestedEntry = GameTexts.GetEntry(textId)
+	if not requestedEntry then
+		warn("未知加工文案：", textId)
+		textId = "UnknownNotice"
+	end
+	local entry: GameTexts.Entry = requestedEntry or GameTexts.Notices.UnknownNotice
 	local previous = self.bindings[label]
-	local args: {string} = description.args or {}
-	if previous and previous.textId == description.textId and #previous.args == #args then
+	local args: {string} = if textId == description.textId then description.args or {} else {}
+	if previous and previous.textId == textId and #previous.args == #args then
 		local equal = true
 		for index, value in args do
 			if previous.args[index] ~= value then equal = false; break end
 		end
 		if equal then return end
 	end
-	local entry = GameTexts.Entries[description.textId]
 	self:Watch(label)
 	label.AutoLocalize = false
-	self.bindings[label] = {textId = description.textId, args = table.clone(args)}
+	self.bindings[label] = {textId = textId, args = table.clone(args)}
 	TranslationTool.CustomAutoLocalizeTextLabel(label, entry.source, entry.key, args)
 end
 
@@ -54,7 +60,7 @@ function Tool.Clear(self: Controller, label: TextLabel): ()
 end
 
 function Tool.Notice(self: Controller, label: TextLabel, textId: GameTexts.TextId?, args: {string}?, legacyText: string?): ()
-	local description: GameTexts.Description? = if textId and GameTexts.Entries[textId] then {textId = textId, args = args} else nil
+	local description: GameTexts.Description? = if textId and GameTexts.GetEntry(textId) then {textId = textId, args = args} else nil
 	if not description and legacyText then description = GameTexts.ResolveLegacy(legacyText) end
 	if not description then
 		warn("未知加工通知：", textId, legacyText)

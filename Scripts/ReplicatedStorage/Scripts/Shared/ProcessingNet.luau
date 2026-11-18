@@ -16,6 +16,7 @@ function Net.Validate(value: unknown): boolean
 		return false
 	end
 	local r = value :: { [string]: unknown }
+	if r.attackSequence ~= nil and (not Surface.IsFinite(r.attackSequence) or (r.attackSequence :: number) < 1 or (r.attackSequence :: number) % 1 ~= 0 or (r.attackSequence :: number) > 9007199254740991) then return false end
 	if r.bodyPose~=nil and not BodyPose.ValidateWire(r.bodyPose) then return false end
 	if typeof(r.action) ~= "string" or #r.action > 24 then
 		return false

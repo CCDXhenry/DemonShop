@@ -8,6 +8,7 @@ type Triangle = {a: Vector3,b: Vector3,c: Vector3,normal: Vector3,area: number,a
 type Geometry = {size: Vector3,triangles: {Triangle},bins: {[string]: {number}},total: number}
 local geometries: {[string]: Geometry} = {}
 local BinCount=8
+Curve.BinCount=BinCount
 local function Bin(point: Vector3): Vector3
 	return Vector3.new(math.floor((point.X+.5)*BinCount),math.floor((point.Y+.5)*BinCount),math.floor((point.Z+.5)*BinCount))
 end

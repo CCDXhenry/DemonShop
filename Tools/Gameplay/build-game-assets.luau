@@ -31,8 +31,9 @@ local function tool(name,size,color)
 end
 tool("RuneBrush",Vector3.new(.12,1.8,.12),Color3.fromRGB(188,128,255))
 if not models:FindFirstChild("Potion") then
- local m=Instance.new("Model");m.Name="Potion"
- local body=part(m,"Bottle",Vector3.new(.9,1.25,.9),Color3.fromRGB(166,63,255));body.Shape=Enum.PartType.Ball;body.Material=Enum.Material.Neon
+ local m=Instance.new("Tool");m.Name="Potion";m.CanBeDropped=false;m.RequiresHandle=true;m.ManualActivationOnly=true
+ m.Grip=CFrame.new(0,0,0.5)*CFrame.Angles(math.rad(-90),0,0)
+ local body=part(m,"Handle",Vector3.new(.9,1.25,.9),Color3.fromRGB(166,63,255));body.Shape=Enum.PartType.Ball;body.Material=Enum.Material.Neon
  local neck=part(m,"Stopper",Vector3.new(.35,.45,.35),Color3.fromRGB(235,188,102),CFrame.new(0,.7,0))
  local w=Instance.new("WeldConstraint");w.Part0=body;w.Part1=neck;w.Parent=body
  m.PrimaryPart=body;m.Parent=models
@@ -72,7 +73,6 @@ local function button(name,text,x,y,w)
  local c=Instance.new("UICorner");c.CornerRadius=UDim.new(0,14);c.Parent=b
  label(b,"LabelText",text,8,8,w-16,56,28);return b
 end
-button("InteractButton","E  INTERACT",1420,730,360)
 button("DropButton","Q  DROP",1420,820,360)
 button("AttackButton","ATTACK",1420,910,360)
 local exit=button("ExitPaintButton","EXIT",560,950,350);exit.Visible=false
@@ -82,10 +82,10 @@ local function touchControls(name,portrait,painting)
  local f=Instance.new("Frame");f.Name=name;f.BackgroundTransparency=1;f.Visible=false;f.Parent=gui
  if painting then f.Size=UDim2.fromOffset(300,50);f.AnchorPoint=Vector2.new(.5,1);f.Position=UDim2.new(.5,0,1,-24)
  else f.Size=UDim2.fromOffset(140,170);f.AnchorPoint=if portrait then Vector2.new(1,.5) else Vector2.new(1,1);f.Position=if portrait then UDim2.new(1,-24,.5,0) else UDim2.new(1,-140,1,-24) end
- local names=if painting then {"ExitPaintButton","ResetViewButton"} else {"InteractButton","DropButton","AttackButton"}
- local texts=if painting then {"EXIT","RESET"} else {"USE","DROP","HIT"}
+ local names=if painting then {"ExitPaintButton","ResetViewButton"} else {"DropButton","AttackButton"}
+ local texts=if painting then {"EXIT","RESET"} else {"DROP","HIT"}
  for index,buttonName in names do
-  local b=Instance.new("ImageButton");b.Name=buttonName;b.Image="";b.Size=UDim2.fromOffset(140,50);b.Position=if painting then UDim2.fromOffset((index-1)*160,0) else UDim2.fromOffset(0,(index-1)*60)
+  local b=Instance.new("ImageButton");b.Name=buttonName;b.Image="";b.Size=UDim2.fromOffset(140,50);b.Position=if painting then UDim2.fromOffset((index-1)*160,0) else UDim2.fromOffset(0,index*60)
   b.BackgroundColor3=Color3.fromRGB(89,44,133);b.BorderSizePixel=0;b.Parent=f
   local c=Instance.new("UICorner");c.CornerRadius=UDim.new(0,12);c.Parent=b
   label(b,"LabelText",texts[index],8,2,124,46,24)
@@ -144,11 +144,9 @@ for _, value in gui:GetDescendants() do
 		if dynamic and value.Name ~= "ProgressText" then value.Text = "" end
 	end
 end
-SplitKey(root.HintText, "HintKeyText", "E", 48)
-local interactKey = SplitKey(root.InteractButton.LabelText, "KeyText", "E", 48)
-interactKey.Visible = true
-root.InteractButton.LabelText.Text = "INTERACT"
-root.InteractButton.LabelText.AutoLocalize = true
+for _, node in gui:GetDescendants() do
+	if node.Name == "InteractButton" or node.Name == "HintKeyText" then node:Destroy() end
+end
 local dropKey = SplitKey(root.DropButton.LabelText, "KeyText", "Q", 48)
 dropKey.Visible = true
 root.DropButton.LabelText.Text = ""
@@ -157,8 +155,22 @@ local target = ui:FindFirstChild("TargetGui")
 if target then
 	local count = target.ContentFrame.CountText
 	count.AutoLocalize, count.Text = false, ""
-	SplitKey(count, "KeyText", "E", 32)
+	local key = count.Parent:FindFirstChild("KeyText"); if key then key:Destroy() end
 end
+
+local prompt = ui:FindFirstChild("WorldInteractionPrompt") :: ProximityPrompt?
+if not prompt then prompt = Instance.new("ProximityPrompt"); prompt.Name = "WorldInteractionPrompt"; prompt.Parent = ui end
+prompt.Style = Enum.ProximityPromptStyle.Default
+prompt.HoldDuration = 0.5
+prompt.KeyboardKeyCode = Enum.KeyCode.E
+prompt.GamepadKeyCode = Enum.KeyCode.ButtonX
+prompt.ClickablePrompt = true
+prompt.RequiresLineOfSight = true
+prompt.Exclusivity = Enum.ProximityPromptExclusivity.OnePerButton
+prompt.MaxActivationDistance = 8
+prompt.Enabled = false
+prompt.AutoLocalize = false
+
 
 end
 

@@ -1,0 +1,3 @@
+git diff --check 7933d7c HEAD -- Scripts Tools
+exit=2
+Tools/Gameplay/build-game-assets.luau:166: new blank line at EOF.

@@ -4,15 +4,17 @@ local Types = require(script.Parent.GameTypes)
 local Config = require(script.Parent.GameConfig)
 local GameTexts = require(script.Parent.GameTexts)
 local Hints = {}
+export type Potions = { stored: number, equipped: boolean }
 local function Describe(textId: GameTexts.TextId, args: {string}?): GameTexts.Description
 	return { textId = textId, args = args }
 end
-function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?): GameTexts.Description
-	if held then
-		if held.kind == "Potion" then return Describe("TakePotion", { tostring(Config.PotionReward) }) end
+function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?, potions: Potions?): GameTexts.Description
+	if held and held.kind ~= "Potion" then
 		if held.stage == "Painted" then return Describe("TakeRuneBody") end
 		return Describe("TakeBody")
 	end
+	if potions and potions.equipped then return Describe("TakePotion", { tostring(Config.PotionReward) }) end
+	if potions and potions.stored > 0 then return Describe("EquipPotion") end
 	if snapshot then
 		if snapshot.shelf > 0 then return Describe("PotionReady") end
 		if snapshot.altarId then return Describe("AltarWorking") end
@@ -21,9 +23,10 @@ function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?): GameTexts
 	end
 	return Describe("StunNpc", { tostring(Config.StunHits) })
 end
-function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.ItemView?, userId: number): GameTexts.Description
+function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.ItemView?, userId: number, potions: Potions?): GameTexts.Description
 	if target == "Pool" then
 		if held and (held.kind ~= "Body" or held.stage == "Painted") then return Describe("PoolUnfinishedOnly") end
+		if held and snapshot and snapshot.pool >= Config.PoolCapacity then return Describe("PoolFull") end
 		return if held then Describe("StoreBody") elseif snapshot and snapshot.pool > 0 then Describe("TakeSharedBody") else Describe("PoolEmpty")
 	elseif target == "Table" then
 		if snapshot and snapshot.painter and snapshot.painter ~= userId then return Describe("TableOtherPainter") end
@@ -43,9 +46,10 @@ function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.Ite
 		end
 		return if held and held.kind == "Body" and held.stage == "Painted" then Describe("InsertRuneBody") else Describe("AltarNeedsRuneBody")
 	elseif target == "Shelf" then
-		return if held then Describe("HandsFullHint") elseif snapshot and snapshot.shelf > 0 then Describe("CollectPotion") else Describe("NoPotion")
+		return if snapshot and snapshot.shelf > 0 then Describe("CollectPotion") else Describe("NoPotion")
 	elseif target == "Sigil" then
-		return if held and held.kind == "Potion" then Describe("OfferPotion", { tostring(Config.PotionReward) }) else Describe("BringPotion")
+		if potions and potions.equipped then return Describe("OfferPotion", { tostring(Config.PotionReward) }) end
+		return if potions and potions.stored > 0 then Describe("EquipPotion") else Describe("BringPotion")
 	end
 	return Describe("CarryBody")
 end

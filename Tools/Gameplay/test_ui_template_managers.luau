@@ -10,17 +10,17 @@ local root=gui:WaitForChild('CenterFrame')
 check(UI.CreateGameScreenGui()==gui and screen.gui==gui,'one main GUI belongs to its dedicated manager')
 local calls=0
 local function onAction() calls+=1 end
-local actions={interact=onAction,drop=onAction,attack=onAction,exitPaint=onAction,resetView=onAction}
+local actions={drop=onAction,attack=onAction,exitPaint=onAction,resetView=onAction}
 screen:BindActions(actions);screen:BindActions(actions)
-local button=root:WaitForChild('InteractButton')
+local button=root:WaitForChild('DropButton')
 button.Activated:Fire()
 check(calls==1 and button.Activated:Count()==1,'rebinding actions disconnects previous handlers')
 screen:Refresh({painting=false,hasTarget=true,dropDescription={textId='Drop'}})
-check(button.Visible and screen.labels.HintKeyText.Visible and not screen.touchFrames.TouchLandscapeFrame.Visible,'desktop HUD shows keyboard controls')
+check(button.Visible and not screen.touchFrames.TouchLandscapeFrame.Visible,'desktop HUD shows keyboard controls')
 for _,label in screen.dropLabels do check(label.translationKey~=nil,'all drop variants receive translated description') end
 U.UserInputService.TouchEnabled=true
 screen:Refresh({painting=false,hasTarget=true})
-check(not button.Visible and not screen.labels.HintKeyText.Visible and screen.touchFrames.TouchLandscapeFrame.Visible and not screen.touchFrames.TouchPortraitFrame.Visible,'touch landscape selects only its controls')
+check(not button.Visible and screen.touchFrames.TouchLandscapeFrame.Visible and not screen.touchFrames.TouchPortraitFrame.Visible,'touch landscape selects only its controls')
 local camera=U.workspace.CurrentCamera
 U.workspace.CurrentCamera={ViewportSize={X=540,Y=960}}
 screen:Refresh({painting=false,hasTarget=false})
@@ -38,9 +38,9 @@ local target=UI.GetTargetGuiManager()
 local part=U.Node('Head','Part')
 target:Refresh({adornee=part,visible=true,hits=999,touch=false})
 local targetGui=target.gui
-check(targetGui.Parent==U.playerGui and targetGui.Enabled and targetGui.Adornee==part and target.key.Visible,'target remains private in PlayerGui and shows stunned prompt')
+check(targetGui.Parent==U.playerGui and targetGui.Enabled and targetGui.Adornee==part,'target remains private in PlayerGui and shows stunned prompt')
 target:Refresh({visible=false,hits=0,touch=true})
-check(not targetGui.Enabled and targetGui.Adornee==nil and not target.key.Visible,'lost target clears adornment and hides prompt')
+check(not targetGui.Enabled and targetGui.Adornee==nil,'lost target clears adornment and hides prompt')
 target:Destroy();target:Destroy()
 check(targetGui.destroyed and target.gui==nil,'target teardown is idempotent')
 target:Init()

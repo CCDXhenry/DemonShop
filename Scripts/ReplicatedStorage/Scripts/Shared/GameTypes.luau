@@ -11,7 +11,7 @@ export type Sample = { part: string, face: number, u: number, v: number, breakBe
 export type Stroke = { key: string, samples: { Sample } }
 export type VisualSegment = { key: string, version: number, gesture: number, part: string, face: number, u0: number, v0: number, u1: number, v1: number, triangle0: number?, triangle1: number?, surfaceVersion: number? }
 export type VisualState = { segments: { [string]: VisualSegment }, count: number, revision: number }
-export type Request = { action: string, target: string?, version: number?, session: string?, samples: { Sample }?, yaw: number?, pitch: number?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose? }
+export type Request = { action: string, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, yaw: number?, pitch: number?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose? }
 export type Item = {
 	id: string,
 	kind: string,
@@ -20,6 +20,7 @@ export type Item = {
 	version: number,
 	model: Model,
 	holder: Player?,
+	owner: Player?,
 	hits: number,
 	covered: { [string]: boolean },
 	strokes: { Stroke },
@@ -42,7 +43,6 @@ export type Item = {
 	staggerEnds: number?,
 	hitDirection: Vector3?,
 	hitVelocity: LinearVelocity?,
-	hitJoints: { { joint: Motor6D, base: CFrame } }?,
 	carryResources: Folder?,
 	carryTarget: Attachment?,
 	carryErrorSince: number?,
@@ -70,5 +70,5 @@ export type Snapshot = {
 	painter: number?,
 	session: string?,
 }
-export type Notice = { kind: string, removed: { string }?, actor: number?, started: number?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, yaw: number?, pitch: number?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
+export type Notice = { kind: string, attackSequence: number?, hit: boolean?, version: number?, hits: number?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, yaw: number?, pitch: number?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
 return {}

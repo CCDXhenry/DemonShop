@@ -85,10 +85,10 @@ U.Players={LocalPlayer=U.Node('LocalPlayer','Player')}
 U.playerGui=U.Node('PlayerGui','PlayerGui');U.playerGui.Parent=U.Players.LocalPlayer
 local root=U.Node('CenterFrame','Frame');root.Parent=U.gui
 local scale=U.Node('UIScale','UIScale');scale.Parent=root
-for _,name in {'CoinsText','CarryText','StockText','HintText','NoticeText','HintKeyText','ProgressText'} do
+for _,name in {'CoinsText','CarryText','StockText','HintText','NoticeText','ProgressText'} do
  local label=U.Node(name,'TextLabel');label.Parent=root
 end
-for _,name in {'InteractButton','DropButton','AttackButton','ExitPaintButton','ResetViewButton'} do
+for _,name in {'DropButton','AttackButton','ExitPaintButton','ResetViewButton'} do
  local button=U.Node(name,'ImageButton');button.Parent=root
  local label=U.Node('LabelText','TextLabel');label.Parent=button
 end
@@ -96,7 +96,7 @@ local paint=U.Node('PaintFrame','Frame');paint.Parent=root
 local fill=U.Node('FillFrame','Frame');fill.Parent=paint
 for _,name in {'TouchLandscapeFrame','TouchPortraitFrame','TouchPaintFrame'} do
  local frame=U.Node(name,'Frame');frame.Parent=U.gui
- local names=if name=='TouchPaintFrame' then {'ExitPaintButton','ResetViewButton'} else {'InteractButton','DropButton','AttackButton'}
+ local names=if name=='TouchPaintFrame' then {'ExitPaintButton','ResetViewButton'} else {'DropButton','AttackButton'}
  for _,buttonName in names do
   local button=U.Node(buttonName,'ImageButton');button.Parent=frame
   local label=U.Node('LabelText','TextLabel');label.Parent=button

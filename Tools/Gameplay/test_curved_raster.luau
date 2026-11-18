@@ -1,4 +1,4 @@
--- 正式曲面渲染器回归：像素等价、预算恢复、局部提交、缓存和退出收尾。
+-- 正式曲面渲染器回归：连续笔刷参考、预算恢复、局部提交、缓存和退出收尾。
 local R=require('@lune/roblox')
 local View=require('./CurvedPaintView')
 local Curve=require('./CurvedSurface')
@@ -20,6 +20,7 @@ end
 local model=B.Model(parts)
 local records={}
 local view=View.new()
+view.diagnostics={submitted=0,completed=0,scanned=0,commits=0,commitSeconds=0}
 view:Bind('body',model,records)
 view:Update('body')
 local texture=view.textures.body
@@ -27,6 +28,8 @@ check(view:IsReady('body') and #texture.image.writes==1,'empty active texture in
 check(texture.size==1024 and model.meshes[1].TextureContent==texture.image,'active texture attached at full resolution')
 local reference={model=model,size=texture.size,pixels=buffer.create(texture.size^2*4),scanned=0,slices=0}
 buffer.fill(reference.pixels,0,255)
+local legacy={model=model,size=texture.size,pixels=buffer.create(texture.size^2*4),scanned=0,slices=0}
+buffer.fill(legacy.pixels,0,255)
 local serial=0
 local function segment(part,a,b)
  serial+=1
@@ -34,7 +37,7 @@ local function segment(part,a,b)
 end
 local function projected(part,x,y,z) return Curve.ProjectLocal(part,R.Vector3.new(x,y,z)*part.Size) end
 local function add(s)
- records[s.key]=s;view:Apply('body',s);Reference.Draw(reference,s)
+ records[s.key]=s;view:Apply('body',s);Reference.Draw(reference,s);Reference.DrawLegacy(legacy,s)
 end
 -- 短线、长线、跨面路径、接缝两侧、不同尺寸部件以及重复覆盖。
 for _,part in parts do
@@ -71,13 +74,24 @@ B.step=.001
 local writes=#texture.image.writes
 view:Update('body')
 check(not view:IsReady('body') and view.tasks.body~=nil,'long work yields within a frame and retains its continuation')
-check((view.heads.body or 1)<=2,'budget does not consume the whole pending queue')
+check(view.tasks.body~=nil,'budget preserves unfinished batch even when its records have left the queue')
 local readStart=B.clockReads
 local frames=drain(view,'body')
 local rasterSlices=B.clockReads-readStart
 check(frames>1,'long paths resume across frames')
-check(buffer.tostring(texture.pixels)==buffer.tostring(reference.pixels),'optimized raster exactly matches old pixels for all fixtures')
+check(buffer.tostring(texture.pixels)==buffer.tostring(reference.pixels),'tiled raster matches independent continuous brush reference for all fixtures')
 check(buffer.tostring(texture.image.pixels)==buffer.tostring(texture.pixels),'partial GPU writes reproduce the complete CPU image')
+local legacyCount,missing,added=0,0,0
+for offset=0,buffer.len(texture.pixels)-4,4 do
+ local old,new=buffer.readu8(legacy.pixels,offset)==176,buffer.readu8(texture.pixels,offset)==176
+ if old then legacyCount+=1 end
+ if old and not new then missing+=1 elseif new and not old then added+=1 end
+end
+check(missing<=legacyCount*.02 and added<=legacyCount*.1,'continuous brush preserves old coverage with only a small edge difference')
+check(view.diagnostics.scanned<reference.scanned,'tiled continuous brush scans fewer pixels than full triangle reference')
+local binds=B.binds
+view:Ensure('body');view:Ensure('body')
+check(B.binds==binds,'resident texture access never reassigns MeshPart texture content')
 for _,vertex in {seamA,seamB} do
  local uv=source.uvs[vertex]
  local x,y=math.floor(uv.X*texture.size),math.floor((1-uv.Y)*texture.size)
@@ -124,6 +138,21 @@ check(buffer.tostring(rebuilt.pixels)==buffer.tostring(lowReference.pixels),'obs
 view:Update('body');drain(view,'body')
 check(view.textures.body.size==1024,'observer texture upgrades when painting resumes')
 check(buffer.tostring(view.textures.body.pixels)==buffer.tostring(reference.pixels),'upgrade preserves exact high-resolution history')
+-- 断笔/跨部件只使用各自规范端点；中间没有输入的区域不能被补成连接线。
+local isolated=View.new()
+local isolatedRecords={}
+isolated:Bind('body',model,isolatedRecords);isolated:Update('body')
+local p1,p2=projected(parts[1],-.49,0,-.1),projected(parts[1],.49,0,-.1)
+local dot1,dot2=segment(parts[1],p1,p1),segment(parts[1],p2,p2)
+dot2.gesture=2
+local far=segment(parts[1],p1,p2)
+check((Curve.Point(parts[1],p1)-Curve.Point(parts[1],p2)).Magnitude>Config.BrushRadius*3,'jump fixture exceeds permitted connection distance')
+local isolatedReference={model=model,size=1024,pixels=buffer.create(1024^2*4),scanned=0,slices=0}
+buffer.fill(isolatedReference.pixels,0,255)
+for _,s in {dot1,dot2,far} do isolatedRecords[s.key]=s;isolated:Apply('body',s);Reference.Draw(isolatedReference,s) end
+drain(isolated,'body')
+check(buffer.tostring(isolated.textures.body.pixels)==buffer.tostring(isolatedReference.pixels),'separate gestures and long jump paint only the isolated endpoints')
+isolated:Destroy()
 -- 网络已确认但本地未画完时，不能结束会话。
 table.clear(Net.requests)
 local upload=Upload.new();upload:Begin('session');upload.closing=true

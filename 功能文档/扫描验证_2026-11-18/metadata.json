@@ -1,0 +1,10 @@
+{
+  "window_start": "2026-11-17T05:49:42.0361797+08:00",
+  "window_end": "2026-11-18T05:49:42.0361797+08:00",
+  "head": "4a1ede92c5fc6944d429cd5bd631688ca365bc1b",
+  "baseline": "7933d7ca7d28a583e74f0e582d130b1ede9b00cc",
+  "run_time": "2026-11-18T05:52:12.523452+08:00",
+  "regression_assertions": 1093,
+  "fetch": false,
+  "studio_play": false
+}

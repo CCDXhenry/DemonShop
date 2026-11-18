@@ -43,20 +43,25 @@ local ok,result=pcall(function()
  for _=1,8 do local potion=item('Potion');potion.holder=nil;potion.location='Shelf';table.insert(manager.shelf,potion.id) end
  manager.altarEnds=workspace:GetServerTimeNow()-1;manager.nextUpdate=0;manager:Update()
  check(manager.altarId==body.id and #manager.shelf==8,'full shelf keeps completed conversion waiting')
- manager:Shelf(a);check(#manager.shelf==7 and manager:Held(a).kind=='Potion','shelf pickup frees one slot')
+ manager:Shelf(a)
+ local equipped=a.Character and a.Character:FindFirstChild("Potion")
+ check(#manager.shelf==7 and manager:Held(a)==nil and equipped~=nil and equipped:IsA("Tool") and equipped.Parent==a.Character,'shelf pickup equips one potion')
  manager.nextUpdate=0;manager:Update();check(manager.altarId==nil and #manager.shelf==8 and manager.items[body.id]==nil,'waiting conversion outputs once after slot freed')
  manager.players[a]={scope=Lifecycle.new(),lastAttack=0,lastRequest=0,lastSync=0,closing=false}
- manager:Submit(a);check(testCoins==100 and manager:Held(a)==nil,'submit consumes exactly one potion')
+ manager:Submit(a);check(testCoins==100 and a.Character:FindFirstChild("Potion")==nil,'submit consumes the equipped potion')
  manager:Submit(a);check(testCoins==100,'duplicate submit cannot reward twice')
- local extra=item('Potion')
+ local extra=item('Potion');extra.holder=nil;extra.location='Toolbar';extra.owner=a
+ extra.model:SetAttribute("ItemId", extra.id);extra.model:SetAttribute("OwnerUserId", a.UserId)
+ local backpack=a:FindFirstChildOfClass("Backpack");extra.model.Parent=backpack or a.Character
  local Scene=require(SS.Scripts.Scene)
  a.Character:PivotTo(CFrame.new(Scene.SigilPosition+Vector3.new(0,2,2)))
  manager.players[a].lastRequest=0
  manager:OnRequest(a,{action='Interact',target='Sigil',version=manager.stationVersions.Sigil-1})
- check(manager:Held(a)==extra and testCoins==100,'stale station request preserves held material')
+ check(extra.model.Parent~=nil and testCoins==100,'stale station request preserves the backpack potion')
+ local humanoid=a.Character:FindFirstChildOfClass("Humanoid");humanoid:EquipTool(extra.model)
  manager.players[a].lastRequest=0
  manager:OnRequest(a,{action='Interact',target='Sigil',version=manager.stationVersions.Sigil})
- check(manager:Held(a)==nil and testCoins==200,'current station request accepts exactly once')
+ check(manager.items[extra.id]==nil and testCoins==200,'equipped potion sells exactly once')
  local potion=item('Potion');Carry.Drop(potion,Vector3.new(0,-100,0));check(potion.location=='Ground' and potion.model.PrimaryPart.Position.Y>-40,'invalid ground drop recovers at shelf')
  return {checks=checks,passed=true}
 end)

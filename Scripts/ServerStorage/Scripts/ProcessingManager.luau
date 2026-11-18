@@ -28,6 +28,7 @@ type PlayerRecord = {
 	lastSync: number,
 	closing: boolean,
 }
+local PotionReserveName = "PotionReserve"
 local Manager = {}
 Manager.__index = Manager
 export type Manager = typeof(setmetatable(
@@ -52,6 +53,7 @@ export type Manager = typeof(setmetatable(
 		revision: number,
 		nextSpawn: number,
 		nextUpdate: number,
+		nextToolbarOrder: number,
 	},
 	Manager
 ))
@@ -80,6 +82,7 @@ function Manager.new(data: PlayerData?): Manager
 		revision = 0,
 		nextSpawn = 0,
 		nextUpdate = 0,
+		nextToolbarOrder = 0,
 	}, Manager)
 end
 function Manager.Snapshot(self: Manager): Types.Snapshot
@@ -335,28 +338,102 @@ function Manager.Altar(self: Manager, player: Player): ()
 	item.version += 1
 	self.altarId, self.altarEnds = item.id, workspace:GetServerTimeNow() + Config.ConversionSeconds
 end
-function Manager.Shelf(self: Manager, player: Player): ()
-	if self:Held(player) then
-		self:Tell(player, "HandsFull")
-		return
+function Manager.TakePotion(self: Manager, player: Player, item: Types.Item): boolean
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	local tool = item.model
+	if self.paint and self.paint.player == player then
+		return false
 	end
+	if not character or not humanoid or humanoid.Health <= 0 or not backpack or not tool:IsA("Tool") then
+		return false
+	end
+	for _, descendant in tool:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = false
+			descendant.CanCollide = false
+			descendant.CanTouch = false
+			descendant.Massless = true
+		end
+	end
+	self.nextToolbarOrder += 1
+	tool:SetAttribute("ItemId", item.id)
+	tool:SetAttribute("ToolbarOrder", self.nextToolbarOrder)
+	tool:SetAttribute("OwnerUserId", player.UserId)
+	item.location = "Toolbar"
+	item.holder = nil
+	item.owner = player
+	item.version += 1
+	tool.Parent = backpack
+	humanoid:EquipTool(tool)
+	return true
+end
+function Manager.EquippedPotion(self: Manager, player: Player): Types.Item?
+	local character = player.Character
+	if not character then
+		return nil
+	end
+	for _, child in character:GetChildren() do
+		if child:IsA("Tool") and child.Name == "Potion" then
+			local id = child:GetAttribute("ItemId")
+			local item = if typeof(id) == "string" then self.items[id] else nil
+			if item and item.kind == "Potion" and item.owner == player and item.model == child then
+				return item
+			end
+		end
+	end
+	return nil
+end
+function Manager.RescuePotions(_self: Manager, player: Player, character: Model): ()
+	local reserve = player:FindFirstChild(PotionReserveName)
+	if not reserve then
+		local folder = Instance.new("Folder")
+		folder.Name = PotionReserveName
+		folder.Parent = player
+		reserve = folder
+	end
+	for _, child in character:GetChildren() do
+		if child:IsA("Tool") and child.Name == "Potion" then
+			child.Parent = reserve
+		end
+	end
+end
+function Manager.ReleasePotions(self: Manager, player: Player): ()
+	local owned: { Types.Item } = {}
+	for _, item in self.items do
+		if item.kind == "Potion" and item.owner == player then
+			table.insert(owned, item)
+		end
+	end
+	for _, item in owned do
+		self.items[item.id] = nil
+		item.stage = "Consumed"
+		item.model:Destroy()
+	end
+	local reserve = player:FindFirstChild(PotionReserveName)
+	if reserve then
+		reserve:Destroy()
+	end
+end
+function Manager.Shelf(self: Manager, player: Player): ()
 	if #self.shelf == 0 then
 		self:Tell(player, "PotionsNotReady")
 		return
 	end
 	local item = self.items[self.shelf[1]]
-	if item and Carry.Take(item, player) then
+	if item and self:TakePotion(player, item) then
 		table.remove(self.shelf, 1)
 		self:Arrange()
 	end
 end
 function Manager.Submit(self: Manager, player: Player): ()
 	local record = self.players[player]
-	local item = self:Held(player)
+	local item = self:EquippedPotion(player)
 	if not record or not self.data.IsActive(player) then
 		return
 	end
-	if not item or item.kind ~= "Potion" then
+	if not item then
 		self:Tell(player, "BringPotionSigil")
 		return
 	end
@@ -364,7 +441,6 @@ function Manager.Submit(self: Manager, player: Player): ()
 		self:Tell(player, "CoinLimit")
 		return
 	end
-	Carry.Detach(item)
 	self.items[item.id] = nil
 	item.stage = "Consumed"
 	item.model:Destroy()
@@ -373,18 +449,24 @@ function Manager.Submit(self: Manager, player: Player): ()
 	self:Tell(player, "CoinsAwarded", { tostring(Config.PotionReward) })
 end
 function Manager.Attack(self: Manager, player: Player, request: Types.Request): ()
+	local function OnResult(hit: boolean): ()
+		Net.FireNotify(player, {kind="AttackResult",attackSequence=request.attackSequence,hit=hit})
+	end
 	local record = self.players[player]
 	local root = self:Root(player)
 	if not record or not root or self:Held(player) or (self.paint and self.paint.player == player) then
+		OnResult(false)
 		return
 	end
 	local character = player.Character
 	local weapon = character and character:FindFirstChild("Club")
 	if not weapon or not weapon:IsA("Tool") then
+		OnResult(false)
 		return
 	end
 	local now = workspace:GetServerTimeNow()
 	if now - record.lastAttack < Config.AttackCooldown then
+		OnResult(false)
 		return
 	end
 	record.lastAttack = now
@@ -401,21 +483,33 @@ function Manager.Attack(self: Manager, player: Player, request: Types.Request): 
 		task.wait(Config.AttackWindup)
 		local item = if request.target then self.items[request.target] else nil
 		if not item or item.kind ~= "Body" or item.location ~= "Street" or item.hits >= Config.StunHits or item.version ~= request.version then
+			OnResult(false)
 			return
 		end
 		local root = self:Root(player)
-		if not root or self.players[player] ~= record or record.closing or self:Held(player) then return end
+		if not root or self.players[player] ~= record or record.closing or self:Held(player) then OnResult(false); return end
 		local equipped = player.Character and player.Character:FindFirstChild("Club")
-		if equipped ~= weapon or player.Character ~= character then return end
+		if equipped ~= weapon or player.Character ~= character then OnResult(false); return end
 		local target = item.model.PrimaryPart
 		if not target or not self:Near(player, target.Position, Config.AttackRange, item.model) then
+			OnResult(false)
 			return
 		end
 		local delta = target.Position - root.Position
 		if delta.Magnitude > 0.1 and root.CFrame.LookVector:Dot(delta.Unit) < -0.1 then
+			OnResult(false)
 			return
 		end
-		NPC.Hit(item, root.CFrame.LookVector)
+		local direction = root.CFrame.LookVector
+		local torso = item.model:FindFirstChild("UpperTorso")
+		local position = target.Position
+		if torso and torso:IsA("BasePart") then
+			position = torso.Position - direction * torso.Size.Z * 0.5
+		end
+		NPC.Hit(item, direction)
+		Net.Broadcast({kind="Hit",actor=player.UserId,attackSequence=request.attackSequence,id=item.id,
+			version=item.version,hits=item.hits,started=workspace:GetServerTimeNow(),direction=direction,position=position})
+		OnResult(true)
 		if item.hits >= Config.StunHits then
 			self:Tell(player, "StunnedCarry")
 		else
@@ -434,8 +528,12 @@ function Manager.Paint(self: Manager, player: Player, request: Types.Request): (
 		return
 	end
 	local result = Painting.Apply(session, item, request, Scene.TablePose(), Scene.CameraPose().Position, workspace:GetServerTimeNow())
+	-- 重复或过快的请求已被规则层拒绝，不再向全服放大广播。
+	if not result then
+		return
+	end
 	Net.Broadcast({ kind = "PaintPose", id = item.id, session = session.token, sequence = request.sequence, yaw = session.yaw, pitch = session.pitch, progress = item.progress, bodyPose=item.poseBody, started=workspace:GetServerTimeNow() })
-	if result and result.complete then
+	if result.complete then
 		session.finishing=true
 		Net.FireNotify(player,{kind="FinishPaint",session=session.token,id=item.id})
 	end
@@ -583,10 +681,6 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 				self:Tell(player, "StationChanged")
 				return
 			end
-			if not self:Near(player, position, Config.InteractionRange, nil) then
-				self:Tell(player, "StationTooFar")
-				return
-			end
 			if target == "Pool" then
 				self:Pool(player)
 			elseif target == "Table" then
@@ -607,12 +701,7 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 			if not item or item.version ~= request.version then
 				self:Tell(player, "ItemChanged")
 			elseif item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits) then
-				local primary = item.model.PrimaryPart
-				if primary and self:Near(player, primary.Position, Config.InteractionRange, item.model) then
-					Carry.Take(item, player)
-				else
-					self:Tell(player, "ItemTooFar")
-				end
+				Carry.Take(item, player)
 			else
 				self:Tell(player, "ItemUnavailable")
 			end
@@ -642,9 +731,17 @@ function Manager.OnCharacter(self: Manager, player: Player, character: Model): (
 	end
 	root.CFrame = Scene.Spawn.CFrame * CFrame.new(0, 4, 0)
 	local backpack = player:WaitForChild("Backpack")
-	for _, v in backpack:GetChildren() do
-		if v:IsA("Tool") then
-			v:Destroy()
+	for _, child in backpack:GetChildren() do
+		if child:IsA("Tool") and child.Name ~= "Potion" then
+			child:Destroy()
+		end
+	end
+	local reserve = player:FindFirstChild(PotionReserveName)
+	if reserve then
+		for _, child in reserve:GetChildren() do
+			if child:IsA("Tool") then
+				child.Parent = backpack
+			end
 		end
 	end
 	local club = ReplicatedStorage.Models.Club:Clone() :: Tool
@@ -673,6 +770,9 @@ function Manager.AddPlayer(self: Manager, player: Player): ()
 	if not self.data.IsActive(player) then return end
 	local record: PlayerRecord = { scope = Lifecycle.new(), lastAttack = 0, lastRequest = 0, lastSync = 0, closing = false }
 	self.players[player] = record
+	record.scope:Connect(player.CharacterRemoving:Connect(function(character: Model): ()
+		self:RescuePotions(player, character)
+	end))
 	record.scope:Connect(player.CharacterAdded:Connect(function(character: Model): ()
 		self:OnCharacter(player, character)
 	end))
@@ -697,6 +797,7 @@ function Manager.RemovePlayer(self: Manager, player: Player): ()
 	self.removing[player] = true
 	record.closing = true
 	self:ReleasePlayer(player)
+	self:ReleasePotions(player)
 	record.scope:Destroy()
 	self.players[player] = nil
 	self.removing[player] = nil
@@ -725,7 +826,7 @@ function Manager.Update(self: Manager): ()
 				Ragdoll.LimitVelocity(item.model)
 			end
 		end
-		local primary = item.model.PrimaryPart
+		local primary = if item.location == "Toolbar" or item.model.Parent == nil then nil else item.model.PrimaryPart
 		if primary and primary.Position.Y < -40 then
 			if item.holder then
 				self:EndPaint(item.holder)

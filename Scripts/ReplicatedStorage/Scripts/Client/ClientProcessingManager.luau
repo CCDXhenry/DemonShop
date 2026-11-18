@@ -17,14 +17,18 @@ local Lifecycle = require(Shared:WaitForChild("LifecycleTool"))
 local PaintView = require(script.Parent:WaitForChild("PaintView"))
 local Presentation = require(script.Parent.BodyPresentation)
 local CharacterPresentation = require(script.Parent.CharacterPresentation)
+local HitPresentation = require(script.Parent.HitPresentation)
+local HitRules = require(Shared.HitFeedbackRules)
 local PaintCamera = require(script.Parent.PaintCamera)
 local VisualUpload = require(script.Parent.VisualUpload)
+local WorldInteractionManager = require(script.Parent.WorldInteractionManager)
 local Client = {}
 Client.__index = Client
 local player = Players.LocalPlayer
 export type Client = typeof(setmetatable(
 	{} :: {
 		scope: Lifecycle.Lifecycle,
+		worldInteraction: WorldInteractionManager.Manager?,
 		ui: GameScreenGuiManager.Manager,
 		view: PaintView.View,
 		presentation: Presentation.Presentation,
@@ -33,6 +37,9 @@ export type Client = typeof(setmetatable(
 		visualUpload: VisualUpload.Upload,
 		visualClosing: boolean,
 		poseStarted: number,
+		hitView: HitPresentation.Presentation,
+		hitState: HitRules.State,
+		attackSequence: number,
 		lastAttack: number,
 		attackTarget: string?,
 		comboEnds: number,
@@ -59,7 +66,6 @@ export type Client = typeof(setmetatable(
 		rotationInput: Vector2,
 		angularVelocity: Vector2,
 		target: string?,
-		targetVersion: number?,
 		nearTable: boolean,
 		lastSync: number,
 		synced: boolean,
@@ -78,6 +84,13 @@ local function Anchor(station: string, name: string): BasePart
 	return district:WaitForChild(station):WaitForChild(name) :: BasePart
 end
 local submitAnchor = district:WaitForChild("SummoningSubmitAnchor") :: BasePart
+local interactionAnchors: {[string]: BasePart} = {
+	Pool = Anchor("SoulHoldingPool", "PickupPointAnchor"),
+	Table = tableInteract,
+	Altar = Anchor("SoulConversionAltar", "BodyArrivalAnchor"),
+	Shelf = Anchor("SoulCrystalDisplay", "StockPickupAnchor"),
+	Sigil = submitAnchor,
+}
 local positions: { [string]: Vector3 } = {
 	Pool = Anchor("SoulHoldingPool", "PickupPointAnchor").Position,
 	Table = tableInteract.Position,
@@ -104,6 +117,9 @@ function Client.new(): Client
 			visualUpload = VisualUpload.new(),
 			visualClosing = false,
 			poseStarted = 0,
+			hitView = HitPresentation.new(),
+			hitState = HitRules.New(),
+			attackSequence = 0,
 			lastAttack = 0,
 			attackTarget = nil,
 			comboEnds = 0,
@@ -130,7 +146,6 @@ function Client.new(): Client
 			rotationInput = Vector2.zero,
 			angularVelocity = Vector2.zero,
 			target = nil,
-			targetVersion = nil,
 			nearTable = false,
 			lastSync = 0,
 			synced = false,
@@ -156,6 +171,24 @@ function Client.Held(self: Client): Types.ItemView?
 		end
 	end
 	return nil
+end
+function Client.Potions(self: Client): Hints.Potions
+	local stored = 0
+	local equipped = false
+	local character = player.Character
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	for _, item in self.items do
+		local model = item.model
+		if item.kind == "Potion" and item.location == "Toolbar" and model then
+			if model.Parent == character then
+				stored += 1
+				equipped = true
+			elseif backpack ~= nil and model.Parent == backpack then
+				stored += 1
+			end
+		end
+	end
+	return { stored = stored, equipped = equipped }
 end
 function Client.ExitView(self: Client): ()
 	if not self.paintId then
@@ -189,6 +222,7 @@ function Client.EnterView(self: Client, id: string, session: string): ()
 	if not camera then
 		return
 	end
+	self:CancelHitFeedback()
 	self.paintId, self.session = id, session
 	self.visualUpload:Begin(session)
 	self.visualClosing = false
@@ -203,7 +237,79 @@ function Client.EnterView(self: Client, id: string, session: string): ()
 	self.paintCamera:Enter(CameraPose())
 	self.ui:SetPainting(true)
 end
+function Client.CancelHitFeedback(self: Client): ()
+	for _, prediction in self.hitState.pending do prediction.resolved=true end
+	self.hitView:ResetCamera()
+end
+function Client.HitFeedback(self: Client, now: number, final: boolean, upgrade: boolean): ()
+	if now-self.lastAttack>Config.HitFeedbackWindow or self.paintId or self:Held() then return end
+	local character=player.Character
+	local humanoid=character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health<=0 or not character or not character:FindFirstChild("Club") then return end
+	self.characterView:HitStop(now,final)
+	self.hitView:Shake(now,final,upgrade)
+end
+function Client.UpdateHits(self: Client, now: number): ()
+	local character=player.Character
+	local humanoid=character and character:FindFirstChildOfClass("Humanoid")
+	local root=character and character:FindFirstChild("HumanoidRootPart")
+	if self.paintId or self:Held() or not humanoid or humanoid.Health<=0 or not character or not character:FindFirstChild("Club") then
+		self:CancelHitFeedback()
+	else
+		for sequence, prediction in self.hitState.pending do
+			if prediction.resolved or prediction.played or now<prediction.due then continue end
+			local id=HitRules.TakePrediction(self.hitState,sequence,now)
+			local item=if id then self.items[id] else nil
+			if not id or not item or item.kind~="Body" or item.location~="Street" or item.hits>=Config.StunHits
+				or not item.model or not item.model.Parent or not item.model.PrimaryPart or not root or not root:IsA("BasePart") then
+				prediction.played=false; prediction.resolved=true; continue
+			end
+			local delta=item.model.PrimaryPart.Position-root.Position
+			if delta.Magnitude>=Config.AttackRange or (delta.Magnitude>0.1 and root.CFrame.LookVector:Dot(delta.Unit)<=-0.1) then
+				prediction.played=false; prediction.resolved=true; continue
+			end
+			local torso=item.model:FindFirstChild("UpperTorso")
+			local position=item.model.PrimaryPart.Position
+			if torso and torso:IsA("BasePart") then position=torso.Position-root.CFrame.LookVector*torso.Size.Z*0.5 end
+			local hits=item.hits+1
+			self.hitView:Play(id,item.model,hits,root.CFrame.LookVector,now)
+			self.hitView:Burst(id,position,root.CFrame.LookVector,false,now)
+			self:HitFeedback(now,false,false)
+		end
+	end
+	HitRules.Prune(self.hitState,now)
+	self.hitView:Apply(now)
+end
+function Client.OnHit(self: Client, notice: Types.Notice): ()
+	local id,version,hits,started,direction,position=notice.id,notice.version,notice.hits,notice.started,notice.direction,notice.position
+	if not id or not version or not hits or not started or not direction or not position then return end
+	local item=self.items[id]
+	if not item or not item.model or not item.model.Parent then return end
+	local localActor=notice.actor==player.UserId
+	local previous= self.hitState.versions[id] or 0
+	local replay=HitRules.Confirm(self.hitState,id,version,if localActor then notice.attackSequence else nil)
+	if version<=previous then return end
+	local now=workspace:GetServerTimeNow()
+	local age=now-started
+	-- 错误目标上的短预测自然回正；正确目标在下方补播，避免突然跳姿。
+	local final=hits>=Config.StunHits
+	if final then self.hitView:Remove(id) end
+	if age<0 or age>Config.HitSecondPoseSeconds then return end
+	if replay then
+		if not final and item.location=="Street" and item.hits<Config.StunHits and item.version<=version then self.hitView:Play(id,item.model,hits,direction,started) end
+		if age<(if final then Config.HitFinalEffectSeconds else Config.HitEffectSeconds) then self.hitView:Burst(id,position,direction,final,started) end
+	end
+	if localActor and notice.attackSequence==self.attackSequence then
+		if replay then self:HitFeedback(now,final,false)
+		elseif final then self.hitView:UpgradeBurst(id); self:HitFeedback(now,true,true) end
+	end
+end
 function Client.OnNotice(self: Client, notice: Types.Notice): ()
+	if notice.kind=="Hit" then self:OnHit(notice); return end
+	if notice.kind=="AttackResult" and notice.attackSequence then
+		HitRules.Result(self.hitState,notice.attackSequence,notice.hit==true)
+		return
+	end
 	if (notice.kind == "State" or notice.kind == "Delta") and notice.snapshot then
 		local snapshot = notice.snapshot
 		if self.snapshot and snapshot.revision < self.snapshot.revision then
@@ -232,7 +338,12 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		for id in self.items do
 			if not nextItems[id] then
 				self.view:Remove(id)
+				self.hitView:Remove(id)
+				self.hitState.versions[id]=nil
 			end
+		end
+		for id,item in nextItems do
+			if item.location~="Street" or item.hits>=Config.StunHits then self.hitView:Remove(id) end
 		end
 		self.items = nextItems
 		table.clear(self.characterView.carriers)
@@ -300,12 +411,6 @@ function Client.RequestPaintEnd(self: Client): ()
 	self.touch=nil
 	self.rotationInput,self.angularVelocity=Vector2.zero,Vector2.zero
 end
-function Client.Interact(self: Client): ()
-	if not self.synced or self.paintId or not self.target then
-		return
-	end
-	Net.FireRequest({ action = "Interact", target = self.target, version = self.targetVersion })
-end
 function Client.Drop(self: Client): ()
 	if self.paintId then
 		return
@@ -318,6 +423,7 @@ function Client.Drop(self: Client): ()
 end
 function Client.Attack(self: Client): ()
 	local now = workspace:GetServerTimeNow()
+	if self.worldInteraction and self.worldInteraction:IsInputBlocked() then return end
 	if self.paintId or self:Held() or now - self.lastAttack < Config.AttackCooldown then return end
 	local character = player.Character
 	local weapon = character and character:FindFirstChild("Club")
@@ -347,7 +453,9 @@ function Client.Attack(self: Client): ()
 	end
 	self.attackTarget = if best then best.id else nil
 	self.comboEnds = now + Config.AttackComboSeconds
-	Net.FireRequest({ action = "Attack", target = if best then best.id else nil, version = if best then best.version else nil })
+	self.attackSequence += 1
+	HitRules.Begin(self.hitState,self.attackSequence,if best then best.id else nil,now+Config.AttackWindup,now+Config.HitPredictionLifetime)
+	Net.FireRequest({ action = "Attack", target = if best then best.id else nil, version = if best then best.version else nil, attackSequence=self.attackSequence })
 end
 local function SamplePaintPath(model: Model, camera: Camera, from: Vector2, pointer: Vector2, spacing: number, maximum: number, gap: boolean): ({ Types.Sample }, boolean)
 	local params = RaycastParams.new()
@@ -407,6 +515,7 @@ function Client.Paint(self: Client, now: number): ()
 end
 function Client.Update(self: Client): ()
 	local now = os.clock()
+	if self.worldInteraction then self.worldInteraction:Refresh() end
 	local camera = workspace.CurrentCamera
 	local dt = math.min(now - self.lastFrame, 0.1)
 	self.lastFrame = now
@@ -486,7 +595,7 @@ function Client.Update(self: Client): ()
 		hits = if focused then focused.hits else 0,
 		touch = UserInputService.TouchEnabled,
 	})
-	self:Text("CarryText", {textId = if held then (if held.kind == "Potion" then "CarryingPotion" elseif held.stage == "Painted" then "CarryingRuneBody" else "CarryingBody") else "HandsEmpty"})
+	self:Text("CarryText", {textId = if held then (if held.stage == "Painted" then "CarryingRuneBody" else "CarryingBody") else "HandsEmpty"})
 	if snapshot then
 		local stock: GameTexts.Description = {textId = "Stock", args = {tostring(snapshot.pool), tostring(Config.PoolCapacity), tostring(snapshot.shelf), tostring(Config.ShelfCapacity)}}
 		if snapshot.altarId then
@@ -503,11 +612,11 @@ function Client.Update(self: Client): ()
 	local character = player.Character
 	local hrp = character and character:FindFirstChild("HumanoidRootPart")
 	self.target = nil
-	self.targetVersion = nil
 	self.nearTable = false
 	if not hrp or not hrp:IsA("BasePart") then
 		return
 	end
+	-- 最近目标仅用于 HUD 原因提示；实际请求由对应原生提示绑定目标。
 	local best = Config.InteractionRange
 	for name, position in positions do
 		local distance = (hrp.Position - position).Magnitude
@@ -517,7 +626,6 @@ function Client.Update(self: Client): ()
 		if distance < best then
 			best = distance
 			self.target = name
-			self.targetVersion = if snapshot then snapshot.stationVersions[name] else nil
 		end
 	end
 	if not held then
@@ -527,13 +635,13 @@ function Client.Update(self: Client): ()
 				if distance < best then
 					best = distance
 					self.target = item.id
-					self.targetVersion = item.version
 				end
 			end
 		end
 	end
 	local target = self.target
-	self:Text("HintText", if target then Hints.Action(target, snapshot, held, player.UserId) else Hints.Next(snapshot, held));
+	local potions = self:Potions()
+	self:Text("HintText", if target then Hints.Action(target, snapshot, held, player.UserId, potions) else Hints.Next(snapshot, held, potions));
 	local dropDescription: GameTexts.Description = {textId = if not held and self.nearTable and snapshot and snapshot.tableId then "TakeTableBody" else "Drop"}
 	self.ui:Refresh({painting=false,hasTarget=target~=nil,dropDescription=dropDescription})
 end
@@ -554,12 +662,14 @@ function Client.OnInput(self: Client, input: InputObject, processed: boolean): (
 		if input.UserInputType == Enum.UserInputType.Touch then
 			self.touch = input
 		end
-	elseif input.KeyCode == Enum.KeyCode.E then
-		self:Interact()
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		self:Drop()
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
-		self:Attack()
+		-- 等待原生提示处理本次点击，避免同一次按住同时挥棒。
+		self.scope:Spawn(function(): ()
+			RunService.Heartbeat:Wait()
+			if self.initialized then self:Attack() end
+		end)
 	end
 end
 function Client.OnMove(self: Client, input: InputObject): ()
@@ -609,9 +719,14 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 	self.initialized = true
 	if not self.scope.alive then self.scope=Lifecycle.new() end
 	self.ui:Init(gui)
+	self.worldInteraction = WorldInteractionManager.new(interactionAnchors, function(): WorldInteractionManager.State
+		local character = player.Character
+		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+		local modal = gui:FindFirstChild("ModalButton") :: GuiButton?
+		return {snapshot=self.snapshot, items=self.items, held=self:Held(), potions=self:Potions(), enabled=self.initialized and self.synced and not self.paintId and humanoid ~= nil and humanoid.Health > 0 and not (modal and modal.Visible)}
+	end)
 	UIManager.GetTargetGuiManager():Init()
 	self.ui:BindActions({
-		interact=function(): () self:Interact() end,
 		drop=function(): () self:Drop() end,
 		attack=function(): () self:Attack() end,
 		exitPaint=function(): () self:RequestPaintEnd() end,
@@ -630,24 +745,43 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		self:OnRelease(input)
 	end))
 	self.scope:Connect(player.CharacterAdded:Connect(function(): ()
+		self:CancelHitFeedback()
 		self:ExitView()
 		self.paintCamera:Exit(true)
 	end))
 	self.scope:Connect(RunService.PreAnimation:Connect(function(): ()
 		self.characterView:Restore()
+		self.hitView:Restore()
 	end))
 	self.scope:Connect(RunService.PreSimulation:Connect(function(): ()
 		self.characterView:Apply(workspace:GetServerTimeNow())
+		self:UpdateHits(workspace:GetServerTimeNow())
 	end))
+	RunService:BindToRenderStep("DemonShopHitCameraRestore",Enum.RenderPriority.Camera.Value-1,function(): ()
+		self.hitView:RestoreCamera()
+	end)
+	RunService:BindToRenderStep("DemonShopHitCamera",Enum.RenderPriority.Camera.Value+1,function(): ()
+		local now=workspace:GetServerTimeNow()
+		local character=player.Character
+		local humanoid=character and character:FindFirstChildOfClass("Humanoid")
+		local enabled=not self.paintId and not self:Held() and humanoid~=nil and humanoid.Health>0 and character~=nil and character:FindFirstChild("Club")~=nil
+		self.hitView:UpdateCamera(now,enabled)
+		self.hitView:UpdateEffects(now)
+	end)
 	self.scope:Connect(RunService.RenderStepped:Connect(function(): ()
 		self:Update()
 	end))
 end
 function Client.Destroy(self: Client): ()
+	RunService:UnbindFromRenderStep("DemonShopHitCameraRestore")
+	RunService:UnbindFromRenderStep("DemonShopHitCamera")
+	self.hitView:Clear()
+	self.hitState=HitRules.New()
 	self:ExitView()
 	self.paintCamera:Destroy()
 	self.ui:UnbindActions()
 	UIManager.GetTargetGuiManager():Destroy()
+	if self.worldInteraction then self.worldInteraction:Destroy(); self.worldInteraction = nil end
 	self.scope:Destroy()
 	self.view:Destroy()
 	self.presentation:Clear()
