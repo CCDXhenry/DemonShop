@@ -17,14 +17,16 @@ type RasterPart={part: BasePart,key: string,sx: number,sy: number,sz: number,bin
 type Span={x: number,y: number,z: number,dx: number,dy: number,dz: number,inverse: number,nx: number,ny: number,nz: number,ex: number,ey: number,ez: number}
 type Tile={mapping: Mapping,x: number,y: number,spans: {Span}}
 type Diagnostics={submitted: number,completed: number,scanned: number,commits: number,commitSeconds: number}
-type Texture={image: EditableImage,pixels: buffer,size: number,model: Model,dirty: boolean,used: number,rebuilding: boolean,minX: number,minY: number,maxX: number,maxY: number,mappings: {[string]: {[number]: Mapping}},parts: {[string]: RasterPart},mappingCount: number}
+type Texture={image: EditableImage,pixels: buffer,size: number,model: Model,dirty: boolean,used: number,rebuilding: boolean,minX: number,minY: number,maxX: number,maxY: number,mappings: {[string]: {[number]: Mapping}},parts: {[string]: RasterPart},mappingCount: number,tinted: buffer?}
 local TileSize=8
+local StrokeRed,StrokeGreen,StrokeBlue=176,63,255
+local SacrificeSteps=20
 local SegmentsPerBatch=256
 local CandidateCacheLimit=256
 local BinCount=Curve.BinCount
 local BinKeyBase=BinCount+2
-export type View=typeof(setmetatable({} :: {textures: {[string]: Texture},models: {[string]: Model},records: {[string]: {[string]: Types.VisualSegment}},queue: {[string]: {Types.VisualSegment}},heads: {[string]: number},tasks: {[string]: thread},retryAfter: {[string]: number},active: string?,failed: boolean,diagnostics: Diagnostics?},View))
-function View.new(): View return setmetatable({textures={},models={},records={},queue={},heads={},tasks={},retryAfter={},active=nil,failed=false},View) end
+export type View=typeof(setmetatable({} :: {textures: {[string]: Texture},models: {[string]: Model},records: {[string]: {[string]: Types.VisualSegment}},queue: {[string]: {Types.VisualSegment}},heads: {[string]: number},tasks: {[string]: thread},retryAfter: {[string]: number},active: string?,failed: boolean,diagnostics: Diagnostics?,sacrifice: {[string]: number?},sacrificeStep: {[string]: number}},View))
+function View.new(): View return setmetatable({textures={},models={},records={},queue={},heads={},tasks={},retryAfter={},active=nil,failed=false,sacrifice={},sacrificeStep={}},View) end
 local function Attach(texture: Texture): ()
 	for _,part in texture.model:GetChildren() do if part:IsA("MeshPart") and Curve.IsPart(part) then part.TextureContent=Content.fromObject(texture.image) end end
 end
@@ -236,7 +238,7 @@ local function RasterTile(texture: Texture,tile: Tile,diagnostics: Diagnostics?)
   for x=tile.x,math.min(texture.size-1,tile.x+TileSize-1) do
    local offset=(y*texture.size+x)*4
    -- 单色、只增不减的颜料：已着色像素无需对每条重叠路径再次测距。
-   if buffer.readu8(texture.pixels,offset)==176 then continue end
+   if buffer.readu8(texture.pixels,offset)==StrokeRed then continue end
    local px,py=x+.5-m.ax,y+.5-m.ay
    local u,v=(px*m.acy-py*m.acx)/m.det,(m.abx*py-m.aby*px)/m.det
    if u<-.005 or v<-.005 or u+v>1.005 then continue end
@@ -247,7 +249,7 @@ local function RasterTile(texture: Texture,tile: Tile,diagnostics: Diagnostics?)
     if m.nx*(span.nx+(span.ex-span.nx)*t)+m.ny*(span.ny+(span.ey-span.ny)*t)+m.nz*(span.nz+(span.ez-span.nz)*t)<.2 then continue end
     dx,dy,dz=dx-span.dx*t,dy-span.dy*t,dz-span.dz*t
     if dx*dx+dy*dy+dz*dz>radiusSquared then continue end
-    buffer.writeu8(texture.pixels,offset,176);buffer.writeu8(texture.pixels,offset+1,63);buffer.writeu8(texture.pixels,offset+2,255)
+    buffer.writeu8(texture.pixels,offset,StrokeRed);buffer.writeu8(texture.pixels,offset+1,StrokeGreen);buffer.writeu8(texture.pixels,offset+2,StrokeBlue)
     texture.dirty=true
     minX,minY,maxX,maxY=math.min(minX,x),math.min(minY,y),math.max(maxX,x),math.max(maxY,y)
     break
@@ -271,6 +273,25 @@ function View.IsReady(self: View,id: string): boolean
 	-- 图像 API 失败由客户端提示并退出，不能永久等待无法创建的图集。
 	if not texture then return self.failed end
 	return not texture.rebuilding and not texture.dirty and self.tasks[id]==nil and (self.heads[id] or 1)>#(self.queue[id] or {})
+end
+local function UploadTint(texture: Texture,brightness: number): ()
+	local length=buffer.len(texture.pixels)
+	local existing=texture.tinted
+	local tinted: buffer=if existing and buffer.len(existing)==length then existing else buffer.create(length)
+	texture.tinted=tinted
+	buffer.copy(tinted,0,texture.pixels,0,length)
+	if brightness>0 then
+		local highlight=Config.AltarStrokeHighlight
+		local targetRed,targetGreen,targetBlue=math.floor(highlight.R*255+.5),math.floor(highlight.G*255+.5),math.floor(highlight.B*255+.5)
+		for offset=0,length-4,4 do
+			if buffer.readu8(tinted,offset)==StrokeRed and buffer.readu8(tinted,offset+1)==StrokeGreen and buffer.readu8(tinted,offset+2)==StrokeBlue then
+				buffer.writeu8(tinted,offset,math.floor(StrokeRed+(targetRed-StrokeRed)*brightness+.5))
+				buffer.writeu8(tinted,offset+1,math.floor(StrokeGreen+(targetGreen-StrokeGreen)*brightness+.5))
+				buffer.writeu8(tinted,offset+2,math.floor(StrokeBlue+(targetBlue-StrokeBlue)*brightness+.5))
+			end
+		end
+	end
+	texture.image:WritePixelsBuffer(Vector2.zero,Vector2.new(texture.size,texture.size),tinted)
 end
 local function Commit(texture: Texture): ()
 	local width,height=texture.maxX-texture.minX+1,texture.maxY-texture.minY+1
@@ -336,14 +357,37 @@ function View.Update(self: View,active: string?): ()
 	local complete=not self.tasks[selected] and head>#queue
 	if complete then self.queue[selected]={};self.heads[selected]=1 end
 	-- 历史恢复只在完整重建后显示；正常输入仍逐帧提交变化区域。
+	local committed=false
 	if texture.dirty and (not texture.rebuilding or complete) then
 		local diagnostics=self.diagnostics
 		local before=if diagnostics then os.clock() else 0
 		Commit(texture)
+		committed=true
 		if diagnostics then diagnostics.commits+=1;diagnostics.commitSeconds+=os.clock()-before end
 	end
 	if texture.rebuilding and complete then texture.rebuilding=false;Attach(texture) end
+	local brightness=self.sacrifice[selected]
+	if brightness and brightness>0 and not texture.rebuilding then
+		local step=math.floor(brightness*SacrificeSteps+.5)
+		if committed or self.sacrificeStep[selected]~=step then
+			self.sacrificeStep[selected]=step
+			UploadTint(texture,brightness)
+		end
+	end
 end
-function View.Remove(self: View,id: string): () self:RemoveTexture(id);self.models[id],self.records[id],self.queue[id],self.retryAfter[id],self.heads[id]=nil,nil,nil,nil,nil end
+function View.SetSacrifice(self: View,id: string,brightness: number): ()
+	local step=math.floor(math.clamp(brightness,0,1)*SacrificeSteps+.5)
+	local shown=step/SacrificeSteps
+	if step==0 then self.sacrifice[id]=nil else self.sacrifice[id]=shown end
+	local texture=self.textures[id]
+	if not texture or texture.rebuilding then return end
+	if self.sacrificeStep[id]==step then return end
+	self.sacrificeStep[id]=step
+	UploadTint(texture,shown or 0)
+end
+function View.Remove(self: View,id: string): ()
+	self:RemoveTexture(id)
+	self.models[id],self.records[id],self.queue[id],self.retryAfter[id],self.heads[id],self.sacrifice[id],self.sacrificeStep[id]=nil,nil,nil,nil,nil,nil,nil
+end
 function View.Destroy(self: View): () for id in self.models do self:Remove(id) end end
 return View

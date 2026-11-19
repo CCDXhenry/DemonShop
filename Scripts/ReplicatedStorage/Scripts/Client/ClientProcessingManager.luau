@@ -16,12 +16,15 @@ local Net = require(Shared:WaitForChild("ProcessingNet"))
 local Lifecycle = require(Shared:WaitForChild("LifecycleTool"))
 local PaintView = require(script.Parent:WaitForChild("PaintView"))
 local Presentation = require(script.Parent.BodyPresentation)
+local WhiteBodies = require(script.Parent.WhiteBodyPresentationManager)
+local Tuning = require(script.Parent.PresentationTuning)
 local CharacterPresentation = require(script.Parent.CharacterPresentation)
 local HitPresentation = require(script.Parent.HitPresentation)
 local HitRules = require(Shared.HitFeedbackRules)
 local PaintCamera = require(script.Parent.PaintCamera)
 local VisualUpload = require(script.Parent.VisualUpload)
 local WorldInteractionManager = require(script.Parent.WorldInteractionManager)
+local AltarSacrifice = require(script.Parent.AltarSacrificeView)
 local Client = {}
 Client.__index = Client
 local player = Players.LocalPlayer
@@ -39,11 +42,14 @@ export type Client = typeof(setmetatable(
 		poseStarted: number,
 		hitView: HitPresentation.Presentation,
 		hitState: HitRules.State,
+		waitingHits: {Types.Notice},
 		attackSequence: number,
 		lastAttack: number,
 		attackTarget: string?,
 		comboEnds: number,
-		presentationId: string?,
+		bodies: WhiteBodies.Manager,
+		altarView: AltarSacrifice.View,
+		altarBodyId: string?,
 		lastFrame: number,
 		snapshot: Types.Snapshot?,
 		items: { [string]: Types.ItemView },
@@ -106,24 +112,30 @@ local function CameraPose(): CFrame
 	return CFrame.lookAt(center + Vector3.new(0, 1, 12), center)
 end
 function Client.new(): Client
+	local tableView, hitView, paint = Presentation.new(), HitPresentation.new(), PaintView.new()
+	local bodies = WhiteBodies.new(tableView, hitView, function(id, model)
+		if model then paint:Bind(id,model) else paint:Detach(id) end
+	end)
 	return setmetatable(
 		{
 			scope = Lifecycle.new(),
 			ui = UIManager.GetGameScreenGuiManager(),
-			view = PaintView.new(),
-			presentation = Presentation.new(),
+			view = paint,
+			presentation = tableView,
 			characterView = CharacterPresentation.new(),
 			paintCamera = PaintCamera.new(),
 			visualUpload = VisualUpload.new(),
 			visualClosing = false,
 			poseStarted = 0,
-			hitView = HitPresentation.new(),
-			hitState = HitRules.New(),
+			hitView = hitView,
+			hitState = HitRules.New(), waitingHits={},
 			attackSequence = 0,
 			lastAttack = 0,
 			attackTarget = nil,
 			comboEnds = 0,
-			presentationId = nil,
+			bodies = bodies,
+			altarView = AltarSacrifice.new(),
+			altarBodyId = nil,
 			lastFrame = os.clock(),
 			snapshot = nil,
 			items = {},
@@ -238,7 +250,9 @@ function Client.EnterView(self: Client, id: string, session: string): ()
 	self.ui:SetPainting(true)
 end
 function Client.CancelHitFeedback(self: Client): ()
-	for _, prediction in self.hitState.pending do prediction.resolved=true end
+	for sequence, prediction in self.hitState.pending do
+		if not prediction.resolved then self.bodies:Reject(prediction.target,player.UserId,sequence); prediction.resolved=true end
+	end
 	self.hitView:ResetCamera()
 end
 function Client.HitFeedback(self: Client, now: number, final: boolean, upgrade: boolean): ()
@@ -247,7 +261,7 @@ function Client.HitFeedback(self: Client, now: number, final: boolean, upgrade: 
 	local humanoid=character and character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health<=0 or not character or not character:FindFirstChild("Club") then return end
 	self.characterView:HitStop(now,final)
-	self.hitView:Shake(now,final,upgrade)
+	if not self.bodies.pureModel then self.hitView:Shake(now,final,upgrade) end
 end
 function Client.UpdateHits(self: Client, now: number): ()
 	local character=player.Character
@@ -272,8 +286,10 @@ function Client.UpdateHits(self: Client, now: number): ()
 			local position=item.model.PrimaryPart.Position
 			if torso and torso:IsA("BasePart") then position=torso.Position-root.CFrame.LookVector*torso.Size.Z*0.5 end
 			local hits=item.hits+1
-			self.hitView:Play(id,item.model,hits,root.CFrame.LookVector,now)
-			self.hitView:Burst(id,position,root.CFrame.LookVector,false,now)
+			if not self.bodies:Hit(id,player.UserId,sequence,item.version+1,hits,root.CFrame.LookVector,position,now,false,true) then
+				self.hitView:Play(id,item.model,hits,root.CFrame.LookVector,now)
+			end
+			if not self.bodies.pureModel then self.hitView:Burst(id,position,root.CFrame.LookVector,false,now) end
 			self:HitFeedback(now,false,false)
 		end
 	end
@@ -284,20 +300,30 @@ function Client.OnHit(self: Client, notice: Types.Notice): ()
 	local id,version,hits,started,direction,position=notice.id,notice.version,notice.hits,notice.started,notice.direction,notice.position
 	if not id or not version or not hits or not started or not direction or not position then return end
 	local item=self.items[id]
-	if not item or not item.model or not item.model.Parent then return end
+	if not item or not item.model or not item.model.Parent then
+		if workspace:GetServerTimeNow()-started<=Config.HitSecondPoseSeconds and #self.waitingHits<32 then table.insert(self.waitingHits,notice) end
+		return
+	end
+	if not self.bodies:AcceptNotice(id,version,hits,started) then return end
 	local localActor=notice.actor==player.UserId
+	local prediction=if localActor and notice.attackSequence then self.hitState.pending[notice.attackSequence] else nil
+	if prediction and prediction.retired and prediction.target==id and hits<Config.StunHits then return end
+	if prediction and prediction.target~=id and notice.attackSequence then self.bodies:Reject(prediction.target,player.UserId,notice.attackSequence) end
 	local previous= self.hitState.versions[id] or 0
 	local replay=HitRules.Confirm(self.hitState,id,version,if localActor then notice.attackSequence else nil)
 	if version<=previous then return end
 	local now=workspace:GetServerTimeNow()
 	local age=now-started
-	-- 错误目标上的短预测自然回正；正确目标在下方补播，避免突然跳姿。
+	-- 正确目标修正现有脉冲；地面交接由含落点的权威 ItemView 启动。
 	local final=hits>=Config.StunHits
 	if final then self.hitView:Remove(id) end
 	if age<0 or age>Config.HitSecondPoseSeconds then return end
+	if item.location=="Street" and item.hits<Config.StunHits and item.version<=version then
+		local managed=self.bodies:Hit(id,notice.actor or 0,notice.attackSequence,version,hits,direction,position,started,true,replay)
+		if not managed and replay and not final then self.hitView:Play(id,item.model,hits,direction,started) end
+	end
 	if replay then
-		if not final and item.location=="Street" and item.hits<Config.StunHits and item.version<=version then self.hitView:Play(id,item.model,hits,direction,started) end
-		if age<(if final then Config.HitFinalEffectSeconds else Config.HitEffectSeconds) then self.hitView:Burst(id,position,direction,final,started) end
+		if not self.bodies.pureModel and age<(if final then Config.HitFinalEffectSeconds else Config.HitEffectSeconds) then self.hitView:Burst(id,position,direction,final,started) end
 	end
 	if localActor and notice.attackSequence==self.attackSequence then
 		if replay then self:HitFeedback(now,final,false)
@@ -307,12 +333,19 @@ end
 function Client.OnNotice(self: Client, notice: Types.Notice): ()
 	if notice.kind=="Hit" then self:OnHit(notice); return end
 	if notice.kind=="AttackResult" and notice.attackSequence then
+		local pending=self.hitState.pending[notice.attackSequence]
+		if pending and notice.hit~=true then self.bodies:Reject(pending.target,player.UserId,notice.attackSequence) end
 		HitRules.Result(self.hitState,notice.attackSequence,notice.hit==true)
 		return
 	end
 	if (notice.kind == "State" or notice.kind == "Delta") and notice.snapshot then
 		local snapshot = notice.snapshot
 		if self.snapshot and snapshot.revision < self.snapshot.revision then
+			return
+		end
+		if notice.kind == "Delta" and (not self.snapshot or snapshot.revision > self.snapshot.revision + 1) then
+			self.synced=false
+			Net.FireRequest({action="Sync"})
 			return
 		end
 		if notice.kind == "Delta" then
@@ -331,9 +364,10 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		local nextItems: { [string]: Types.ItemView } = {}
 		for _, item in snapshot.items do
 			nextItems[item.id] = item
-			if item.model then
-				self.view:Bind(item.id, item.model)
-			end
+		end
+		self.bodies:UpdateState(nextItems,snapshot.bodyPose)
+		for _,item in nextItems do
+			if item.kind ~= "Body" and item.model then self.view:Bind(item.id,item.model) end
 		end
 		for id in self.items do
 			if not nextItems[id] then
@@ -346,6 +380,9 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			if item.location~="Street" or item.hits>=Config.StunHits then self.hitView:Remove(id) end
 		end
 		self.items = nextItems
+		local waiting=self.waitingHits
+		self.waitingHits={}
+		for _,hit in waiting do self:OnHit(hit) end
 		table.clear(self.characterView.carriers)
 		for _, item in nextItems do
 			if item.holder and item.kind == "Body" then self.characterView.carriers[item.holder] = true end
@@ -421,7 +458,7 @@ function Client.Drop(self: Client): ()
 		Net.FireRequest({ action = "Drop" })
 	end
 end
-function Client.Attack(self: Client): ()
+function Client.Attack(self: Client, inputTime: number?): ()
 	local now = workspace:GetServerTimeNow()
 	if self.worldInteraction and self.worldInteraction:IsInputBlocked() then return end
 	if self.paintId or self:Held() or now - self.lastAttack < Config.AttackCooldown then return end
@@ -454,7 +491,9 @@ function Client.Attack(self: Client): ()
 	self.attackTarget = if best then best.id else nil
 	self.comboEnds = now + Config.AttackComboSeconds
 	self.attackSequence += 1
-	HitRules.Begin(self.hitState,self.attackSequence,if best then best.id else nil,now+Config.AttackWindup,now+Config.HitPredictionLifetime)
+	local started=inputTime or now
+	HitRules.Begin(self.hitState,self.attackSequence,if best then best.id else nil,started+Config.AttackWindup,now+Config.HitPredictionLifetime)
+	if best then self.bodies:TrackPrediction(best.id,self.attackSequence,self.hitState.pending[self.attackSequence]) end
 	Net.FireRequest({ action = "Attack", target = if best then best.id else nil, version = if best then best.version else nil, attackSequence=self.attackSequence })
 end
 local function SamplePaintPath(model: Model, camera: Camera, from: Vector2, pointer: Vector2, spacing: number, maximum: number, gap: boolean): ({ Types.Sample }, boolean)
@@ -481,9 +520,8 @@ end
 function Client.Paint(self: Client, now: number): ()
 	local id, session = self.paintId, self.session
 	if not id or not session or not (self.drawing or self.finishPaint) then return end
-	local item = self.items[id]
 	local camera = workspace.CurrentCamera
-	local model = self.presentation.model or (item and item.model)
+	local model = self.bodies:GetPaintModel(id)
 	if not model or not camera then return end
 	-- 每个显示帧立即补齐屏幕路径；跨帧同面追加，确认回包不替换本地笔迹。
 	local visual, gap = SamplePaintPath(model, camera, self.visualPointer or self.pointer, self.pointer, Config.PaintVisualSamplePixels, Config.PaintVisualSamplesPerFrame, self.visualGap)
@@ -549,22 +587,7 @@ function Client.Update(self: Client): ()
 		self.rotationInput = Vector2.zero
 	end
 	local snapshot = self.snapshot
-	local tableItem = if snapshot and snapshot.tableId then self.items[snapshot.tableId] else nil
-	if tableItem and tableItem.model and tableItem.location == "Table" then
-		local display = self.presentation:Bind(tableItem.model,if self.paintId~=tableItem.id then self.presentation.targetBodyPose else nil)
-		self.presentationId = tableItem.id
-		self.view:Bind(tableItem.id, display)
-		if self.paintId == tableItem.id then
-			self.presentation.targetYaw, self.presentation.targetPitch = self.yaw, self.pitch
-		end
-		self.presentation:Update(TablePose(), dt, self.paintId == tableItem.id)
-	elseif self.presentationId then
-		local previous = self.items[self.presentationId]
-		if previous and previous.model then self.view:Bind(previous.id, previous.model) end
-		self.presentation:Clear()
-		self.presentationId = nil
-	end
-	if camera then self.ui:UpdatePointer(self.presentation.model, camera, self.pointer, self.paintId ~= nil and (not UserInputService.TouchEnabled or self.drawing)) end
+	if camera then self.ui:UpdatePointer(if self.paintId then self.bodies:GetPaintModel(self.paintId) else nil, camera, self.pointer, self.paintId ~= nil and (not UserInputService.TouchEnabled or self.drawing), self.drawing) end
 	if self.paintId then
 		local item = self.items[self.paintId]
 		if item and item.model then self.ui:SetProgress(item.progress) end
@@ -588,10 +611,10 @@ function Client.Update(self: Client): ()
 	self:Text("CoinsText", {textId = "Coins", args = {tostring(player:GetAttribute("Coins") or 0)}})
 	local held = self:Held()
 	local focused = if self.attackTarget then self.items[self.attackTarget] else nil
-	local head = focused and focused.model and focused.model:FindFirstChild("Head")
+	local head = focused and self.bodies:GetVisualPart(focused.id,"Head")
 	UIManager.GetTargetGuiManager():Refresh({
 		adornee = if head and head:IsA("BasePart") then head else nil,
-		visible = not self.paintId and not held and focused ~= nil and focused.location == "Street",
+		visible = not self.paintId and not held and focused ~= nil and focused.location == "Street" and focused.hits < Config.StunHits,
 		hits = if focused then focused.hits else 0,
 		touch = UserInputService.TouchEnabled,
 	})
@@ -604,7 +627,7 @@ function Client.Update(self: Client): ()
 		end
 		self:Text("StockText", stock)
 	end
-	self.ui:Refresh({painting=self.paintId~=nil,hasTarget=false})
+	self.ui:Refresh({painting=self.paintId~=nil,hasTarget=false,windowOpen=UIManager.HasShowingWindow()})
 	if self.paintId then
 		self:Text("HintText", {textId = "Painting"})
 		return
@@ -642,8 +665,7 @@ function Client.Update(self: Client): ()
 	local target = self.target
 	local potions = self:Potions()
 	self:Text("HintText", if target then Hints.Action(target, snapshot, held, player.UserId, potions) else Hints.Next(snapshot, held, potions));
-	local dropDescription: GameTexts.Description = {textId = if not held and self.nearTable and snapshot and snapshot.tableId then "TakeTableBody" else "Drop"}
-	self.ui:Refresh({painting=false,hasTarget=target~=nil,dropDescription=dropDescription})
+	self.ui:Refresh({painting=false,hasTarget=target~=nil,windowOpen=UIManager.HasShowingWindow()})
 end
 function Client.OnInput(self: Client, input: InputObject, processed: boolean): ()
 	if self.visualClosing then return end
@@ -665,10 +687,11 @@ function Client.OnInput(self: Client, input: InputObject, processed: boolean): (
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		self:Drop()
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
-		-- 等待原生提示处理本次点击，避免同一次按住同时挥棒。
+		-- 先记录输入时间，原生提示仲裁占用的帧计入本地前摇。
+		local inputTime=workspace:GetServerTimeNow()
 		self.scope:Spawn(function(): ()
 			RunService.Heartbeat:Wait()
-			if self.initialized then self:Attack() end
+			if self.initialized then self:Attack(inputTime) end
 		end)
 	end
 end
@@ -686,7 +709,7 @@ function Client.OnMove(self: Client, input: InputObject): ()
 		if item and item.model and camera then
 			local params = RaycastParams.new()
 			params.FilterType = Enum.RaycastFilterType.Include
-			params.FilterDescendantsInstances = { self.presentation.model or item.model }
+			params.FilterDescendantsInstances = { self.bodies:GetPaintModel(item.id) or item.model }
 			local ray = camera:ScreenPointToRay(point.X, point.Y)
 			if workspace:Raycast(ray.Origin, ray.Direction * 100, params) then
 				if delta.Magnitude >= Config.PaintDeadzonePixels then self.rotationInput += delta end
@@ -712,6 +735,27 @@ function Client.ResetPaintView(self: Client): ()
 	self.yaw,self.pitch,self.sentYaw,self.sentPitch=0,0,0,0
 	Net.FireRequest({action="ResetView",session=self.session})
 end
+function Client.UpdateAltar(self: Client, now: number): ()
+	local snapshot = self.snapshot
+	local altarId = snapshot and snapshot.altarId
+	if not snapshot or not altarId then
+		if self.altarBodyId then
+			self.view:ClearSacrifice(self.altarBodyId)
+			self.altarBodyId = nil
+		end
+		self.altarView:Clear()
+		return
+	end
+	if self.altarBodyId and self.altarBodyId ~= altarId then
+		self.view:ClearSacrifice(self.altarBodyId)
+	end
+	local sample = self.altarView:Update(altarId, self.bodies:GetVisualModel(altarId), now, snapshot.altarEnds, snapshot.shelf >= Config.ShelfCapacity)
+	if not sample then
+		return
+	end
+	self.view:SetSacrifice(altarId, sample.brightness, sample.fade)
+	self.altarBodyId = altarId
+end
 function Client.Init(self: Client, gui: ScreenGui): ()
 	if self.initialized then
 		return
@@ -727,7 +771,6 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 	end)
 	UIManager.GetTargetGuiManager():Init()
 	self.ui:BindActions({
-		drop=function(): () self:Drop() end,
 		attack=function(): () self:Attack() end,
 		exitPaint=function(): () self:RequestPaintEnd() end,
 		resetView=function(): () self:ResetPaintView() end,
@@ -749,14 +792,27 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		self:ExitView()
 		self.paintCamera:Exit(true)
 	end))
-	self.scope:Connect(RunService.PreAnimation:Connect(function(): ()
+	local animationPhase = RunService.PreAnimation:Connect(function(): ()
+		self.bodies:Restore()
 		self.characterView:Restore()
 		self.hitView:Restore()
-	end))
-	self.scope:Connect(RunService.PreSimulation:Connect(function(): ()
+	end)
+	self.scope:Connect(animationPhase)
+	local simulationPhase = RunService.PreSimulation:Connect(function(dt): ()
+		Tuning.Commit()
 		self.characterView:Apply(workspace:GetServerTimeNow())
-		self:UpdateHits(workspace:GetServerTimeNow())
-	end))
+		local now=workspace:GetServerTimeNow()
+		self:UpdateHits(now)
+		self.bodies:Step(now,dt,self.paintId~=nil)
+		self:UpdateAltar(now)
+		if self.presentation.model then
+			if self.paintId then self.presentation.targetYaw,self.presentation.targetPitch=self.yaw,self.pitch end
+			self.presentation:Update(TablePose(),math.min(dt,0.1),self.paintId ~= nil)
+		end
+	end)
+	self.scope:Connect(simulationPhase)
+	self.bodies.phases={animationPhase,simulationPhase}
+	self.bodies:OpenStudioDebug()
 	RunService:BindToRenderStep("DemonShopHitCameraRestore",Enum.RenderPriority.Camera.Value-1,function(): ()
 		self.hitView:RestoreCamera()
 	end)
@@ -783,6 +839,9 @@ function Client.Destroy(self: Client): ()
 	UIManager.GetTargetGuiManager():Destroy()
 	if self.worldInteraction then self.worldInteraction:Destroy(); self.worldInteraction = nil end
 	self.scope:Destroy()
+	if self.altarBodyId then self.view:ClearSacrifice(self.altarBodyId); self.altarBodyId = nil end
+	self.altarView:Clear()
+	self.bodies:Destroy()
 	self.view:Destroy()
 	self.presentation:Clear()
 	self.characterView:Destroy()

@@ -21,9 +21,9 @@ function mt.__newindex(self,key,value)
  else self.props[key]=value end
 end
 function U.Node(name,class)
- return setmetatable({props={Name=name,ClassName=class,ZIndex=1,Visible=true,Active=true,attributes={},Destroying=B.Signal(),DescendantAdded=B.Signal(),Activated=B.Signal(),MouseEnter=B.Signal(),MouseLeave=B.Signal()},children={},signals={}},mt)
+ return setmetatable({props={Name=name,ClassName=class,ZIndex=1,Visible=true,Active=true,attributes={},Destroying=B.Signal(),DescendantAdded=B.Signal(),AncestryChanged=B.Signal(),Activated=B.Signal(),MouseEnter=B.Signal(),MouseLeave=B.Signal(),InputBegan=B.Signal(),InputEnded=B.Signal()},children={},signals={}},mt)
 end
-function methods:IsA(class) return self.ClassName==class or (class=='GuiObject' and (self.ClassName=='Frame' or self.ClassName=='ImageButton' or self.ClassName=='TextLabel')) or (class=='GuiButton' and self.ClassName=='ImageButton') end
+function methods:IsA(class) return self.ClassName==class or (class=='GuiObject' and (self.ClassName=='Frame' or self.ClassName=='ImageButton' or self.ClassName=='ImageLabel' or self.ClassName=='TextLabel')) or (class=='GuiButton' and self.ClassName=='ImageButton') end
 function methods:FindFirstChild(name,recursive)
  for _,c in self.children do if c.Name==name then return c end end
  if recursive then for _,c in self.children do local found=c:FindFirstChild(name,true);if found then return found end end end
@@ -50,7 +50,7 @@ function methods:GetAttribute(key) return self.attributes[key] end
 function methods:SetAttribute(key,value) self.attributes[key]=value end
 function methods:Clone()
  local copy=U.Node(self.Name,self.ClassName)
- for k,v in self.props do if k~='Parent' and k~='Destroying' and k~='DescendantAdded' and k~='Activated' and k~='MouseEnter' and k~='MouseLeave' then copy.props[k]=if type(v)=='table' then table.clone(v) else v end end
+ for k,v in self.props do if k~='Parent' and k~='Destroying' and k~='DescendantAdded' and k~='AncestryChanged' and k~='Activated' and k~='MouseEnter' and k~='MouseLeave' and k~='InputBegan' and k~='InputEnded' then copy.props[k]=if type(v)=='table' then table.clone(v) else v end end
  for _,child in self.children do child:Clone().Parent=copy end
  return copy
 end
@@ -84,33 +84,46 @@ U.Sound={Play=function()U.sounds+=1 end}
 U.Players={LocalPlayer=U.Node('LocalPlayer','Player')}
 U.playerGui=U.Node('PlayerGui','PlayerGui');U.playerGui.Parent=U.Players.LocalPlayer
 local root=U.Node('CenterFrame','Frame');root.Parent=U.gui
+local brush=U.Node('PaintBrushCursorImage','ImageLabel');brush.Visible=false;brush.Parent=root
 local scale=U.Node('UIScale','UIScale');scale.Parent=root
 for _,name in {'CoinsText','CarryText','StockText','HintText','NoticeText','ProgressText'} do
  local label=U.Node(name,'TextLabel');label.Parent=root
 end
-for _,name in {'DropButton','AttackButton','ExitPaintButton','ResetViewButton'} do
+for _,name in {'ExitPaintButton','ResetViewButton'} do
  local button=U.Node(name,'ImageButton');button.Parent=root
  local label=U.Node('LabelText','TextLabel');label.Parent=button
 end
 local paint=U.Node('PaintFrame','Frame');paint.Parent=root
 local fill=U.Node('FillFrame','Frame');fill.Parent=paint
-for _,name in {'TouchLandscapeFrame','TouchPortraitFrame','TouchPaintFrame'} do
- local frame=U.Node(name,'Frame');frame.Parent=U.gui
- local names=if name=='TouchPaintFrame' then {'ExitPaintButton','ResetViewButton'} else {'DropButton','AttackButton'}
- for _,buttonName in names do
-  local button=U.Node(buttonName,'ImageButton');button.Parent=frame
-  local label=U.Node('LabelText','TextLabel');label.Parent=button
- end
+local touchPaint=U.Node('TouchPaintFrame','Frame');touchPaint.Parent=U.gui
+for _,buttonName in {'ExitPaintButton','ResetViewButton'} do
+ local button=U.Node(buttonName,'ImageButton');button.Parent=touchPaint
+ local label=U.Node('LabelText','TextLabel');label.Parent=button
 end
+local Roblox=require('@lune/roblox')
+local attackFrame=U.Node('TouchAttackFrame','Frame')
+attackFrame.Visible=false
+attackFrame.Position=Roblox.UDim2.fromOffset(0,0)
+attackFrame.AbsolutePosition=Roblox.Vector2.zero
+attackFrame:SetAttribute('MinimumTouchSize',64)
+attackFrame:SetAttribute('JumpGap',8)
+attackFrame:SetAttribute('JumpSizeRatio',0.9)
+attackFrame.Parent=U.templates
+local attackButton=U.Node('AttackButton','ImageButton');attackButton.Parent=attackFrame
+attackButton:SetAttribute('PressedScale',0.86)
+attackButton:SetAttribute('PressTweenSeconds',0.1)
+local attackScale=U.Node('UIScale','UIScale');attackScale.Scale=1;attackScale.Parent=attackButton
+local actionText=U.Node('ActionText','TextLabel');actionText.Parent=attackButton
 U.gui:Clone().Parent=U.templates
 local target=U.Node('TargetGui','BillboardGui');target.Parent=U.templates
-for _,name in {'CountText','KeyText'} do local label=U.Node(name,'TextLabel');label.Parent=target end
+local fill=U.Node('FillImage','ImageLabel');fill.Parent=target
 local guide=U.Node('ScreenLayoutGuideFrame','Frame');guide.Parent=U.templates
-U.UserInputService={TouchEnabled=false,PreferredInput=U.Enum.PreferredInput.KeyboardAndMouse}
+U.UserInputService={TouchEnabled=false,MouseIconEnabled=true,PreferredInput=U.Enum.PreferredInput.KeyboardAndMouse,GetPropertyChangedSignal=function() return B.Signal() end,GetMouseLocation=function() return Roblox.Vector2.zero end}
+U.GuiService={MenuIsOpen=false}
 U.TranslationTool={
  CustomAutoLocalizeTextLabel=function(label,source,key,args) label.Text=source;label.translationKey=key;label.translationArgs=args end,
  RemoveCustomAutoLocalizeGui=function(label) label.translationKey=nil end,
 }
-U.PaintPointer={Update=function(root) U.pointerRoot=root end}
+U.PaintPointer={Update=function(root) U.pointerRoot=root end,PlaceBrush=function() end}
 U.GameFrameWrapper={new=function()return {Init=function()end,OnDestroy=function()end}end}
 return U

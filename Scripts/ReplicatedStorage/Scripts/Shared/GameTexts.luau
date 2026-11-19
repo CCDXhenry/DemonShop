@@ -63,12 +63,12 @@ local GameTexts = {
 		CarryingBody = { source = "CARRYING BODY", key = "" }, -- 用途：状态栏显示正在携带未完成布娃娃；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
 		HandsEmpty = { source = "HANDS EMPTY", key = "" }, -- 用途：状态栏显示双手空闲；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
 		Painting = { source = "DRAG ON THE BODY TO PAINT + ROTATE", key = "" }, -- 用途：绘制模式下提示拖动画符并旋转视角；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
-		TakeTableBody = { source = "TAKE TABLE BODY", key = "" }, -- 用途：空手靠近已占用工作台时显示取走按钮名称；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.DropButton.LabelText、ReplicatedStorage.UI.GameScreenGui.TouchLandscapeFrame.DropButton.LabelText、ReplicatedStorage.UI.GameScreenGui.TouchPortraitFrame.DropButton.LabelText
-		Drop = { source = "DROP", key = "" }, -- 用途：显示放下当前携带物的按钮名称；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.DropButton.LabelText、ReplicatedStorage.UI.GameScreenGui.TouchLandscapeFrame.DropButton.LabelText、ReplicatedStorage.UI.GameScreenGui.TouchPortraitFrame.DropButton.LabelText
+		TakeTableBody = { source = "TAKE TABLE BODY", key = "" }, -- 用途：空手靠近已占用工作台时，Q 键取回台上的身体；没有对应屏幕按钮
+		Drop = { source = "DROP", key = "" }, -- 用途：Q 键放下当前携带物；没有对应屏幕按钮
 	},
 	Combat = {
-		TargetStunned = { source = "STUNNED", key = "" }, -- 用途：目标头顶标牌显示已击晕状态；UI：ReplicatedStorage.UI.TargetGui.ContentFrame.CountText
-		HitCount = { source = "HIT {1} / {2}", key = "Processing.HitCount" }, -- 用途：头顶标牌及命中通知显示击打进度；{1} 为已命中次数，{2} 为击晕所需次数；UI：ReplicatedStorage.UI.TargetGui.ContentFrame.CountText、ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
+		TargetStunned = { source = "STUNNED", key = "" }, -- 用途：击晕状态文案；头顶标牌在击晕后直接隐藏，不再显示这段文字
+		HitCount = { source = "HIT {1} / {2}", key = "Processing.HitCount" }, -- 用途：命中通知显示击打进度；{1} 为已命中次数，{2} 为击晕所需次数；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
 		StunnedCarry = { source = "STUNNED - CARRY THE BODY", key = "" }, -- 用途：击晕成功后通知玩家搬运布娃娃，同时兼容旧通知文本；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
 	},
 	Notices = {

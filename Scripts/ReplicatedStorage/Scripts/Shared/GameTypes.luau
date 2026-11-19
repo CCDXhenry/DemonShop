@@ -12,7 +12,9 @@ export type Stroke = { key: string, samples: { Sample } }
 export type VisualSegment = { key: string, version: number, gesture: number, part: string, face: number, u0: number, v0: number, u1: number, v1: number, triangle0: number?, triangle1: number?, surfaceVersion: number? }
 export type VisualState = { segments: { [string]: VisualSegment }, count: number, revision: number }
 export type Request = { action: string, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, yaw: number?, pitch: number?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose? }
+export type GroundFall = {target: CFrame, started: number, velocity: Vector3}
 export type Item = {
+	fall: GroundFall?,
 	id: string,
 	kind: string,
 	stage: string,
@@ -41,8 +43,7 @@ export type Item = {
 	idleTrack: AnimationTrack?,
 	motionState: string?,
 	staggerEnds: number?,
-	hitDirection: Vector3?,
-	hitVelocity: LinearVelocity?,
+	pushConnection: RBXScriptConnection?,
 	carryResources: Folder?,
 	carryTarget: Attachment?,
 	carryErrorSince: number?,
@@ -54,7 +55,7 @@ export type Item = {
 	releaseCharacter: Model?,
 }
 export type ItemView =
-	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, progress: number, holder: number?, visualCount: number? }
+	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, progress: number, holder: number?, visualCount: number?, fall: GroundFall? }
 export type Snapshot = {
 	bodyPose: BodyPose?,
 	revision: number,

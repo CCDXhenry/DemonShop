@@ -1,0 +1,43 @@
+PASS: 261 curved surface assertions (production geometry and protocol)
+PASS: 44 rule assertions (production modules; mocked storage boundary)
+[WARN]
+[Sword] 无法加载标准挥剑动画 C:\Users\herong\Desktop\work\DemonShop\.cache\daily-scan-2026-11-19\.cache\ragdoll-rules\WeaponPresentationBoundary:29: test unavailable animation
+PASS: 38 sword asset and presentation assertions (production module; mocked animator/events)
+PASS: 13 painting assertions (production module; mocked raycast boundary)
+PASS: 9 production paint request assertions (clock/scene/network boundaries mocked)
+PASS: 7 replication assertions (production module; captured network boundary)
+PASS: 9 stroke path assertions (production local geometry)
+PASS: 15 canonical visual assertions (production renderer and server rules)
+PASS: 30 visual protocol and queue assertions (production modules)
+PASS: 14 curved first-stroke pipeline assertions (production renderer, queue, protocol and server storage; GPU boundary mocked)
+PASS: 29 hanging paint pose assertions (production R15 template, validator, reconstruction and upload queue)
+PASS: 5 full-budget visual assertions (128 batches, 8192 GUI frames, 0.342s Lune; not Studio FPS)
+[WARN]
+[Paint] EditableImage unavailable; curved painting requires Mesh / Image APIs and client memory.
+PASS: 37 production curved raster assertions; optimized slices 18130, full-scan slices 34269, baseline pixels scanned 1594477
+STREAM continuous 30fps 100px/frame: input=30600 peakPending=0 oldest=0frames completedP95=0frames tail=0 ready=true updateCPU=0.569s maxUpdate=0.0038s scanned=6995904 commitCPU=0.0046s
+PASS: 2 sustained raster assertions (Lune CPU and mocked image writes; not Studio FPS)
+STREAM continuous 30fps 300px/frame: input=90000 peakPending=200 oldest=1frames completedP95=0frames tail=0 ready=true updateCPU=1.560s maxUpdate=0.0042s scanned=16793216 commitCPU=0.0041s
+PASS: 2 sustained raster assertions (Lune CPU and mocked image writes; not Studio FPS)
+STREAM continuous 60fps 100px/frame: input=61200 peakPending=0 oldest=0frames completedP95=0frames tail=0 ready=true updateCPU=1.161s maxUpdate=0.0033s scanned=13997952 commitCPU=0.0046s
+PASS: 2 sustained raster assertions (Lune CPU and mocked image writes; not Studio FPS)
+STREAM continuous 60fps 300px/frame: input=180000 peakPending=400 oldest=3frames completedP95=0frames tail=0 ready=true updateCPU=3.795s maxUpdate=0.0203s scanned=33568000 commitCPU=0.0044s
+PASS: 2 sustained raster assertions (Lune CPU and mocked image writes; not Studio FPS)
+PASS: 19 production paint client lifecycle assertions
+PASS: 82 foundation assertions (production data and managers; engine boundaries mocked)
+PASS: 21 UI framework assertions (production manager; GUI/Tween services mocked)
+PASS: 23 dedicated UI template manager assertions (production modules; engine signals and translation service mocked)
+PASS: 33 foundation wire/context assertions (production protocols, adapter and initial schema)
+PASS: 245 read-only reference module/API and boundary contracts
+PASS: 160 restored asset assertions (actual RBXM deserialize)
+PASS: 18 production analytics queue/shutdown assertions (mock HTTP only)
+[WARN]
+[Chat] Clear-data teleport failed C:\Users\herong\Desktop\work\DemonShop\.cache\daily-scan-2026-11-19\.cache\ragdoll-rules\ChatBoundary:21: offline teleport failure
+PASS: 10 foundation reset-command assertions (mock teleport only)
+PASS: 340 hit feedback assertions (production rules and poses; service boundary replaced)
+PASS: 24 attack feedback flow assertions (production methods; network/clock/physics mocked)
+[WARN]
+未知世界交互文案： CollectPotion PromptShelf
+[WARN]
+未知世界交互文案： CollectPotion PromptShelf
+PASS: 48 world interaction assertions (production rules/controller; native engine events mocked)

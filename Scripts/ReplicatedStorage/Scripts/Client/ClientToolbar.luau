@@ -1,4 +1,4 @@
--- 底部工具栏：木棒、画笔和药水各占槽位，最多显示 9 个，点击和数字键装备或放回
+-- 底部工具栏：木棒和药水各占槽位，最多显示 9 个，点击和数字键装备或放回
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -11,9 +11,9 @@ local UIManager = require(script.Parent.UIManager)
 local Toolbar = {}
 Toolbar.__index = Toolbar
 local player = Players.LocalPlayer
-local ToolOrder: { [string]: number } = { Club = 1, RuneBrush = 2 }
-local ToolNames: { [string]: string } = { Club = "Club", RuneBrush = "Brush", Potion = "Potion" }
-local FixedNames: { string } = { "Club", "RuneBrush" }
+local ToolOrder: { [string]: number } = { Club = 1 }
+local ToolNames: { [string]: string } = { Club = "Club", Potion = "Potion" }
+local FixedNames: { string } = { "Club" }
 local KeyCodes: { Enum.KeyCode } = {
 	Enum.KeyCode.One,
 	Enum.KeyCode.Two,
@@ -134,7 +134,11 @@ local function RenderPreview(button: ImageButton, tool: Tool): ()
 	for _, child in world:GetChildren() do
 		child:Destroy()
 	end
-	local clone = tool:Clone()
+	-- 优先克隆 ReplicatedStorage.Models 里的纯净模板，避免运行时持握与角色骨骼动画污染道具世界坐标与朝向
+	local modelsFolder = ReplicatedStorage:FindFirstChild("Models")
+	local template = if modelsFolder then modelsFolder:FindFirstChild(tool.Name) else nil
+	local fromTemplate = template ~= nil and template:IsA("Tool")
+	local clone = if fromTemplate then (template :: Tool):Clone() else tool:Clone()
 	local discard: { Instance } = {}
 	for _, descendant in clone:GetDescendants() do
 		if descendant:IsA("BaseScript") or descendant:IsA("Sound") then
@@ -149,6 +153,31 @@ local function RenderPreview(button: ImageButton, tool: Tool): ()
 	for _, descendant in discard do
 		descendant:Destroy()
 	end
+
+	-- 姿态标准化：提取主参考部件并归一化到原点，消除角色运行时的任意旋转与位置偏移
+	local referencePart: BasePart? = nil
+	if clone.PrimaryPart and clone.PrimaryPart:IsA("BasePart") then
+		referencePart = clone.PrimaryPart
+	elseif clone:FindFirstChild("Handle") and (clone:FindFirstChild("Handle") :: Instance):IsA("BasePart") then
+		referencePart = clone:FindFirstChild("Handle") :: BasePart
+	else
+		referencePart = clone:FindFirstChildWhichIsA("BasePart")
+	end
+
+	if referencePart then
+		local refCFrame = referencePart.CFrame
+		local targetCFrame = if fromTemplate then CFrame.new(Vector3.zero) * refCFrame.Rotation else CFrame.identity
+		local offsets: { [BasePart]: CFrame } = {}
+		for _, item in clone:GetDescendants() do
+			if item:IsA("BasePart") then
+				offsets[item] = refCFrame:ToObjectSpace(item.CFrame)
+			end
+		end
+		for part, rel in offsets do
+			part.CFrame = targetCFrame * rel
+		end
+	end
+
 	clone.Parent = world
 	local directionAttribute = viewport:GetAttribute("ViewDirection")
 	local direction = if typeof(directionAttribute) == "Vector3" and directionAttribute.Magnitude >= 1e-4
@@ -175,7 +204,9 @@ local function RenderPreview(button: ImageButton, tool: Tool): ()
 	end
 	local center = if found then (minimum + maximum) * 0.5 else Vector3.zero
 	local radius = if found then math.max((maximum - minimum).Magnitude * 0.5, 0.2) else 1
-	local aspect = viewport.Size.X.Offset / math.max(1, viewport.Size.Y.Offset)
+	local width = if viewport.AbsoluteSize.X > 0 then viewport.AbsoluteSize.X else viewport.Size.X.Offset
+	local height = if viewport.AbsoluteSize.Y > 0 then viewport.AbsoluteSize.Y else viewport.Size.Y.Offset
+	local aspect = math.max(0.01, width) / math.max(1, height)
 	local halfAngle = math.atan(math.tan(math.rad(fov * 0.5)) * math.min(1, aspect))
 	local distance = radius / math.max(math.sin(halfAngle), 1e-3) * 1.12
 	local camera = PreviewCamera(viewport)
@@ -220,7 +251,7 @@ function Toolbar.Select(self: Controller, tool: Tool): ()
 	if UIManager.HasShowingWindow() or GuiService.MenuIsOpen or UserInputService:GetFocusedTextBox() ~= nil then
 		return
 	end
-	-- 画符时服务端强制手持画笔，工具栏只反映装备状态。
+	-- 画符时不能切换工具，工具栏只反映装备状态。
 	if player:GetAttribute("Painting") == true then
 		return
 	end

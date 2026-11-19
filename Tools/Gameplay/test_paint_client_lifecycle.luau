@@ -17,7 +17,7 @@ local function client()
   drawing=false,finishPaint=false,pointer=R.Vector2.new(800,900),visualPointer=nil,lastPointer=nil,
   rotationInput=R.Vector2.one,angularVelocity=R.Vector2.one,
   yaw=.2,pitch=.3,sentYaw=0,sentPitch=0,touch=nil,
-  view=view,items={},synced=true,lastFrame=B.time,lastHint=B.time,messageEnds=100,
+  bodies={GetPaintModel=function() return nil end},view=view,items={},synced=true,lastFrame=B.time,lastHint=B.time,messageEnds=100,
   presentation={CapturePose=function() return nil end},
   paintCamera={ready=true,Exit=function() table.insert(log,'camera-exit') end},
   Text=function() end,

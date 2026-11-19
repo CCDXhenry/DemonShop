@@ -133,7 +133,16 @@ def inspect_studio(hwnd=None, project=PROJECT):
         client_selected = False
         for i in range(tabs.Length):
             tab = tabs.GetElement(i)
-            if tab.CurrentName not in ('客户端', 'Client') or tab.CurrentIsOffscreen:
+            if tab.CurrentIsOffscreen:
+                continue
+            if tab.CurrentName == 'Place1':
+                # Standalone Studio test clients show the place name on the viewport tab.
+                process_info = comtypes.client.CoGetObject(
+                    f'winmgmts:Win32_Process.Handle="{pid}"', dynamic=True)
+                command = str(process_info.Properties_.Item('CommandLine').Value).lower().split()
+                if not any(command[i:i+2] == ['-task', 'startclient'] for i in range(len(command)-1)):
+                    continue
+            elif tab.CurrentName not in ('客户端', 'Client'):
                 continue
             # Qt exposes the active document name on the tab control, but does not
             # expose SelectionItemPattern on its tab items in this Studio build.
@@ -209,6 +218,9 @@ class ViewportGuard:
         video = request('GetVideoSettings')
         if video != data['video']:
             raise CaptureInvalid('OBS 画布、输出尺寸或帧率改变。')
+        width, height = data['layout']['viewport'][2:]
+        if (video['baseWidth'], video['baseHeight'], video['outputWidth'], video['outputHeight']) != (width, height, width, height):
+            raise CaptureInvalid('OBS 实际输出尺寸与原生视口不符，请调整客户端布局后重新校准。')
         inputs = request('GetInputSettings', {'inputName': SOURCE})
         if inputs['inputKind'] != 'window_capture':
             raise CaptureInvalid('捕获源类型改变。')
@@ -296,6 +308,9 @@ class ViewportGuard:
                             ('positionX', 'positionY', 'rotation', 'scaleX', 'scaleY', 'alignment',
                              'boundsType', 'boundsAlignment', 'boundsWidth', 'boundsHeight',
                              'cropLeft', 'cropTop', 'cropRight', 'cropBottom', 'cropToBounds')}
+                if writable['boundsType'] == 'OBS_BOUNDS_NONE':
+                    writable.pop('boundsWidth')
+                    writable.pop('boundsHeight')
                 request('SetSceneItemTransform', dict(sceneName=scene_name, sceneItemId=item['sceneItemId'],
                                                      sceneItemTransform=writable))
         import time

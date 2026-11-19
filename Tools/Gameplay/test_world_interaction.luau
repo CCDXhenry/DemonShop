@@ -46,12 +46,17 @@ raw.holder=2
 Check(Action('raw',nil)==nil,'other carrier hides item')
 raw.holder=nil
 Check(Rules.Resolve('raw',nil,items,nil)==nil,'no snapshot no action')
-local anchor={Parent={}}
-local state={snapshot=snapshot,items=items,enabled=true}
-local manager=Manager.new({Shelf=anchor},function()return state end)
+local stationPrompt = B.CreatePrompt()
+local anchor = {
+	Parent = {},
+	FindFirstChild = function(_, name) return if name == "WorldInteractionPrompt" then stationPrompt else nil end,
+}
+stationPrompt.Parent = anchor
+local state = {snapshot=snapshot, items=items, enabled=true}
+local manager = Manager.new({Shelf=anchor}, function() return state end)
 manager:Refresh();manager:Refresh()
-local prompt=manager.bindings.Shelf.prompt
-Check(prompt.Enabled and prompt.Parent==anchor,'private clone attached to exact anchor')
+local prompt = manager.bindings.Shelf.prompt
+Check(prompt == stationPrompt and prompt.Enabled and prompt.Parent == anchor, 'station uses preset workspace prompt as single source')
 Check(prompt.MaxActivationDistance==Config.InteractionRange,'range uses shared config')
 Check(prompt.ObjectText=='POTION SHELF','native object text translated')
 prompt.Triggered:Fire()
@@ -106,5 +111,5 @@ snapshot.stationVersions.Shelf+=1
 manager:Refresh();manager:Refresh()
 Check(prompt.Enabled,'valid text resumes on next signature change')
 manager:Destroy();manager:Destroy();B.Flush()
-Check(prompt.destroyed and next(manager.bindings)==nil and next(B.translations)==nil,'idempotent teardown releases all ownership')
+Check(not prompt.Enabled and not prompt.destroyed and next(manager.bindings)==nil and next(B.translations)==nil,'idempotent teardown leaves station workspace prompt intact while disabling')
 print('PASS: '..checks..' world interaction assertions (production rules/controller; native engine events mocked)')

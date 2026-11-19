@@ -15,17 +15,17 @@ GameConfig.ABTestVersion = "1.0.0"
 --玩家存档数据版本
 GameConfig.PlayerSaveInfoDataVersion = 0 -- 首次上线，沿用基础框架初始版本，不启用历史迁移
 --正式版游戏id
-GameConfig.GameId = 10776291771 -- 本项目正式体验 ID，已从目标 Studio 核对
+GameConfig.GameId = 0000 -- 本项目正式体验 ID
 if game.GameId == GameConfig.GameId then
 	--游戏场景
-	GameConfig.GamePlaceId = 110812537538556
+	GameConfig.GamePlaceId = 0
 	--清除玩家数据场景
-	GameConfig.ClearDataStorePlaceId = 0 -- 未配置本项目清档场景时禁用
+	GameConfig.ClearDataStorePlaceId = 0
 else
 	--游戏场景
 	GameConfig.GamePlaceId = 110812537538556
 	--清除玩家数据场景
-	GameConfig.ClearDataStorePlaceId = 0 -- 未配置本项目清档场景时禁用
+	GameConfig.ClearDataStorePlaceId = 83125403445803
 end
 
 --通行证id
@@ -148,13 +148,15 @@ GameConfig.MaximumBodies = 32 -- 同服身体总量保护，避免反复丢弃�
 GameConfig.StreetPopulation = 6 -- 街道闲逛或晕倒的目标总数，具
 GameConfig.SpawnInterval = 5 -- 捕获后补充间隔，秒
 GameConfig.WeaponSourceAsset = 47433 -- Roblox 官方经典剑；Edit 模板保留内部名 Club
-GameConfig.WeaponSlashAnimation = "rbxassetid://522635514" -- Roblox 标准 R15 toolslash
+GameConfig.WeaponSlashAnimation = "rbxassetid://18297503195" -- 高跳场景铲子攻击动画
 GameConfig.WeaponSlashSound = "rbxassetid://12222216" -- 官方经典剑 SwordSlash
 GameConfig.WeaponAnimationFade = 0.05
-GameConfig.BodyCarryAnimation = "rbxassetid://88470750505891" -- 玩家肩扛身体动画资产
+GameConfig.BodyCarryAnimation = "rbxassetid://99312106507906" -- 玩家肩扛身体动画资产
 GameConfig.CarryAnimationFade = 0.15 -- 拾取肩扛动作淡入淡出时间，秒
 GameConfig.AttackRange = 7 -- 近战命中距离，studs
+GameConfig.AttackServerRange = 14 -- 服务端攻击校验的宽松距离上限，覆盖移动与网络延迟差，studs
 GameConfig.AttackCooldown = 0.6 -- 两次有效挥击的最小间隔，秒
+GameConfig.AttackCooldownTolerance = 0.06 -- 服务端冷却的网络抖动宽限，秒
 GameConfig.AttackWindup = 0.16 -- 前摇后进行一次服务端空间命中校验
 GameConfig.AttackComboSeconds = 1.4 -- 连续挥击保持有效范围内的同一目标
 GameConfig.WalkPauseChance = 0.35 -- 闲逛选择下一步时短暂停顿的概率
@@ -198,7 +200,7 @@ GameConfig.HitFinalCameraAngle = math.rad(1)
 GameConfig.HitCameraOffset = 0.06
 GameConfig.HitFinalCameraOffset = 0.10
 GameConfig.HitCameraFrequency = 32
-GameConfig.HitImpulseSpeed = 4
+GameConfig.HitPushDistance = 1.03 -- 普通击退的最大水平路程（stud），沿用开放街道实测中值。
 GameConfig.HitPushSeconds = 0.2
 GameConfig.PaintActiveTextureSize = 1024
 GameConfig.PaintObserverTextureSize = 512
@@ -210,10 +212,13 @@ GameConfig.StunImpulseSpeed = 3 -- 最后一击的受控水平倒地冲量，stu
 GameConfig.StunHits = 3 -- 累计命中次数，无自动苏醒
 GameConfig.InteractionRange = 8 -- 工位与物品交互距离，studs
 GameConfig.PoolCapacity = 8 -- 共享池容量，具
-GameConfig.ShelfCapacity = 8 -- 药水架容量，瓶
+GameConfig.ShelfCapacity = 6 -- 药水架容量，与 SoulCrystalDisplay.PotionPoints 点位数一致
 GameConfig.ToolbarSlotLimit = 9 -- 底部工具栏可见槽位数
 GameConfig.ConversionSeconds = 10 -- 单具身体转化时间，秒
-GameConfig.PotionReward = 100 -- 每瓶提交奖励，金币
+GameConfig.AltarClimaxSeconds = 1.5 -- 献祭淡出时长，秒；架满解除后也用这段补播
+GameConfig.AltarRiseStuds = 1.2 -- 献祭过程中白膜上浮高度，studs
+GameConfig.AltarStrokeHighlight = Color3.fromRGB(255, 186, 255) -- 已画笔迹在献祭中加亮到的紫色
+GameConfig.PotionReward = 100 -- 每瓶售出时，当前服务器每位资料已就绪的玩家各得的金币
 GameConfig.PaintTarget = 0.7 -- 可涂表面面积的目标比例
 GameConfig.PaintGrid = 8 -- 每个外露面划分为 8×8 个覆盖单元
 GameConfig.BrushRadius = 0.32 -- 笔迹物理半径，studs

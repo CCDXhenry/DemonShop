@@ -1,8 +1,25 @@
 -- 布娃娃物理样板参数：关节范围、阻尼、速度保护与可缩放肩部锚点
 --!strict
 export type Joint = { cone: number, lower: number, upper: number, friction: number }
+local Presentation = table.freeze({
+	-- 角度以度配置，弹簧内部使用弧度。进入/退出余量以 stud 表示。
+	Contact = table.freeze({WaistDegrees=13, StrongDegrees=23, FrequencyHz=5.2, DampingRatio=0.88, DelaySeconds=0.028, EnterPad=0.32, ExitPad=0.52}),
+	-- 频率 Hz，阻尼为临界阻尼比，传播延时单位为秒。
+	Hit = table.freeze({FrequencyHz=3.5, DampingRatio=0.82, FirstDegrees=22, SecondDegrees=36, DelaySeconds=0.045}),
+	Fall = table.freeze({PhysicsSeconds=0.65, TipSeconds=0.49, HoldSeconds=0.16, NearStuds=24, DesktopBodies=2, MobileBodies=1, JointLimit=6}),
+	Carry = table.freeze({LiftSeconds = 0.28}),
+	LOD = table.freeze({NearStuds = 40, FarStuds = 100}),
+	-- 合成层角速度上限（rad/s）。长帧的线性权重不超过一次受控过渡。
+	Limits = table.freeze({MaxStepSeconds = 1/30, AngularSpeed = 22}),
+})
+export type Presentation = typeof(Presentation)
 local Config = {
+	Presentation = Presentation,
 	BodyGroup = "RagdollBodies",
+	GroundRootEnabled = true,
+	GroundTravel = 1.35,
+	FallGroup = "LocalFallLimbs",
+	SceneryGroup = "FallStaticScenery",
 	MaximumLinearSpeed = 40,
 	MaximumAngularSpeed = 9,
 	CarrySwingScale = 0.55,

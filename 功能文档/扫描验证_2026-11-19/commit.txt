@@ -1,0 +1,81 @@
+commit 8eedd5de5d004ed8212d6b3222e56cc22614743a
+Author:     Sixcube_Henry <gg852910443@gmail.com>
+AuthorDate: Wed Nov 18 10:09:55 2026 +0800
+Commit:     Sixcube_Henry <gg852910443@gmail.com>
+CommitDate: Wed Nov 18 10:09:55 2026 +0800
+
+    feat: 世界交互系统、命中反馈与涂料请求核心模块
+    
+    - 新增 WorldInteractionManager / WorldInteractionRules：玩家与世界元素的通用交互框架
+    - 新增 HitPresentation / HitFeedbackRules：命中特效与反馈规则（本地 VFX + 音效触发）
+    - 新增 ClientToolbar：客户端工具栏管理，统一工具切换与状态
+    - 新增 PaintRequestBoundary / AttackFeedbackBoundary / HitPresentationBoundary / WorldInteractionBoundary：各子系统 Boundary 接口
+    - 扩展 CurvedPaintView：流式曲面绘制优化，支持实时预览
+    - 扩展 ClientProcessingManager：加工流程客户端逻辑完善
+    - 扩展 ProcessingManager（Server）：服务端加工逻辑健壮性与网络同步优化
+    - 更新 GameConfig / GameTexts / GameTypes / Hints：本地化文本、类型定义与配置项补充
+    - 新增测试工具：test_world_interaction / test_hit_feedback / test_attack_feedback / test_paint_requests / test_curved_raster_stream
+    - 功能文档：扫描验证报告（2026-11-18）
+
+ Assets/UI/ProjectTemplates.rbxm                    | Bin 16615 -> 26665 bytes
+ .../Scripts/Client/CharacterPresentation.luau      | 109 ++-
+ .../Scripts/Client/ClientGameManager.luau          |  12 +-
+ .../Scripts/Client/ClientProcessingManager.luau    | 170 ++++-
+ .../Scripts/Client/ClientToolbar.luau              | 420 +++++++++++
+ .../Scripts/Client/CurvedPaintView.luau            | 280 +++++--
+ .../Scripts/Client/HitPresentation.luau            | 198 +++++
+ .../Scripts/Client/ProcessingTextTool.luau         |  16 +-
+ .../Client/UIManager/GameScreenGuiManager.luau     |   7 +-
+ .../Scripts/Client/UIManager/TargetGuiManager.luau |   2 +-
+ .../Scripts/Client/WorldInteractionManager.luau    | 124 ++++
+ .../Scripts/Shared/CurvedSurface.luau              |   1 +
+ .../Scripts/Shared/GameConfig.luau                 |  41 +-
+ .../Scripts/Shared/GameTexts.luau                  | 297 ++++----
+ .../Scripts/Shared/GameTypes.luau                  |   6 +-
+ .../ReplicatedStorage/Scripts/Shared/Hints.luau    |  16 +-
+ .../Scripts/Shared/HitFeedbackRules.luau           |  43 ++
+ .../Scripts/Shared/ProcessingNet.luau              |   1 +
+ .../Scripts/Shared/WorldInteractionRules.luau      |  51 ++
+ Scripts/ServerStorage/Scripts/NPC.luau             |  19 -
+ .../ServerStorage/Scripts/ProcessingManager.luau   | 153 +++-
+ Tools/Gameplay/AttackFeedbackBoundary.luau         |  10 +
+ Tools/Gameplay/CurvedRasterBoundary.luau           |  14 +-
+ Tools/Gameplay/CurvedRasterReference.luau          |  68 +-
+ Tools/Gameplay/FoundationBoundary.luau             |   1 +
+ Tools/Gameplay/FoundationUIBoundary.luau           |   6 +-
+ Tools/Gameplay/HitPresentationBoundary.luau        |   8 +
+ Tools/Gameplay/PaintRequestBoundary.luau           |  13 +
+ Tools/Gameplay/README.md                           |  19 +-
+ Tools/Gameplay/WeaponPresentationBoundary.luau     |   3 +-
+ Tools/Gameplay/WorldInteractionBoundary.luau       |  27 +
+ Tools/Gameplay/build-game-assets.luau              |  36 +-
+ Tools/Gameplay/build-quality-samples.luau          |  24 +-
+ Tools/Gameplay/play-server-checks.luau             |  15 +-
+ Tools/Gameplay/test_attack_feedback.luau           |  81 ++
+ Tools/Gameplay/test_curved_raster.luau             |  37 +-
+ Tools/Gameplay/test_curved_raster_stream.luau      |  84 +++
+ Tools/Gameplay/test_hit_feedback.luau              |  85 +++
+ Tools/Gameplay/test_paint_requests.luau            |  38 +
+ Tools/Gameplay/test_processing_texts.luau          |  94 ++-
+ Tools/Gameplay/test_rules.py                       |  61 +-
+ Tools/Gameplay/test_ui_template_managers.luau      |  12 +-
+ Tools/Gameplay/test_weapon_presentation.luau       |  12 +
+ Tools/Gameplay/test_world_interaction.luau         | 110 +++
+ Tools/Gameplay/test_world_interaction.py           |  28 +
+ Tools/Gameplay/update-processing-localization.luau |  23 +-
+ .../Scripts/Shared/GameConfig.luau"                | 206 +++++
+ .../Scripts/Shared/ProcessingNet.luau"             | 104 +++
+ .../Scripts/ServerStorage/Scripts/Painting.luau"   |  93 +++
+ .../ServerStorage/Scripts/ProcessingManager.luau"  | 826 +++++++++++++++++++++
+ .../ServerStorage/Scripts/ServerGameInfo.luau"     | 252 +++++++
+ .../ScanPaintBoundary.luau"                        |   3 +
+ .../commits.txt"                                   |   6 +
+ .../diff-check.txt"                                |   3 +
+ .../diff-stat.txt"                                 | 214 ++++++
+ .../metadata.json"                                 |  10 +
+ .../reproduce_paint_flood.py"                      |  11 +
+ .../scan_paint_flood.luau"                         |  14 +
+ .../status-before.txt"                             |  42 ++
+ .../verification.txt"                              |   3 +
+ ...\217\217\346\212\245\345\221\212_2026-11-18.md" |  77 ++
+ 61 files changed, 4333 insertions(+), 406 deletions(-)

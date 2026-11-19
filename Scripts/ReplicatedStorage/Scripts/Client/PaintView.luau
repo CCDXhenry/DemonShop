@@ -127,6 +127,13 @@ function View.Bind(self: View,id: string,model: Model): ()
  end
  for _,segment in pairs(self.segments[id] or {}) do self:Render(id,segment) end
 end
+-- 流出只释放展示绑定；按 id 保存的笔迹在下一次 Bind 时重建。
+function View.Detach(self: View,id: string): ()
+ if self.curved then self.curved:Remove(id) end
+ self.cells:Remove(id)
+ self.faces:Remove(id)
+ self.models[id]=nil
+end
 function View.Remove(self: View,id: string): ()
  if self.curved then self.curved:Remove(id) end
  local prefix=id..":"
@@ -137,6 +144,13 @@ function View.Remove(self: View,id: string): ()
  for key in pairs(self.curvedTips or {}) do if string.sub(key,1,#prefix)==prefix then (self.curvedTips :: {[string]: Types.Sample})[key]=nil end end
 end
 function View.Update(self: View,active: string?): () if self.curved then self.curved:Update(active) end end
+function View.SetSacrifice(self: View,id: string,brightness: number,transparency: number): ()
+	self.cells:SetSacrifice(id,brightness,transparency)
+	if self.curved then self.curved:SetSacrifice(id,brightness) end
+end
+function View.ClearSacrifice(self: View,id: string): ()
+	self:SetSacrifice(id,0,0)
+end
 function View.IsReady(self: View,id: string): boolean
  local model: Model?=self.models[id]
  return not self.curved or not model or model:GetAttribute("SurfaceVersion")~=Curve.Version or self.curved:IsReady(id)

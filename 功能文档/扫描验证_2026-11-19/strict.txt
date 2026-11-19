@@ -1,0 +1,5 @@
+正在使用 luau-lsp analyze 检测 93 个 --!strict 文件...
+检测到 2 个目标文件类型错误：
+  c:\Users\herong\Desktop\work\DemonShop\.cache\daily-scan-2026-11-19\Scripts\ServerStorage\Core\Scripts\TeleportTool.luau [game/ServerStorage/Core/Scripts/TeleportTool](29,49): TypeError: Expected this to be exactly '{Player}', but got '{Instance}'
+  c:\Users\herong\Desktop\work\DemonShop\.cache\daily-scan-2026-11-19\Scripts\ServerStorage\Core\Scripts\TeleportTool.luau [game/ServerStorage/Core/Scripts/TeleportTool](29,58): TypeError: Expected this to be 'TeleportOptions?', but got 'Instance?'
+存在类型错误，检测未通过！

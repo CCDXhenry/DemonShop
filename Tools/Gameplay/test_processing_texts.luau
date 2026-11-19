@@ -60,7 +60,7 @@ for _, group in groups do
 	table.sort(names)
 	for _, textId in names do table.insert(ordered,textId) end
 end
-Check(#ordered,87)
+Check(#ordered,85)
 local index = 0
 -- Match LocalizationExtension's generalized iteration, including nested independent cursors.
 for key, entry in Texts do
@@ -178,12 +178,33 @@ Check(assets.WorldInteractionPrompt.KeyboardKeyCode,R.Enum.KeyCode.E)
 Check(assets.WorldInteractionPrompt.GamepadKeyCode,R.Enum.KeyCode.ButtonX)
 Check(assets.WorldInteractionPrompt.Exclusivity,R.Enum.ProximityPromptExclusivity.OnePerButton)
 Check(assets.WorldInteractionPrompt.MaxActivationDistance,8)
-Check(root.DropButton.KeyText.Text,"Q"); Check(root.DropButton.LabelText.AutoLocalize,false)
-for _,name in {"TouchLandscapeFrame","TouchPortraitFrame","TouchPaintFrame"} do
-	for _,value in gui[name]:GetDescendants() do if value:IsA('TextLabel') then Check(value.AutoLocalize,value.Parent.Name ~= 'DropButton') end end
-end
-Check(assets.TargetGui.ContentFrame.CountText.AutoLocalize,false)
+Check(root:FindFirstChild("DropButton"),nil)
+Check(root:FindFirstChild("AttackButton"),nil)
+Check(gui:FindFirstChild("TouchLandscapeFrame"),nil)
+Check(gui:FindFirstChild("TouchPortraitFrame"),nil)
+local attack = assets.TouchAttackFrame
+Check(attack.Visible,false)
+Check(attack:GetAttribute("MinimumTouchSize"),64)
+Check(attack:GetAttribute("JumpGap"),8)
+Check(attack:GetAttribute("JumpSizeRatio"),0.9)
+Check(attack.AttackButton:GetAttribute("AttackImage"),"rbxassetid://132051632164981")
+Check(tostring(attack.AttackButton.ImageContent),tostring(R.Content.fromUri("rbxassetid://132051632164981")))
+Check(attack.AttackButton.ImageRectOffset,R.Vector2.new(0,512))
+Check(attack.AttackButton.ActionText.Text,"ATTACK")
+Check(attack.AttackButton.ActionText.AutoLocalize,true)
+Check(attack.AttackButton.ActionText:GetAttribute("DesignTextSize"),20)
+Check(attack.AttackButton.ActionText.UIStroke.StrokeSizingMode,R.Enum.StrokeSizingMode.ScaledSize)
+Check(math.abs(attack.AttackButton.ActionText.UIStroke.Thickness - 0.05) < 1e-5, true)
+for _,value in gui.TouchPaintFrame:GetDescendants() do if value:IsA('TextLabel') then Check(value.AutoLocalize,true) end end
+Check(assets.TargetGui.Size.X.Offset,0)
+Check(assets.TargetGui.Size.Y.Offset,0)
+Check(assets.TargetGui.Size.X.Scale > 0 and assets.TargetGui.Size.Y.Scale > 0, true)
+Check(assets.TargetGui.ContentFrame.Size,R.UDim2.fromScale(1,1))
+Check(assets.TargetGui.ContentFrame.UIScale.Scale,1)
+Check(assets.TargetGui.ContentFrame:FindFirstChild("CountText"),nil)
 Check(assets.TargetGui.ContentFrame:FindFirstChild("KeyText"),nil)
+Check(tostring(assets.TargetGui.ContentFrame.FrameImage.ImageContent),tostring(R.Content.fromUri("rbxassetid://70702135277728")))
+Check(tostring(assets.TargetGui.ContentFrame.ClipFrame.FillImage.ImageContent),tostring(R.Content.fromUri("rbxassetid://88599892799863")))
 for _,value in gui:GetDescendants() do
 	assert(value.Name ~= 'InteractButton' and value.Name ~= 'HintKeyText')
 	if value:IsA('TextLabel') then

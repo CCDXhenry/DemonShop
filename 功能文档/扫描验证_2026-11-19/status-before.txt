@@ -1,0 +1,84 @@
+ M Assets/UI/ProjectTemplates.rbxm
+ M Scripts/ReplicatedStorage/Scripts/Client/BodyPresentation.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/CharacterPresentation.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/ClientProcessingManager.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/ClientToolbar.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/CurvedPaintView.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/HitPresentation.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/PaintPointer.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/PaintView.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/UIManager/GameScreenGuiManager.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/UIManager/PaintCellFrameManager.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/UIManager/TargetGuiManager.luau
+ M Scripts/ReplicatedStorage/Scripts/Client/WorldInteractionManager.luau
+ M Scripts/ReplicatedStorage/Scripts/Shared/GameConfig.luau
+ M Scripts/ReplicatedStorage/Scripts/Shared/GameTexts.luau
+ M Scripts/ReplicatedStorage/Scripts/Shared/GameTypes.luau
+ M Scripts/ReplicatedStorage/Scripts/Shared/HitFeedbackRules.luau
+ M Scripts/ReplicatedStorage/Scripts/Shared/PhysicsConfig.luau
+ M Scripts/ServerScriptService/ServerRoot.legacy.luau
+ M Scripts/ServerStorage/Scripts/Carry.luau
+ M Scripts/ServerStorage/Scripts/NPC.luau
+ M Scripts/ServerStorage/Scripts/ProcessingManager.luau
+ M Scripts/ServerStorage/Scripts/Scene.luau
+ M Scripts/StarterPlayer/StarterPlayerScripts/ClientRoot.local.luau
+ M Tools/Gameplay/FoundationUIBoundary.luau
+ M Tools/Gameplay/WorldInteractionBoundary.luau
+ M Tools/Gameplay/build-game-assets.luau
+ M Tools/Gameplay/build-quality-samples.luau
+ M Tools/Gameplay/play-server-checks.luau
+ M Tools/Gameplay/test_attack_feedback.luau
+ M Tools/Gameplay/test_foundation_ui.luau
+ M Tools/Gameplay/test_paint_client_lifecycle.luau
+ M Tools/Gameplay/test_processing_texts.luau
+ M Tools/Gameplay/test_rules.py
+ M Tools/Gameplay/test_ui_template_managers.luau
+ M Tools/Gameplay/test_world_interaction.luau
+ M Tools/Gameplay/update-processing-localization.luau
+ M Tools/Studio/obs_viewport.py
+?? Assets/UI/PaintBrushCursor.png
+?? Scripts/ReplicatedStorage/Scripts/Client/AltarSacrificeView.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/ClientPreloadManager.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/ImpactReaction.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/JointAdapter.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/LocalRagdoll.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/PoseMixer.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/PresentationTuning.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/SoftContact.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/Spring.luau
+?? Scripts/ReplicatedStorage/Scripts/Client/WhiteBodyPresentationManager.luau
+?? Scripts/ServerStorage/Scripts/GroundAuthority.luau
+?? Tools/Gameplay/ClientPreloadBoundary.luau
+?? Tools/Gameplay/build_localization.py
+?? Tools/Gameplay/play-white-presentation-checks.luau
+?? Tools/Gameplay/sync-localization-table.luau
+?? Tools/Gameplay/test_client_preload.luau
+?? Tools/Gameplay/test_white_presentation.luau
+?? Tools/Gameplay/test_white_presentation.py
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit.md"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/README.md"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-01-idle-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-02-target-hit-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-03-stunned-pickup-hint-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-04-carry-pool-hint-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-05-pool-stored-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-06-paint-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-07-paint-stroke-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-08-painted-table-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-09-altar-countdown-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-10-potion-shelf-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-11-potion-equipped-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-12-submitted-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/desktop-13-target-focus-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/mobile-landscape-01-idle-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/mobile-landscape-02-paint-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/mobile-landscape-03-direct-paint-entry-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/mobile-portrait-01-idle-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/mobile-portrait-02-paint-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Audit_Resources/mobile-portrait-03-direct-paint-entry-mcp.jpg"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Inventory.json"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Node_Contracts.md"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Refactor_Risks.md"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/UI_Refactor_Task_Breakdown.md"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/\347\231\275\350\206\234\345\256\242\346\210\267\347\253\257\344\270\273\345\257\274\347\211\251\347\220\206\344\270\216\350\241\250\347\216\260\345\256\236\346\226\275\350\256\260\345\275\225.md"
+?? "\345\212\237\350\203\275\346\226\207\346\241\243/\347\231\275\350\206\234\345\256\242\346\210\267\347\253\257\344\270\273\345\257\274\347\211\251\347\220\206\344\270\216\350\241\250\347\216\260\351\207\215\346\236\204\346\226\271\346\241\210.md"

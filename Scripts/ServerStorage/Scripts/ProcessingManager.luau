@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
 local Shared = ReplicatedStorage.Scripts.Shared
 local Config = require(Shared.GameConfig)
 local GameTexts = require(Shared.GameTexts)
@@ -14,6 +15,8 @@ local Scene = require(script.Parent.Scene)
 local NPC = require(script.Parent.NPC)
 local Carry = require(script.Parent.Carry)
 local Ragdoll = require(script.Parent.Ragdoll)
+local Ground = require(script.Parent.GroundAuthority)
+local Physics = require(Shared.PhysicsConfig)
 local Door = require(script.Parent.Door)
 local Painting = require(script.Parent.Painting)
 local Replication = require(script.Parent.Replication)
@@ -47,6 +50,7 @@ export type Manager = typeof(setmetatable(
 		tableId: string?,
 		altarId: string?,
 		altarEnds: number,
+		altarHeld: boolean,
 		paint: PaintSession?,
 		stationVersions: { [string]: number },
 		stationKeys: { [string]: string },
@@ -76,6 +80,7 @@ function Manager.new(data: PlayerData?): Manager
 		tableId = nil,
 		altarId = nil,
 		altarEnds = 0,
+		altarHeld = false,
 		paint = nil,
 		stationVersions = { Pool = 1, Table = 1, Altar = 1, Shelf = 1, Sigil = 1 },
 		stationKeys = {},
@@ -96,6 +101,7 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 			version = item.version,
 			model = item.model,
 			hits = item.hits,
+			fall = item.fall,
 			progress = item.progress,
 			holder = if item.holder then item.holder.UserId else nil,
 			visualCount = if item.visualState then item.visualState.count else 0,
@@ -195,12 +201,6 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 	if root and root:IsA("BasePart") then
 		root.Anchored = false
 	end
-	if character then
-		local brush = character:FindFirstChild("RuneBrush")
-		if brush then
-			brush:Destroy()
-		end
-	end
 	if hum and hum.Health > 0 then
 		local backpack = player:FindFirstChild("Backpack")
 		local club = backpack and backpack:FindFirstChild("Club")
@@ -245,9 +245,6 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
 	hum.JumpPower = 0
 	hum.JumpHeight = 0
 	root.Anchored = true
-	local brush = ReplicatedStorage.Models.RuneBrush:Clone() :: Tool
-	brush.Parent = player:WaitForChild("Backpack")
-	hum:EquipTool(brush)
 	player:SetAttribute("Painting", true)
 	Carry.Static(item, Scene.TablePose())
 	Net.FireNotify(player, { kind = "BeginPaint", id = item.id, session = session.token })
@@ -337,6 +334,7 @@ function Manager.Altar(self: Manager, player: Player): ()
 	item.location, item.stage = "Altar", "Converting"
 	item.version += 1
 	self.altarId, self.altarEnds = item.id, workspace:GetServerTimeNow() + Config.ConversionSeconds
+	self.altarHeld = false
 end
 function Manager.TakePotion(self: Manager, player: Player, item: Types.Item): boolean
 	local character = player.Character
@@ -437,7 +435,20 @@ function Manager.Submit(self: Manager, player: Player): ()
 		self:Tell(player, "BringPotionSigil")
 		return
 	end
-	if not self.data.CanAddCoins(player, Config.PotionReward) then
+	-- 售出一次：当前服务器每位资料已就绪的玩家各得完整奖励；无人可收款则不消耗药水。
+	local reward = Config.PotionReward
+	local recipients: { Player } = {}
+	local blocked: { Player } = {}
+	for _, other in Players:GetPlayers() do
+		if self.data.IsActive(other) then
+			if self.data.CanAddCoins(other, reward) then
+				table.insert(recipients, other)
+			else
+				table.insert(blocked, other)
+			end
+		end
+	end
+	if #recipients == 0 then
 		self:Tell(player, "CoinLimit")
 		return
 	end
@@ -445,8 +456,16 @@ function Manager.Submit(self: Manager, player: Player): ()
 	item.stage = "Consumed"
 	item.model:Destroy()
 	self.stationVersions.Sigil += 1
-	self.data.AddCoins(player, Config.PotionReward)
-	self:Tell(player, "CoinsAwarded", { tostring(Config.PotionReward) })
+	for _, other in recipients do
+		if self.data.AddCoins(other, reward) then
+			self:Tell(other, "CoinsAwarded", { tostring(reward) })
+		else
+			self:Tell(other, "CoinLimit")
+		end
+	end
+	for _, other in blocked do
+		self:Tell(other, "CoinLimit")
+	end
 end
 function Manager.Attack(self: Manager, player: Player, request: Types.Request): ()
 	local function OnResult(hit: boolean): ()
@@ -465,7 +484,7 @@ function Manager.Attack(self: Manager, player: Player, request: Types.Request): 
 		return
 	end
 	local now = workspace:GetServerTimeNow()
-	if now - record.lastAttack < Config.AttackCooldown then
+	if now - record.lastAttack < math.max(0, Config.AttackCooldown - Config.AttackCooldownTolerance) then
 		OnResult(false)
 		return
 	end
@@ -491,12 +510,8 @@ function Manager.Attack(self: Manager, player: Player, request: Types.Request): 
 		local equipped = player.Character and player.Character:FindFirstChild("Club")
 		if equipped ~= weapon or player.Character ~= character then OnResult(false); return end
 		local target = item.model.PrimaryPart
-		if not target or not self:Near(player, target.Position, Config.AttackRange, item.model) then
-			OnResult(false)
-			return
-		end
-		local delta = target.Position - root.Position
-		if delta.Magnitude > 0.1 and root.CFrame.LookVector:Dot(delta.Unit) < -0.1 then
+		-- 以客户端近战表现为主；服务端仅做防跨距与防穿墙的必要校验，不再复检前摇后朝向。
+		if not target or not self:Near(player, target.Position, Config.AttackServerRange, item.model) then
 			OnResult(false)
 			return
 		end
@@ -631,6 +646,11 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 		end
 		return
 	end
+	-- Attack 有独立冷却校验，不参与通用 0.12s 请求节流，避免刚交互/放下后立刻挥棒被静默丢弃。
+	if request.action == "Attack" then
+		self:Attack(player, request)
+		return
+	end
 	if now - record.lastRequest < 0.12 then
 		return
 	end
@@ -652,9 +672,7 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 		return
 	end
 	local target = request.target
-	if request.action == "Attack" then
-		self:Attack(player, request)
-	elseif request.action == "Drop" then
+	if request.action == "Drop" then
 		local held = self:Held(player)
 		local root = self:Root(player)
 		if held and root then
@@ -701,7 +719,12 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 			if not item or item.version ~= request.version then
 				self:Tell(player, "ItemChanged")
 			elseif item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits) then
-				Carry.Take(item, player)
+				local root=item.model.PrimaryPart
+				if root and self:Near(player,root.Position,Config.InteractionRange,item.model) then
+					Carry.Take(item, player)
+				else
+					self:Tell(player,"ItemUnavailable")
+				end
 			else
 				self:Tell(player, "ItemUnavailable")
 			end
@@ -822,7 +845,7 @@ function Manager.Update(self: Manager): ()
 		end
 		if item.kind == "Body" then
 			NPC.Update(item, now)
-			if item.hits >= Config.StunHits then
+			if item.hits >= Config.StunHits and not item.fall then
 				Ragdoll.LimitVelocity(item.model)
 			end
 		end
@@ -844,7 +867,14 @@ function Manager.Update(self: Manager): ()
 		end
 		self.nextSpawn = now + Config.SpawnInterval
 	end
-	if self.altarId and now >= self.altarEnds and #self.shelf < Config.ShelfCapacity then
+	if self.altarId and now >= self.altarEnds and #self.shelf >= Config.ShelfCapacity then
+		self.altarHeld = true
+	elseif self.altarId and now >= self.altarEnds and self.altarHeld then
+		self.altarHeld = false
+		self.altarEnds = now + Config.AltarClimaxSeconds
+		self:Changed()
+	elseif self.altarId and now >= self.altarEnds and #self.shelf < Config.ShelfCapacity then
+		self.altarHeld = false
 		local item = self.items[self.altarId]
 		if item then
 			item.model:Destroy()
@@ -901,6 +931,7 @@ function Manager.Init(self: Manager): ()
 	self.runtime.Parent = workspace
 	self.scope:Own(self.runtime)
 	Ragdoll.Init()
+	if Physics.GroundRootEnabled then Ground.Init() end
 	Door.Init(self.scope)
 	self.scope:Connect(Net.ConnectRequest(function(player: Player, request: Types.Request): ()
 		self:OnRequest(player, request)

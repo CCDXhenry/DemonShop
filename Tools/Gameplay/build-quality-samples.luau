@@ -31,13 +31,32 @@ if not cursor then
  local dotCorner=Instance.new("UICorner");dotCorner.CornerRadius=UDim.new(1,0);dotCorner.Parent=dot
  cursor.Parent=root
 end
+-- 画笔光标按裁切后的原图比例摆放，锚点落在笔尖，避免 Fit 留白把落点挪偏。
+local brushCursor = root:FindFirstChild("PaintBrushCursorImage")
+if not brushCursor then
+ brushCursor = Instance.new("ImageLabel")
+ brushCursor.Name = "PaintBrushCursorImage"
+ brushCursor.Parent = root
+end
+brushCursor.AnchorPoint = Vector2.new(0.41, 0)
+brushCursor.Rotation = -38
+brushCursor.Size = UDim2.fromOffset(28, 194)
+brushCursor.BackgroundTransparency = 1
+brushCursor.BorderSizePixel = 0
+brushCursor.ScaleType = Enum.ScaleType.Fit
+brushCursor.Active = false
+brushCursor.Interactable = false
+brushCursor.Visible = false
+brushCursor.ZIndex = 30
+brushCursor.Image = "rbxassetid://135479236200618"
 local target=rs.UI:FindFirstChild("TargetGui")
 if not target then
- target=Instance.new("BillboardGui");target.Name="TargetGui";target.Size=UDim2.fromOffset(170,44);target.StudsOffsetWorldSpace=Vector3.new(0,1,0);target.AlwaysOnTop=true;target.LightInfluence=0;target.Enabled=false;target.MaxDistance=45
- local frame=Instance.new("Frame");frame.Name="ContentFrame";frame.AnchorPoint=Vector2.new(.5,1);frame.Position=UDim2.fromScale(.5,1);frame.Size=UDim2.fromScale(1,1);frame.BackgroundColor3=Color3.fromRGB(23,16,36);frame.BackgroundTransparency=.1;frame.BorderSizePixel=0;frame.Parent=target
- local corner=Instance.new("UICorner");corner.CornerRadius=UDim.new(0,8);corner.Parent=frame
- local text=Instance.new("TextLabel");text.Name="CountText";text.Size=UDim2.fromScale(1,1);text.BackgroundTransparency=1;text.TextColor3=Color3.fromRGB(240,219,255);text.Font=Enum.Font.GothamBold;text.TextScaled=true;text.AutoLocalize=false;text.Text="HIT 0 / 3";text.Parent=frame
- local stroke=Instance.new("UIStroke");stroke.StrokeSizingMode=Enum.StrokeSizingMode.ScaledSize;stroke.Thickness=.05;stroke.Parent=text
+ target=Instance.new("BillboardGui");target.Name="TargetGui";target.Size=UDim2.fromScale(3.6,3.6*199/1163);target.StudsOffsetWorldSpace=Vector3.new(0,1,0);target.AlwaysOnTop=true;target.LightInfluence=0;target.Enabled=false;target.MaxDistance=45
+ local frame=Instance.new("Frame");frame.Name="ContentFrame";frame.AnchorPoint=Vector2.new(.5,1);frame.Position=UDim2.fromScale(.5,1);frame.Size=UDim2.fromScale(1,1);frame.BackgroundTransparency=1;frame.BorderSizePixel=0;frame.Parent=target
+ local uiScale=Instance.new("UIScale");uiScale.Scale=1;uiScale.Parent=frame
+ local art=Instance.new("ImageLabel");art.Name="FrameImage";art.BackgroundTransparency=1;art.BorderSizePixel=0;art.Size=UDim2.fromScale(1,1);art.ScaleType=Enum.ScaleType.Stretch;art.Image="rbxassetid://70702135277728";art.ZIndex=2;art.Active=false;art.Parent=frame
+ local clip=Instance.new("Frame");clip.Name="ClipFrame";clip.BackgroundTransparency=1;clip.BorderSizePixel=0;clip.Position=UDim2.fromScale(130/1163,58/199);clip.Size=UDim2.fromScale(900/1163,84/199);clip.ClipsDescendants=true;clip.ZIndex=1;clip.Parent=frame
+ local fill=Instance.new("ImageLabel");fill.Name="FillImage";fill.BackgroundTransparency=1;fill.BorderSizePixel=0;fill.Size=UDim2.fromScale(1,1);fill.ScaleType=Enum.ScaleType.Stretch;fill.Image="rbxassetid://88599892799863";fill.Active=false;fill.Parent=clip
  target.Parent=rs.UI
 end
 local status=root.StatusFrame
@@ -76,45 +95,38 @@ do
 assert(game.PlaceId == 110812537538556 and not game:GetService("RunService"):IsRunning(), "DemonShop Edit required")
 local ui = game:GetService("ReplicatedStorage").UI
 local gui = ui.GameScreenGui
-local root = gui.CenterFrame
-local function SplitKey(label: TextLabel, name: string, key: string, width: number): TextLabel
-	local parent = label.Parent :: Instance
-	local existing = parent:FindFirstChild(name) :: TextLabel?
-	if existing then return existing end
-	local keyLabel = label:Clone()
-	keyLabel.Name, keyLabel.Text, keyLabel.AutoLocalize = name, key, false
-	keyLabel.Size = UDim2.new(0, width, label.Size.Y.Scale, label.Size.Y.Offset)
-	keyLabel.Visible = false
-	keyLabel.Parent = parent
-	label.Position += UDim2.fromOffset(width, 0)
-	label.Size -= UDim2.fromOffset(width, 0)
-	return keyLabel
-end
 for _, value in gui:GetDescendants() do
 	if value:IsA("TextLabel") then
 		local dynamic = value.Name == "CoinsText" or value.Name == "CarryText" or value.Name == "StockText"
 			or value.Name == "HintText" or value.Name == "NoticeText" or value.Name == "ProgressText"
-			or (value.Name == "LabelText" and value.Parent and value.Parent.Name == "DropButton")
 		value.AutoLocalize = not dynamic and not string.find(value.Name, "KeyText")
 		if dynamic and value.Name ~= "ProgressText" then value.Text = "" end
 	end
 end
 for _, node in gui:GetDescendants() do
-	if node.Name == "InteractButton" or node.Name == "HintKeyText" then node:Destroy() end
+	if node.Name == "InteractButton" or node.Name == "HintKeyText" or node.Name == "DropButton" or node.Name == "AttackButton" then node:Destroy() end
 end
-local dropKey = SplitKey(root.DropButton.LabelText, "KeyText", "Q", 48)
-dropKey.Visible = true
-root.DropButton.LabelText.Text = ""
-root.DropButton.LabelText.AutoLocalize = false
 local target = ui:FindFirstChild("TargetGui")
 if target then
-	local count = target.ContentFrame.CountText
-	count.AutoLocalize, count.Text = false, ""
-	local key = count.Parent:FindFirstChild("KeyText"); if key then key:Destroy() end
+	local content = target:FindFirstChild("ContentFrame")
+	if content then
+		local count = content:FindFirstChild("CountText")
+		if count then count:Destroy() end
+		local key = content:FindFirstChild("KeyText")
+		if key then key:Destroy() end
+	end
 end
 
-local prompt = ui:FindFirstChild("WorldInteractionPrompt") :: ProximityPrompt?
-if not prompt then prompt = Instance.new("ProximityPrompt"); prompt.Name = "WorldInteractionPrompt"; prompt.Parent = ui end
+local existingPrompt = ui:FindFirstChild("WorldInteractionPrompt")
+local prompt: ProximityPrompt
+if existingPrompt and existingPrompt:IsA("ProximityPrompt") then
+	prompt = existingPrompt
+else
+	local created = Instance.new("ProximityPrompt")
+	created.Name = "WorldInteractionPrompt"
+	created.Parent = ui
+	prompt = created
+end
 prompt.Style = Enum.ProximityPromptStyle.Default
 prompt.HoldDuration = 0.5
 prompt.KeyboardKeyCode = Enum.KeyCode.E

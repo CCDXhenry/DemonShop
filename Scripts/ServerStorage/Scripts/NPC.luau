@@ -1,19 +1,22 @@
 -- NPC 模块：受限街道采样、白膜生成、闲逛动画及击晕转换
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local Surface = require(ReplicatedStorage.Scripts.Shared.PaintSurface)
 local Types = require(ReplicatedStorage.Scripts.Shared.GameTypes)
 local Ragdoll = require(script.Parent.Ragdoll)
 local Scene = require(script.Parent.Scene)
+local Physics = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
+local Ground = require(script.Parent.GroundAuthority)
 local NPC = {}
 local random = Random.new()
 function NPC.StopMotion(item: Types.Item): ()
-	if item.hitVelocity then item.hitVelocity.Enabled=false end
+	if item.pushConnection then item.pushConnection:Disconnect(); item.pushConnection=nil end
 	if item.walkTrack then item.walkTrack:Stop(Config.MotionFadeSeconds) end
 	if item.idleTrack then item.idleTrack:Stop(Config.MotionFadeSeconds) end
-	item.staggerEnds, item.hitDirection = nil, nil
+	item.staggerEnds = nil
 end
 local function SetMotion(item: Types.Item, state: string): ()
 	if item.motionState == state then return end
@@ -61,6 +64,7 @@ function NPC.Spawn(runtime: Folder, items: { [string]: Types.Item }): Types.Item
 	local id = HttpService:GenerateGUID(false)
 	model.Name = "WhiteNPC"
 	model:SetAttribute("ItemId", id)
+	model:SetAttribute("GroundPresentation", Physics.GroundRootEnabled)
 	model:PivotTo(CFrame.new(point + Vector3.new(0, 3.2, 0)))
 	model.Parent = runtime
 	Ragdoll.Setup(model)
@@ -114,16 +118,6 @@ function NPC.Spawn(runtime: Folder, items: { [string]: Types.Item }): Types.Item
 		idleTrack.Looped, idleTrack.Priority = true, Enum.AnimationPriority.Idle
 	end
 	SetMotion(item, "Idle")
-	local hitAttachment=Instance.new("Attachment")
-	hitAttachment.Name,hitAttachment.Parent="StaggerAttachment",model.PrimaryPart
-	local hitVelocity=Instance.new("LinearVelocity")
-	hitVelocity.Name,hitVelocity.Attachment0="StaggerVelocity",hitAttachment
-	hitVelocity.VelocityConstraintMode=Enum.VelocityConstraintMode.Plane
-	hitVelocity.RelativeTo=Enum.ActuatorRelativeTo.World
-	hitVelocity.PrimaryTangentAxis,hitVelocity.SecondaryTangentAxis=Vector3.xAxis,Vector3.zAxis
-	hitVelocity.MaxForce,hitVelocity.Enabled=10000,false
-	hitVelocity.Parent=model.PrimaryPart
-	item.hitVelocity=hitVelocity
 	return item
 end
 function NPC.Update(item: Types.Item, now: number): ()
@@ -140,8 +134,6 @@ function NPC.Update(item: Types.Item, now: number): ()
 		if remaining > 0 then
 			humanoid:Move(Vector3.zero)
 			humanoid.WalkSpeed = 0
-			local age = Config.HitStaggerSeconds - remaining
-			if item.hitVelocity and age>Config.HitPushSeconds then item.hitVelocity.Enabled=false end
 			return
 		end
 		NPC.StopMotion(item)
@@ -171,6 +163,47 @@ function NPC.Update(item: Types.Item, now: number): ()
 		end
 	end
 end
+-- 按绝对时间采样 ease-out 曲线，每步仅移动尚未消耗的距离；任一躯干先碰墙即结束。
+local function Push(item: Types.Item, root: BasePart, direction: Vector3)
+	local model=item.model
+	local cast=RaycastParams.new()
+	cast.FilterType=Enum.RaycastFilterType.Exclude
+	cast.FilterDescendantsInstances={model}
+	cast.RespectCanCollide=true
+	cast.CollisionGroup=root.CollisionGroup
+	local overlap=OverlapParams.new()
+	overlap.FilterType=Enum.RaycastFilterType.Exclude
+	overlap.FilterDescendantsInstances={model}
+	overlap.RespectCanCollide=true
+	overlap.CollisionGroup=root.CollisionGroup
+	overlap.MaxParts=1
+	local parts: {BasePart}={}
+	for _,name in {"Head","UpperTorso","LowerTorso"} do
+		local part=model:FindFirstChild(name)
+		if part and part:IsA("BasePart") then table.insert(parts,part) end
+	end
+	local started=workspace:GetServerTimeNow()
+	local traveled=0
+	root.AssemblyLinearVelocity=Vector3.yAxis*root.AssemblyLinearVelocity.Y
+	local function Finish()
+		if item.pushConnection then item.pushConnection:Disconnect(); item.pushConnection=nil end
+	end
+	item.pushConnection=RunService.PreSimulation:Connect(function()
+		if item.location~="Street" or not model.Parent or root.Parent~=model or item.hits>=Config.StunHits then Finish(); return end
+		local t=math.clamp((workspace:GetServerTimeNow()-started)/Config.HitPushSeconds,0,1)
+		local requested=Config.HitPushDistance*(1-(1-t)^2)-traveled
+		if requested<=0 then if t>=1 then Finish() end; return end
+		local distance=requested
+		for _,part in parts do
+			local size=part.Size*0.94
+			local hit=workspace:Blockcast(part.CFrame,size,direction*distance,cast)
+			if hit then distance=math.max(0,hit.Distance-0.03) end
+			if distance<=0 or #workspace:GetPartBoundsInBox(part.CFrame+direction*distance,size,overlap)>0 then distance=0; break end
+		end
+		if distance>0 then model:PivotTo(model:GetPivot()+direction*distance); traveled+=distance end
+		if t>=1 or distance<requested then Finish() end
+	end)
+end
 function NPC.Hit(item: Types.Item, direction: Vector3?): ()
 	item.hits += 1
 	item.version += 1
@@ -182,10 +215,16 @@ function NPC.Hit(item: Types.Item, direction: Vector3?): ()
 	item.motionState = "Hit"
 	item.model:SetAttribute("MotionState", "Hit")
 	item.staggerEnds = item.nextWalk
-	item.hitDirection = direction
 	if item.hits >= Config.StunHits then
 		if item.walkTrack then
 			item.walkTrack:Stop()
+		end
+		if Physics.GroundRootEnabled and root then
+			local axis=direction or root.CFrame.LookVector
+			Ground.Place(item,axis,root.AssemblyLinearVelocity+axis*Config.StunImpulseSpeed)
+			item.motionState="Down"
+			item.model:SetAttribute("MotionState","Down")
+			return
 		end
 		Ragdoll.SetMode(item.model, "Loose")
 		item.model:SetAttribute("MotionState", "Down")
@@ -198,12 +237,7 @@ function NPC.Hit(item: Types.Item, direction: Vector3?): ()
 		humanoid.WalkSpeed = 0
 		local horizontal = if direction then Vector3.new(direction.X,0,direction.Z) else Vector3.zero
 		if horizontal.Magnitude > 0.01 then
-			root:ApplyImpulse(horizontal.Unit * Config.HitImpulseSpeed * root.AssemblyMass)
-			if item.hitVelocity then
-				local velocity=horizontal.Unit*Config.HitImpulseSpeed
-				item.hitVelocity.PlaneVelocity=Vector2.new(velocity.X,velocity.Z)
-				item.hitVelocity.Enabled=true
-			end
+			Push(item,root,horizontal.Unit)
 		end
 	end
 end

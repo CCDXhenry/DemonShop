@@ -2,10 +2,17 @@
 --!strict
 local Scene = {}
 local district = workspace:WaitForChild("NeonContractDistrict")
+local PointRowBand = 0.5 -- 同一排点位的高度差上限，studs
 local function Part(root: Instance, name: string): BasePart
 	local p = root:WaitForChild(name)
 	assert(p:IsA("BasePart"))
 	return p
+end
+local function TopThenLeft(a: BasePart, b: BasePart): boolean
+	if math.abs(a.Position.Y - b.Position.Y) > PointRowBand then
+		return a.Position.Y > b.Position.Y
+	end
+	return a.Position.X < b.Position.X
 end
 Scene.District = district
 Scene.Deck = Part(district:WaitForChild("deck"):WaitForChild("Generated"):WaitForChild("Street"):WaitForChild("Raised Street Deck With Stair Void"), "Box_005")
@@ -14,7 +21,17 @@ Scene.PoolPickup = Part(district:WaitForChild("SoulHoldingPool"), "PickupPointAn
 Scene.Table = Part(district:WaitForChild("RuneBodyTable"), "BodyPlacementAnchor")
 Scene.TableInteract = Part(district:WaitForChild("RuneBodyTable"), "TransferStartAnchor")
 Scene.Altar = Part(district:WaitForChild("SoulConversionAltar"), "BodyArrivalAnchor")
-Scene.Shelf = Part(district:WaitForChild("SoulCrystalDisplay"), "StockPickupAnchor")
+local display = district:WaitForChild("SoulCrystalDisplay")
+Scene.Shelf = Part(display, "StockPickupAnchor")
+local potionPointFolder = display:WaitForChild("PotionPoints")
+local potionPoints: { BasePart } = {}
+for _, child in potionPointFolder:GetChildren() do
+	if child:IsA("BasePart") then
+		table.insert(potionPoints, child)
+	end
+end
+table.sort(potionPoints, TopThenLeft)
+assert(#potionPoints > 0, "SoulCrystalDisplay.PotionPoints is empty")
 Scene.Spawn = Part(district, "StreetSpawn")
 Scene.SigilPosition = Part(district, "SummoningSubmitAnchor").Position
 function Scene.TablePose(): CFrame
@@ -29,7 +46,8 @@ function Scene.PoolPose(slot: number): CFrame
 		* CFrame.Angles(math.pi / 2, 0, 0)
 end
 function Scene.ShelfPose(slot: number): CFrame
-	return CFrame.new(Scene.Shelf.Position + Vector3.new(((slot - 1) % 4 - 1.5) * 1.35, 2 + math.floor((slot - 1) / 4) * 1.8, -1))
+	local index = math.clamp(slot, 1, #potionPoints)
+	return CFrame.new(potionPoints[index].Position)
 end
 function Scene.SafePose(position: Vector3, fallback: Vector3, ignored: { Instance }): CFrame
 	local params = RaycastParams.new()
@@ -55,6 +73,7 @@ function Scene.Visible(character: Model, position: Vector3, target: Model?): boo
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = { character }
+	params.RespectCanCollide = true
 	local direction = position - head.Position
 	if direction.Magnitude < 0.01 then
 		return true

@@ -1,0 +1,3 @@
+ScanBaseline distance=1000 range=8 pool=false ground=false coins=0
+ScanCurrent distance=1000 range=8 pool=true ground=true coins=100
+PASS: actual protocol and complete manager dispatcher; storage/character/physics/network boundaries mocked

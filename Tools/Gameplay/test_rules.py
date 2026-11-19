@@ -77,11 +77,18 @@ subprocess.run(["lune","run",str(OUT/"test_rules.luau")],cwd=ROOT,check=True)
 text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/CharacterPresentation.luau").read_text(encoding="utf-8")
 start=text.index("local Players =")
 end=text.index("local Presentation =")
-text=text[:start]+"local Boundary=require('./WeaponPresentationBoundary')\nlocal Players,ContentProvider=Boundary.Players,Boundary.ContentProvider\nlocal Instance,Enum,CFrame=Boundary.Instance,Boundary.Enum,Boundary.CFrame\nlocal task=require('@lune/task')\nlocal Config=require('./GameConfig')\n"+text[end:]
+text=text[:start]+"local Boundary=require('./WeaponPresentationBoundary')\nlocal Players=Boundary.Players\nlocal Instance,Enum,CFrame=Boundary.Instance,Boundary.Enum,Boundary.CFrame\nlocal Config=require('./GameConfig')\n"+text[end:]
 (OUT/"CharacterPresentation.luau").write_text(text,encoding="utf-8")
 for name in ("WeaponPresentationBoundary","test_weapon_presentation"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_weapon_presentation.luau")],cwd=ROOT,check=True)
+text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientPreloadManager.luau").read_text(encoding="utf-8")
+text=text.replace("instance:PivotTo(pose)", "B.PivotTo(instance, pose)", 1)
+prefix="local B=require('./ClientPreloadBoundary')\nlocal ContentProvider,RunService,Players,ReplicatedStorage=B.ContentProvider,B.RunService,B.Players,B.ReplicatedStorage\nlocal workspace,Instance,Vector3,CFrame=B.workspace,B.Instance,B.Vector3,B.CFrame\nlocal task=require('@lune/task')\nlocal Config=require('./GameConfig')\n"
+(OUT/"ClientPreloadManager.luau").write_text(prefix+text[text.index("local Manager = {}"):],encoding="utf-8")
+for name in ("ClientPreloadBoundary","test_client_preload"):
+    (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
+subprocess.run(["lune","run",str(OUT/"test_client_preload.luau")],cwd=ROOT,check=True)
 
 subprocess.run(["lune","run",str(OUT/"test_painting.luau")],cwd=ROOT,check=True)
 
@@ -186,7 +193,7 @@ for name in ("FoundationUIBoundary", "test_foundation_ui"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
 foundation_module("ProcessingTextTool", "Scripts/ReplicatedStorage/Scripts/Client/ProcessingTextTool.luau", "local Tool =", "local U=require('./FoundationUIBoundary')\nlocal GameTexts=require('./GameTexts')\nlocal TranslationTool,TextFitting=U.TranslationTool,U.TextFitting\n")
 for name in ("GameScreenGuiManager", "TargetGuiManager", "ScreenLayoutGuideFrameManager"):
-    foundation_module(name, "Scripts/ReplicatedStorage/Scripts/Client/UIManager/"+name+".luau", "local Manager =", "local R=require('@lune/roblox')\nlocal UDim2=R.UDim2\nlocal U=require('./FoundationUIBoundary')\nlocal Players,ReplicatedStorage,workspace,UserInputService=U.Players,{UI=U.templates},U.workspace,U.UserInputService\nlocal ProcessingText=require('./ProcessingTextTool')\nlocal Lifecycle=require('./LifecycleTool')\nlocal Config=require('./GameConfig')\nlocal PaintPointer=U.PaintPointer\n")
+    foundation_module(name, "Scripts/ReplicatedStorage/Scripts/Client/UIManager/"+name+".luau", "local Manager =", "local R=require('@lune/roblox')\nlocal UDim2,Vector2,Enum=R.UDim2,R.Vector2,R.Enum\nlocal U=require('./FoundationUIBoundary')\nlocal Players,ReplicatedStorage,workspace,UserInputService,GuiService=U.Players,{UI=U.templates},U.workspace,U.UserInputService,U.GuiService\nlocal TweenService,TweenInfo=U.TweenService,U.TweenInfo\nlocal ProcessingText=require('./ProcessingTextTool')\nlocal Lifecycle=require('./LifecycleTool')\nlocal Config=require('./GameConfig')\nlocal PaintPointer=U.PaintPointer\n")
 source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/UIManager/init.luau").read_text(encoding="utf-8")
 start=source.index("local ModalTransparency:")
 prefix="local U=require('./FoundationUIBoundary')\nlocal UIManager={}\nlocal LifecycleTool=require('./LifecycleTool')\nlocal scope=LifecycleTool.new()\nlocal initialized=false\nlocal buttonScopes={}\nlocal uiTemplatesFolder=U.templates\nlocal ClientMsg,TextFitting,GameSoundTool=U.ClientMsg,U.TextFitting,U.Sound\nlocal tweenService,workspace,Enum,TweenInfo=U.TweenService,U.workspace,U.Enum,U.TweenInfo\nlocal userInputService={PreferredInput=Enum.PreferredInput.KeyboardAndMouse}\nlocal windowOrder={}\nlocal viewportScope=nil\nlocal ownedGui=nil\nlocal hudWrapper=nil\nlocal Players=U.Players\nlocal GameFrameWrapper=require('./GameFrameWrapper')\n"

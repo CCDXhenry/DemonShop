@@ -10,19 +10,19 @@ local function factory(frame,id,actions)
 end
 for _,id in {'A','B','C'} do UI.RegisterWindow(id,{frameName='TestWindow',isModal=true,newWindow=factory}) end
 UI.Init(U.gui);UI.Init(U.gui)
-check(U.gui.DescendantAdded:Count()==1 and U.modal.Activated:Count()==1 and U.cameraSignal:Count()==2,'UI initialization registers once')
+check(U.gui.DescendantAdded:Count()==1 and U.modal.Activated:Count()==1 and U.cameraSignal:Count()==3,'UI initialization registers once')
 local B=require('./FoundationBoundary')
 local originalCamera=U.workspace.CurrentCamera
 local replacementSignal=B.Signal()
 U.workspace.CurrentCamera={ViewportSize={X=960,Y=540},GetPropertyChangedSignal=function()return replacementSignal end}
 U.cameraChanged:Fire()
-check(U.cameraSignal:Count()==0 and replacementSignal:Count()==2,'camera replacement transfers each canvas listener once')
+check(U.cameraSignal:Count()==0 and replacementSignal:Count()==3,'camera replacement transfers each canvas listener once')
 check(U.scale.Scale==.5 and U.gui:FindFirstChild('CenterFrame'):FindFirstChildOfClass('UIScale').Scale==.5,'HUD and window root share fixed-canvas scaling rule')
 local nested=U.Node('Nested','Frame');nested.Parent=U.canvas
 local nestedScale=U.Node('UIScale','UIScale');nestedScale.Scale=1;nestedScale.Parent=nested
 local Wrapper=require('./GameFrameWrapper')
 local wrapper=Wrapper.new(nested,UI.GetUIActions());wrapper:Init()
-check(replacementSignal:Count()==2 and nestedScale.Scale==1,'nested wrappers do not double-scale parent canvas')
+check(replacementSignal:Count()==3 and nestedScale.Scale==1,'nested wrappers do not double-scale parent canvas')
 wrapper:OnDestroy();nested:Destroy()
 U.workspace.CurrentCamera=originalCamera;U.cameraChanged:Fire()
 check(replacementSignal:Count()==0 and U.scale.Scale==1,'camera teardown releases replacement listeners')

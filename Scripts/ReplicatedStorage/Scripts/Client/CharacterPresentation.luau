@@ -1,7 +1,6 @@
--- 玩家动作表现：肩扛原生动画与 Roblox 标准挥剑动画；本地播放由引擎复制
+-- 玩家动作表现：肩扛原生动画与铲子挥击动画；本地播放由引擎复制
 --!strict
 local Players = game:GetService("Players")
-local ContentProvider = game:GetService("ContentProvider")
 local Config = require(game:GetService("ReplicatedStorage").Scripts.Shared.GameConfig)
 local Presentation = {}
 Presentation.__index = Presentation
@@ -11,7 +10,7 @@ type CarryCache = { character: Model, humanoid: Humanoid, track: AnimationTrack?
 type CharacterCache = { model: Model, joints: { Joint }, added: RBXScriptConnection }
 export type Presentation = typeof(setmetatable({} :: {
 	carriers: { [number]: boolean }, offsets: { [Joint]: CFrame },
-	attack: AttackCache?, carry: CarryCache?, animation: Animation, carryAnimation: Animation, preload: thread?,
+	attack: AttackCache?, carry: CarryCache?, animation: Animation, carryAnimation: Animation,
 	characters: { [Player]: CharacterCache },
 }, Presentation))
 function Presentation.new(): Presentation
@@ -19,17 +18,7 @@ function Presentation.new(): Presentation
 	animation.AnimationId = Config.WeaponSlashAnimation
 	local carryAnimation = Instance.new("Animation")
 	carryAnimation.AnimationId = Config.BodyCarryAnimation
-	local self = setmetatable({ carriers = {}, offsets = {}, characters = {}, animation = animation, carryAnimation = carryAnimation, attack = nil :: AttackCache?, carry = nil :: CarryCache?, preload = nil :: thread? }, Presentation)
-	self.preload = task.defer(function(): ()
-		local ok, reason = pcall(function(): boolean
-			ContentProvider:PreloadAsync({ animation, carryAnimation }, function(asset: string, status: Enum.AssetFetchStatus): ()
-				if status ~= Enum.AssetFetchStatus.Success then warn("[Carry/Sword] 动画预加载失败", asset, status) end
-			end)
-			return true
-		end)
-		if not ok then warn("[Carry/Sword] 动画预加载失败", reason) end
-		self.preload = nil
-	end)
+	local self = setmetatable({ carriers = {}, offsets = {}, characters = {}, animation = animation, carryAnimation = carryAnimation, attack = nil :: AttackCache?, carry = nil :: CarryCache? }, Presentation)
 	return self
 end
 function Presentation.Joints(self: Presentation, player: Player, character: Model): { Joint }
@@ -119,11 +108,11 @@ function Presentation.Swing(self: Presentation, userId: number, _started: number
 			if player:GetAttribute("Painting") == true then OnStop() end
 		end))
 		if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
-			warn("[Sword] 官方挥剑动画需要 R15，跳过攻击动画")
+			warn("[Sword] 铲子挥击动画需要 R15，跳过攻击动画")
 			return
 		end
 		local ok, result = pcall(function(): AnimationTrack return animator:LoadAnimation(self.animation) end)
-		if not ok then warn("[Sword] 无法加载标准挥剑动画", result); return end
+		if not ok then warn("[Sword] 无法加载铲子挥击动画", result); return end
 		result.Priority = Enum.AnimationPriority.Action
 		result.Looped = false
 		created.track = result
@@ -177,7 +166,6 @@ function Presentation.Destroy(self: Presentation): ()
 	self:Restore()
 	self:StopSwing()
 	self:StopCarry()
-	if self.preload then task.cancel(self.preload); self.preload = nil end
 	self.animation:Destroy()
 	self.carryAnimation:Destroy()
 	for _, cached in self.characters do cached.added:Disconnect() end

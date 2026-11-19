@@ -1,19 +1,18 @@
--- 目标标牌管理器：管理本地目标绑定、命中提示、翻译及释放
+-- 目标标牌管理器：管理本地目标绑定、剩余耐久血条及释放
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(script.Parent.Parent.Parent.Shared.GameConfig)
-local ProcessingText = require(script.Parent.Parent.ProcessingTextTool)
 local Lifecycle = require(script.Parent.Parent.Parent.Shared.LifecycleTool)
 local Manager = {}
 Manager.__index = Manager
 export type DisplayState = { adornee: BasePart?, visible: boolean, hits: number, touch: boolean }
 export type Manager = typeof(setmetatable(
-	{} :: { gui: BillboardGui?, count: TextLabel?, key: TextLabel?, texts: ProcessingText.Controller, scope: Lifecycle.Lifecycle },
+	{} :: { gui: BillboardGui?, fill: ImageLabel?, shownHits: number?, scope: Lifecycle.Lifecycle },
 	Manager
 ))
 function Manager.new(): Manager
-	return setmetatable({ texts = ProcessingText.new(), scope = Lifecycle.new() }, Manager)
+	return setmetatable({ scope = Lifecycle.new() }, Manager)
 end
 function Manager.Refresh(self: Manager, state: DisplayState): ()
 	self:Init()
@@ -26,18 +25,14 @@ function Manager.Refresh(self: Manager, state: DisplayState): ()
 	else
 		gui:ResetPropertyToDefault("Adornee")
 	end
-	gui.Enabled = state.visible and state.adornee ~= nil
-	local count, key = self.count, self.key
-	if count then
-		self.texts:Bind(
-			count,
-			if state.hits >= Config.StunHits
-				then { textId = "TargetStunned" }
-				else { textId = "HitCount", args = { tostring(state.hits), tostring(Config.StunHits) } }
-		)
-	end
-	if key then
-		key.Visible = false
+	local stunned = state.hits >= Config.StunHits
+	gui.Enabled = state.visible and state.adornee ~= nil and not stunned
+	local fill = self.fill
+	if fill and not stunned and self.shownHits ~= state.hits then
+		self.shownHits = state.hits
+		local total = Config.StunHits
+		local remaining = if total > 0 then math.clamp((total - state.hits) / total, 0, 1) else 0
+		fill.Size = UDim2.fromScale(remaining, 1)
 	end
 end
 function Manager.Init(self: Manager): ()
@@ -47,8 +42,8 @@ function Manager.Init(self: Manager): ()
 	self.scope = Lifecycle.new()
 	local gui = (ReplicatedStorage.UI:WaitForChild("TargetGui") :: BillboardGui):Clone()
 	self.gui = gui
-	self.count = gui:FindFirstChild("CountText", true) :: TextLabel
-	self.key = gui:FindFirstChild("KeyText", true) :: TextLabel
+	self.fill = gui:FindFirstChild("FillImage", true) :: ImageLabel
+	self.shownHits = nil
 	gui.Enabled = false
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	self.scope:Connect(gui.Destroying:Connect(function(): ()
@@ -58,9 +53,8 @@ function Manager.Init(self: Manager): ()
 end
 function Manager.Destroy(self: Manager): ()
 	self.scope:Destroy()
-	self.texts:Destroy()
 	local gui = self.gui
-	self.gui, self.count, self.key = nil, nil, nil
+	self.gui, self.fill, self.shownHits = nil, nil, nil
 	if gui then
 		gui:Destroy()
 	end

@@ -7,25 +7,22 @@ local Types=require(ReplicatedStorage.Scripts.Shared.GameTypes)
 local Presentation={}
 Presentation.__index=Presentation
 export type Presentation=typeof(setmetatable({} :: {
-	source: Model?,model: Model?,hidden: {[BasePart]: number},parts: {[string]: BasePart},
+	model: Model?,parts: {[string]: BasePart},
 	yaw: number,pitch: number,targetYaw: number,targetPitch: number,
 	dynamic: boolean,rest: CFrame,targetBodyPose: Types.BodyPose?,
 },Presentation))
 function Presentation.new(): Presentation
-	return setmetatable({source=nil,model=nil,hidden={},parts={},yaw=0,pitch=0,targetYaw=0,targetPitch=0,dynamic=false,rest=CFrame.identity,targetBodyPose=nil},Presentation)
+	return setmetatable({model=nil,parts={},yaw=0,pitch=0,targetYaw=0,targetPitch=0,dynamic=false,rest=CFrame.identity,targetBodyPose=nil},Presentation)
 end
 function Presentation.Clear(self: Presentation): ()
-	if self.model then self.model:Destroy() end
-	for part,transparency in self.hidden do if part.Parent then part.LocalTransparencyModifier=transparency end end
-	table.clear(self.hidden);table.clear(self.parts)
-	self.model,self.source,self.targetBodyPose=nil,nil,nil
+	table.clear(self.parts)
+	self.model,self.targetBodyPose=nil,nil
 	self.dynamic=false
 end
-function Presentation.Bind(self: Presentation,source: Model,receivedPose: Types.BodyPose?): Model
-	if self.source==source and self.model then return self.model end
+-- 副本及可见性交接由白膜管理器独占；此控制器只持有当前工位姿态。
+function Presentation.Attach(self: Presentation,source: Model,model: Model,rootDrive: Instance,receivedPose: Types.BodyPose?)
 	self:Clear()
-	local model=source:Clone()
-	model.Name="LocalRuneBody"
+	self.model=model
 	local torso=model:FindFirstChild("UpperTorso")
 	assert(torso and torso:IsA("BasePart"),"Painting body requires UpperTorso")
 	local rest=torso:GetAttribute("RestPose")
@@ -33,7 +30,11 @@ function Presentation.Bind(self: Presentation,source: Model,receivedPose: Types.
 	for _,instance in model:GetDescendants() do
 		if instance:IsA("LuaSourceContainer") or instance:IsA("Humanoid") then instance:Destroy()
 		elseif instance:IsA("Motor6D") then
-			instance.Enabled=instance.Name=="Root" or instance.Name=="RootJoint"
+			instance.Enabled=instance==rootDrive
+			instance.Transform=CFrame.identity
+		elseif instance:IsA("AnimationConstraint") then
+			instance.Enabled=instance==rootDrive
+			instance.IsKinematic=true
 			instance.Transform=CFrame.identity
 		elseif instance:IsA("BallSocketConstraint") then
 			instance.Enabled=false
@@ -50,14 +51,8 @@ function Presentation.Bind(self: Presentation,source: Model,receivedPose: Types.
 			self.parts[instance.Name]=instance
 		end
 	end
-	for _,instance in source:GetDescendants() do
-		if instance:IsA("BasePart") then self.hidden[instance]=instance.LocalTransparencyModifier;instance.LocalTransparencyModifier=1 end
-	end
 	self.targetBodyPose=receivedPose or Pose.Capture(source)
-	model.Parent=workspace
-	self.source,self.model=source,model
 	self.yaw,self.pitch=0,0
-	return model
 end
 function Presentation.CapturePose(self: Presentation): Types.BodyPose?
 	if not self.dynamic or not self.model then return nil end

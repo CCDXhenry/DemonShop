@@ -13,13 +13,27 @@ local InputReleaseGraceSeconds = 0.1
 local Manager = {}
 Manager.__index = Manager
 type PromptParent = BasePart | Model
-type Binding = { prompt: ProximityPrompt, scope: Lifecycle.Lifecycle, signature: string, holding: Rules.Action?, textValid: boolean }
+type Binding = { prompt: ProximityPrompt, scope: Lifecycle.Lifecycle, signature: string, holding: Rules.Action?, textValid: boolean, isDynamic: boolean }
 export type State = { snapshot: Types.Snapshot?, items: {[string]: Types.ItemView}, held: Types.ItemView?, potions: Rules.Potions?, enabled: boolean }
 export type Manager = typeof(setmetatable({} :: {
 	bindings: {[string]: Binding}, anchors: {[string]: BasePart}, readState: () -> State, suppressUntil: number,
 }, Manager))
 function Manager.new(anchors: {[string]: BasePart}, readState: () -> State): Manager
 	return setmetatable({bindings={}, anchors=anchors, readState=readState, suppressUntil=0}, Manager)
+end
+function Manager.GetTemplatePrompt(self: Manager): ProximityPrompt
+	for _, anchor in self.anchors do
+		local prompt = anchor:FindFirstChild("WorldInteractionPrompt")
+		if prompt and prompt:IsA("ProximityPrompt") then
+			return prompt
+		end
+	end
+	local ui = ReplicatedStorage:FindFirstChild("UI")
+	local fallback = ui and ui:FindFirstChild("WorldInteractionPrompt")
+	if fallback and fallback:IsA("ProximityPrompt") then
+		return fallback
+	end
+	error("未找到 WorldInteractionPrompt 模板实例")
 end
 function Manager.Remove(self: Manager, target: string): ()
 	local binding = self.bindings[target]
@@ -28,7 +42,10 @@ function Manager.Remove(self: Manager, target: string): ()
 	binding.holding = nil
 	binding.scope:Destroy()
 	TranslationTool.RemoveCustomAutoLocalizeGui(binding.prompt)
-	binding.prompt:Destroy()
+	binding.prompt.Enabled = false
+	if binding.isDynamic then
+		binding.prompt:Destroy()
+	end
 end
 function Manager.IsInputBlocked(self: Manager): boolean
 	if os.clock() < self.suppressUntil then return true end
@@ -48,10 +65,25 @@ function Manager.Resolve(self: Manager, target: string): Rules.Action?
 	return if state.enabled then Rules.Resolve(target, state.snapshot, state.items, state.held, state.potions) else nil
 end
 function Manager.Create(self: Manager, target: string, anchor: PromptParent): Binding
-	local prompt = (ReplicatedStorage.UI:WaitForChild("WorldInteractionPrompt") :: ProximityPrompt):Clone()
+	local isStation = (self.anchors[target] :: BasePart?) ~= nil
+	local prompt: ProximityPrompt
+	if isStation then
+		local existing = anchor:FindFirstChild("WorldInteractionPrompt")
+		if existing and existing:IsA("ProximityPrompt") then
+			prompt = existing
+		else
+			prompt = self:GetTemplatePrompt():Clone()
+			prompt.Parent = anchor
+		end
+	else
+		prompt = self:GetTemplatePrompt():Clone()
+		prompt.Parent = anchor
+	end
 	prompt.Enabled = false
-	prompt.MaxActivationDistance = Config.InteractionRange
-	local binding: Binding = {prompt=prompt, scope=Lifecycle.new(), signature="", textValid=false}
+	if prompt.MaxActivationDistance <= 0 then
+		prompt.MaxActivationDistance = Config.InteractionRange
+	end
+	local binding: Binding = {prompt=prompt, scope=Lifecycle.new(), signature="", textValid=false, isDynamic=not isStation}
 	self.bindings[target] = binding
 	binding.scope:Connect(prompt.PromptButtonHoldBegan:Connect(function(): ()
 		local action = self:Resolve(target)
@@ -73,7 +105,6 @@ function Manager.Create(self: Manager, target: string, anchor: PromptParent): Bi
 		if not prompt.Enabled or not holding or not current or holding.signature ~= current.signature then return end
 		Net.FireRequest({action="Interact", target=holding.target, version=holding.version})
 	end))
-	prompt.Parent = anchor
 	return binding
 end
 function Manager.Refresh(self: Manager): ()

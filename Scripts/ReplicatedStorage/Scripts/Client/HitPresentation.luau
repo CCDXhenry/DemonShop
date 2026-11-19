@@ -11,6 +11,7 @@ type JointCache = {model: Model, joints: {Motor6D}}
 type Effect = { id: string, model: Model, parts: {BasePart}, started: number, frame: CFrame, final: boolean, flashSeconds: number, active: boolean }
 export type Presentation = typeof(setmetatable({} :: {
 	poses: {[string]: Pose}, cache: {[string]: JointCache}, offsets: {[Motor6D]: JointOffset}, pool: {Effect},
+	managed: ((string, Model) -> boolean)?,
 	camera: Camera?, cameraOffset: CFrame, cameraApplied: CFrame?, shakeStarted: number?, shakeFinal: boolean,
 }, Presentation))
 local function CreatePart(parent: Model, name: string, color: Color3): Part
@@ -27,7 +28,7 @@ function Presentation.new(): Presentation
 end
 function Presentation.Restore(self: Presentation): ()
 	for joint, offset in self.offsets do
-		if joint.Parent then joint.Transform = if joint.Transform==offset.applied then offset.base else offset.offset:Inverse()*joint.Transform end
+		if joint.Parent then joint.Transform = if joint.Transform==offset.applied then offset.base else joint.Transform end
 	end
 	table.clear(self.offsets)
 end
@@ -36,7 +37,7 @@ function Presentation.Remove(self: Presentation, id: string, retainCache: boolea
 	if pose then
 		for _, joint in pose.joints do
 			local offset = self.offsets[joint]
-			if offset and joint.Parent then joint.Transform = if joint.Transform==offset.applied then offset.base else offset.offset:Inverse()*joint.Transform end
+			if offset and joint.Parent then joint.Transform = if joint.Transform==offset.applied then offset.base else joint.Transform end
 			self.offsets[joint] = nil
 		end
 	end
@@ -66,6 +67,23 @@ function Presentation.Play(self: Presentation, id: string, model: Model, hits: n
 	end
 	if pose then pose.started,pose.direction,pose.hits=started,direction,hits end
 end
+-- 兼容包络只计算偏移；接管的展示关节由管理器一次提交。
+function Presentation.Sample(self: Presentation, id: string, name: string, now: number): CFrame?
+	local pose = self.poses[id]
+	if not pose or (name ~= "Waist" and name ~= "Neck" and not string.find(name,"Shoulder")) then return nil end
+	local root = pose.model.PrimaryPart
+	if not root then return nil end
+	local age = now-pose.started
+	local duration = if pose.hits==1 then Config.HitPoseSeconds else Config.HitSecondPoseSeconds
+	if age < 0 or age >= duration then return nil end
+	local direction=root.CFrame:VectorToObjectSpace(pose.direction)
+	local angle=if pose.hits==1 then Config.HitPoseAngle else Config.HitSecondPoseAngle
+	local side=if pose.hits%2==1 then 1 else -1
+	local limb=name~="Waist"
+	local amount=Rules.Envelope(age-(if limb then Config.HitLimbDelay else 0),duration,Config.HitPosePeakSeconds)
+	local scale=if name=="Neck" then -Config.HitHeadScale elseif limb then -Config.HitArmScale else 1
+	return CFrame.Angles(direction.Z*angle*amount*scale,Config.HitTwistAngle*side*amount*scale,-direction.X*angle*amount*scale)
+end
 function Presentation.Apply(self: Presentation, now: number): ()
 	for id, pose in self.poses do
 		local root=pose.model.PrimaryPart
@@ -74,15 +92,11 @@ function Presentation.Apply(self: Presentation, now: number): ()
 		if not root or not pose.model.Parent or age>=duration or pose.model:GetAttribute("MotionState")=="Down" then
 			self:Remove(id,pose.model.Parent~=nil and age>=duration); continue
 		end
-		local direction=root.CFrame:VectorToObjectSpace(pose.direction)
-		local angle=if pose.hits==1 then Config.HitPoseAngle else Config.HitSecondPoseAngle
-		local side=if pose.hits%2==1 then 1 else -1
+		if self.managed and self.managed(id, pose.model) then continue end
 		for _, joint in pose.joints do
 			if not joint.Parent or not joint.Enabled then continue end
-			local limb=joint.Name~="Waist"
-			local amount=Rules.Envelope(age-(if limb then Config.HitLimbDelay else 0),duration,Config.HitPosePeakSeconds)
-			local scale=if joint.Name=="Neck" then -Config.HitHeadScale elseif limb then -Config.HitArmScale else 1
-			local offset=CFrame.Angles(direction.Z*angle*amount*scale,Config.HitTwistAngle*side*amount*scale,-direction.X*angle*amount*scale)
+			local offset = self:Sample(id, joint.Name, now)
+			if not offset then continue end
 			local base=joint.Transform
 			local applied=offset*base
 			joint.Transform=applied

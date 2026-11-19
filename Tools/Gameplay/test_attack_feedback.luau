@@ -26,6 +26,7 @@ B.player.Character=character
 local item={id="A",model=Body("WhiteNPC",R.Vector3.new(0,0,-4)),kind="Body",location="Street",hits=0,version=1}
 local calls={pose=0,burst=0,stop=0,shake=0,upgrade=0,remove=0}
 local client=setmetatable({hitState=Rules.New(),items={A=item},lastAttack=10,attackSequence=1}, {__index=Client})
+client.bodies={AcceptNotice=function() return true end,Hit=function() return false end,Reject=function() end,pureModel=false}
 function client:Held() return nil end
 client.characterView={HitStop=function() calls.stop+=1 end}
 client.hitView={ResetCamera=function() end,Apply=function() end,Play=function() calls.pose+=1 end,
@@ -37,6 +38,7 @@ Check(calls.burst==0,"no early hit")
 B.now=10.16; client:UpdateHits(B.now)
 Check(calls.pose==1 and calls.burst==1 and calls.stop==1 and calls.shake==1,"local frontloaded response")
 local notice={id="A",version=2,hits=1,started=10.16,direction=R.Vector3.zAxis,position=R.Vector3.zero,actor=1,attackSequence=1}
+Rules.Result(client.hitState,1,true)
 client:OnHit(notice); client:OnHit(notice)
 Check(calls.pose==1 and calls.burst==1 and calls.shake==1,"confirmation and duplicate never replay")
 notice=table.clone(notice); notice.actor=2; notice.version=3; notice.hits=2
@@ -58,24 +60,33 @@ Check(calls.upgrade==1 and calls.remove>=1 and calls.burst==3,"third hit upgrade
 Rules.Begin(client.hitState,4,"A",12,14); client.paintId="A"; client:UpdateHits(12)
 Check(client.hitState.pending[4].resolved,"painting cancels waiting feedback")
 client.paintId=nil
+local Config=require("./GameConfig")
+local nearRange=0
 local server=setmetatable({players={[B.player]={lastAttack=0}},items={A=item},scope={Spawn=function(_,callback) callback() end}}, {__index=Server})
 function server:Root() return character.PrimaryPart end
 function server:Held() return nil end
-function server:Near() return true end
+function server:Near(_, _, range) nearRange=range; return true end
 function server:Tell() end
 function server:Changed() end
 item.hits=0; item.version=1; B.now=20
 server:Attack(B.player,{target="A",version=1,attackSequence=10})
 Check(B.hits==1 and B.notices[#B.notices].hit==true,"accepted attack returns success")
+Check(nearRange==Config.AttackServerRange and Config.AttackServerRange>Config.AttackRange,"server attack uses relaxed anti-cheat range")
 local hit=B.broadcasts[#B.broadcasts]
 Check(hit.kind=="Hit" and hit.attackSequence==10 and hit.version==2 and hit.hits==1 and hit.position~=nil,"authoritative hit payload")
-server:Attack(B.player,{target="A",version=2,attackSequence=11})
+B.now=20.2; server:Attack(B.player,{target="A",version=2,attackSequence=11})
 Check(B.hits==1 and B.notices[#B.notices].hit==false,"cooldown rejection returns miss")
-B.now=21; server:Attack(B.player,{target="A",version=1,attackSequence=12})
-Check(B.hits==1 and not B.notices[#B.notices].hit,"stale target version rejected")
-B.now=22; server:Attack(B.player,{attackSequence=13})
-Check(B.hits==1 and not B.notices[#B.notices].hit,"empty swing returns miss")
+-- 冷却抖动宽限内放行，且前摇后背对目标不再误拒
+item.model.PrimaryPart.Position=R.Vector3.new(0,0,4)
+B.now=20+Config.AttackCooldown-Config.AttackCooldownTolerance+0.01
+server:Attack(B.player,{target="A",version=2,attackSequence=15})
+Check(B.hits==2 and B.notices[#B.notices].hit==true,"jitter within cooldown tolerance and turned facing still accepted")
+item.model.PrimaryPart.Position=R.Vector3.new(0,0,-4)
+B.now=22; server:Attack(B.player,{target="A",version=1,attackSequence=12})
+Check(B.hits==2 and not B.notices[#B.notices].hit,"stale target version rejected")
+B.now=23; server:Attack(B.player,{attackSequence=13})
+Check(B.hits==2 and not B.notices[#B.notices].hit,"empty swing returns miss")
 function server:Near() return false end
-B.now=23; server:Attack(B.player,{target="A",version=2,attackSequence=14})
-Check(B.hits==1 and not B.notices[#B.notices].hit,"out of range rejected")
+B.now=24; server:Attack(B.player,{target="A",version=3,attackSequence=14})
+Check(B.hits==2 and not B.notices[#B.notices].hit,"out of range or wall-blocked rejected")
 print(string.format("PASS: %d attack feedback flow assertions (production methods; network/clock/physics mocked)",checks))

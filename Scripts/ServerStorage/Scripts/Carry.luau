@@ -6,6 +6,7 @@ local Ragdoll = require(script.Parent.Ragdoll)
 local NPC = require(script.Parent.NPC)
 local Scene = require(script.Parent.Scene)
 local Config = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
+local Ground = require(script.Parent.GroundAuthority)
 local Carry = {}
 local function SetOwner(model: Model, owner: Player?): ()
 	for _, part in model:GetDescendants() do
@@ -18,6 +19,7 @@ local function ClearRelease(item: Types.Item): ()
 	item.releaseUntil, item.releaseCharacter = nil, nil
 end
 function Carry.Detach(item: Types.Item): ()
+	item.fall=nil
 	if item.carryTween then item.carryTween:Cancel(); item.carryTween:Destroy(); item.carryTween = nil end
 	if item.carryWeld then item.carryWeld:Destroy(); item.carryWeld = nil end
 	if item.carryResources then
@@ -146,12 +148,17 @@ function Carry.Drop(item: Types.Item, position: Vector3): ()
 		if not owner or blocked or pose.Position.Y < -35 then
 			item.model:PivotTo(pose + (safePose.Position-pose.Position))
 		end
-		Ragdoll.SetMode(item.model,"Loose")
-		if velocity.Magnitude>Config.DropMaximumSpeed then velocity=velocity.Unit*Config.DropMaximumSpeed end
-		for _,part in item.model:GetDescendants() do
-			if part:IsA("BasePart") then part.AssemblyLinearVelocity=velocity end
+		if Config.GroundRootEnabled then
+			local forward=if character then character:GetPivot().LookVector else pose.LookVector
+			Ground.Place(item,forward,velocity)
+		else
+			Ragdoll.SetMode(item.model,"Loose")
+			if velocity.Magnitude>Config.DropMaximumSpeed then velocity=velocity.Unit*Config.DropMaximumSpeed end
+			for _,part in item.model:GetDescendants() do
+				if part:IsA("BasePart") then part.AssemblyLinearVelocity=velocity end
+			end
+			if character then ReleaseContacts(item,character) end
 		end
-		if character then ReleaseContacts(item,character) end
 	else
 		item.model:PivotTo(safePose)
 		for _,part in item.model:GetDescendants() do
