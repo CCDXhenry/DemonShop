@@ -7,4 +7,5 @@ B.NPC={Hit=function(item)
 	item.hits+=1; item.version+=1; B.hits+=1
 end}
 B.player={UserId=1}
+B.Sound={Play=function() end}
 return B

@@ -1,0 +1,104 @@
+{
+  "kind": "roblox_audio_manifest",
+  "creator": {
+    "groupId": "33977495"
+  },
+  "sounds": {
+    "UIClick": {
+      "file": "UIClick.mp3",
+      "assetId": "106682020053205",
+      "sha256": "7229603ccb7070d25155efa16916cb939aed2ffbce5349a24f73671c69ed6d6c",
+      "size": 2089
+    },
+    "UIOpen": {
+      "file": "UIOpen.mp3",
+      "assetId": "92077244706217",
+      "sha256": "d27d47a96f858bd833cdb0f7d9791cfd7f475efbdfdc43c171fdc3d41ce5760a",
+      "size": 4179
+    },
+    "UIClose": {
+      "file": "UIClose.mp3",
+      "assetId": "124831536207012",
+      "sha256": "5a552afa878af0d4a67cf096bf0cee5b8840cda301484a4183bd042d45426d02",
+      "size": 3343
+    },
+    "HitImpact": {
+      "file": "HitImpact.mp3",
+      "assetId": "128744420438827",
+      "sha256": "542f91e4ff98f735a8de2e2c56dcd0787b7e3b9571b46d39eaa17be1f5482048",
+      "size": 4179
+    },
+    "BodyStun": {
+      "file": "BodyStun.mp3",
+      "assetId": "91870781734683",
+      "sha256": "4cdd00af953afde1c7bfe9de592de7c64329c843e932cb6fbb5b5fe2ea74b60f",
+      "size": 7941
+    },
+    "BodyPickup": {
+      "file": "BodyPickup.mp3",
+      "assetId": "87462600533451",
+      "sha256": "4225bcb44052c40b4959cb1ab8cee43e92ee443bc671c5c98b83d832306ddcf0",
+      "size": 5015
+    },
+    "BodyDrop": {
+      "file": "BodyDrop.mp3",
+      "assetId": "78125699642557",
+      "sha256": "ffa7d0c15103daa288e24816d96e1ec727544b2c4e8bae62a6a856a8d17dc2fd",
+      "size": 5851
+    },
+    "PoolDeposit": {
+      "file": "PoolDeposit.mp3",
+      "assetId": "100018245124478",
+      "sha256": "e798a00f7d93aec6abf2655424fac3eb6545d5bb4ea239164a18b27ce5646d1f",
+      "size": 8359
+    },
+    "PoolRetrieve": {
+      "file": "PoolRetrieve.mp3",
+      "assetId": "120842706973638",
+      "sha256": "cf4a515a9789aa3fad287af27e6d8d5ae1acca623cbde656e8b1f009964418ee",
+      "size": 6687
+    },
+    "PaintStroke": {
+      "file": "PaintStroke.mp3",
+      "assetId": "117759825551488",
+      "sha256": "0274923294af19e905fc0df640dd273329223fe1b3106e90ba039bf56602ec8a",
+      "size": 3343
+    },
+    "PaintComplete": {
+      "file": "PaintComplete.mp3",
+      "assetId": "71652904971849",
+      "sha256": "f9f8f169db6b39e3d0839b64b89fe68957cacb50a15e502a87c37a06bf23eca2",
+      "size": 10866
+    },
+    "AltarPlace": {
+      "file": "AltarPlace.mp3",
+      "assetId": "135459755858790",
+      "sha256": "f34d0b585cec7a46cd356556a1981c36878a9c77925c15013f2421dd2909ea2b",
+      "size": 5433
+    },
+    "AltarLoop": {
+      "file": "AltarLoop.mp3",
+      "assetId": "99077183001121",
+      "sha256": "862fdd2e8072be07887551b387caafa53d1f18a3de7fc2a551ddb7280c3aad56",
+      "size": 40542
+    },
+    "AltarComplete": {
+      "file": "AltarComplete.mp3",
+      "assetId": "112279186476935",
+      "sha256": "43a7be7f4770e9c04830900e1bb1eb8becf1c9eaa4984557b664c35a48384a60",
+      "size": 12538
+    },
+    "PotionPickup": {
+      "file": "PotionPickup.mp3",
+      "assetId": "110675694843850",
+      "sha256": "45830405302607a799026ee2abce9f135a0ed54902be88283ea8ce375e803bb3",
+      "size": 4179
+    },
+    "CoinReward": {
+      "file": "CoinReward.mp3",
+      "assetId": "129374188512676",
+      "sha256": "cf40f65e922beb7bba3b755a094b11ce0730e1ac09a3b2c120d229ffe279608e",
+      "size": 9613
+    }
+  }
+}

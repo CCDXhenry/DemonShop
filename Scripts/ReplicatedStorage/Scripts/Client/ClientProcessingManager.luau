@@ -8,6 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Scripts"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("GameConfig"))
 local Types = require(Shared:WaitForChild("GameTypes"))
 local GameTexts = require(Shared.GameTexts)
+local Sound = require(Shared:WaitForChild("GameSoundTool"))
 local UIManager = require(script.Parent.UIManager)
 local GameScreenGuiManager = require(script.Parent.UIManager.GameScreenGuiManager)
 local Hints = require(Shared:WaitForChild("Hints"))
@@ -50,6 +51,11 @@ export type Client = typeof(setmetatable(
 		bodies: WhiteBodies.Manager,
 		altarView: AltarSacrifice.View,
 		altarBodyId: string?,
+		altarLoopSound: Sound?,
+		lastHeldId: string?,
+		lastHeldKind: string?,
+		lastPoolCount: number?,
+		lastPaintSound: number,
 		lastFrame: number,
 		snapshot: Types.Snapshot?,
 		items: { [string]: Types.ItemView },
@@ -136,6 +142,11 @@ function Client.new(): Client
 			bodies = bodies,
 			altarView = AltarSacrifice.new(),
 			altarBodyId = nil,
+			altarLoopSound = nil,
+			lastHeldId = nil,
+			lastHeldKind = nil,
+			lastPoolCount = nil,
+			lastPaintSound = 0,
 			lastFrame = os.clock(),
 			snapshot = nil,
 			items = {},
@@ -262,6 +273,9 @@ function Client.HitFeedback(self: Client, now: number, final: boolean, upgrade: 
 	if not humanoid or humanoid.Health<=0 or not character or not character:FindFirstChild("Club") then return end
 	self.characterView:HitStop(now,final)
 	if not self.bodies.pureModel then self.hitView:Shake(now,final,upgrade) end
+	if Sound then
+		Sound.Play(if final then "BodyStun" else "HitImpact")
+	end
 end
 function Client.UpdateHits(self: Client, now: number): ()
 	local character=player.Character
@@ -380,6 +394,38 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			if item.location~="Street" or item.hits>=Config.StunHits then self.hitView:Remove(id) end
 		end
 		self.items = nextItems
+		local currentHeld = self:Held()
+		local currentHeldId = currentHeld and currentHeld.id
+		local currentHeldKind = currentHeld and currentHeld.kind
+		local lastId = self.lastHeldId
+		local lastKind = self.lastHeldKind
+		local lastPool = self.lastPoolCount or snapshot.pool
+		if lastId ~= currentHeldId then
+			if not lastId and currentHeld then
+				if currentHeldKind == "Body" then
+					if snapshot.pool < lastPool then
+						Sound.Play("PoolRetrieve", positions.Pool)
+					else
+						Sound.Play("BodyPickup")
+					end
+				elseif currentHeldKind == "Potion" then
+					Sound.Play("PotionPickup", positions.Shelf)
+				end
+			elseif lastId and not currentHeld then
+				if lastKind == "Body" then
+					if snapshot.pool > lastPool then
+						Sound.Play("PoolDeposit", positions.Pool)
+					elseif snapshot.altarId == lastId then
+						Sound.Play("AltarPlace", positions.Altar)
+					else
+						Sound.Play("BodyDrop")
+					end
+				end
+			end
+			self.lastHeldId = currentHeldId
+			self.lastHeldKind = currentHeldKind
+		end
+		self.lastPoolCount = snapshot.pool
 		local waiting=self.waitingHits
 		self.waitingHits={}
 		for _,hit in waiting do self:OnHit(hit) end
@@ -435,6 +481,11 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 	elseif notice.kind == "Message" and (notice.textId or notice.text) then
 		self:Notice(notice)
 		self.messageEnds = os.clock() + 3
+		if notice.textId == "CoinsAwarded" then
+			Sound.Play("CoinReward")
+		elseif notice.textId == "RuneComplete" then
+			Sound.Play("PaintComplete")
+		end
 	end
 end
 function Client.RequestPaintEnd(self: Client): ()
@@ -528,6 +579,10 @@ function Client.Paint(self: Client, now: number): ()
 	self.visualPointer, self.visualGap = self.pointer, gap
 	if #visual > 0 then
 		self.view:DrawLocal(id,session,self.visualGesture,visual)
+		if now - self.lastPaintSound >= 0.12 then
+			self.lastPaintSound = now
+			Sound.Play("PaintStroke")
+		end
 	end
 	-- 覆盖率上报保持限频，单独采样当前姿态，不能用网络频率控制可见颜料。
 	if now - self.lastPaint >= Config.PaintBatchInterval or self.finishPaint then
@@ -739,12 +794,22 @@ function Client.UpdateAltar(self: Client, now: number): ()
 	local snapshot = self.snapshot
 	local altarId = snapshot and snapshot.altarId
 	if not snapshot or not altarId then
+		if self.altarLoopSound then
+			self.altarLoopSound:Stop()
+			self.altarLoopSound = nil
+			if self.altarBodyId then
+				Sound.Play("AltarComplete", positions.Altar)
+			end
+		end
 		if self.altarBodyId then
 			self.view:ClearSacrifice(self.altarBodyId)
 			self.altarBodyId = nil
 		end
 		self.altarView:Clear()
 		return
+	end
+	if not self.altarLoopSound then
+		self.altarLoopSound = Sound.Play("AltarLoop", positions.Altar)
 	end
 	if self.altarBodyId and self.altarBodyId ~= altarId then
 		self.view:ClearSacrifice(self.altarBodyId)
@@ -840,6 +905,7 @@ function Client.Destroy(self: Client): ()
 	if self.worldInteraction then self.worldInteraction:Destroy(); self.worldInteraction = nil end
 	self.scope:Destroy()
 	if self.altarBodyId then self.view:ClearSacrifice(self.altarBodyId); self.altarBodyId = nil end
+	if self.altarLoopSound then self.altarLoopSound:Stop(); self.altarLoopSound = nil end
 	self.altarView:Clear()
 	self.bodies:Destroy()
 	self.view:Destroy()

@@ -36,7 +36,7 @@ def run_hit_feedback_tests():
     source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientProcessingManager.luau").read_text(encoding="utf-8")
     start=source.index("function Client.CancelHitFeedback(")
     end=source.index("function Client.OnNotice(",start)
-    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,player,Config,HitRules=B.workspace,B.player,require('./GameConfig'),require('./HitFeedbackRules')\nlocal Client={}\n"
+    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,player,Config,HitRules,Sound=B.workspace,B.player,require('./GameConfig'),require('./HitFeedbackRules'),B.Sound or {Play=function()end}\nlocal Client={}\n"
     (OUT/"AttackFeedbackClient.luau").write_text(prefix+source[start:end]+"\nreturn Client\n",encoding="utf-8")
     source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
     start=source.index("function Manager.Attack(")
