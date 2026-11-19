@@ -45,6 +45,29 @@ export type Controller = typeof(setmetatable({} :: {
 	refreshAgain: boolean,
 	closed: boolean,
 }, Toolbar))
+local function StackCount(tool: Tool): number
+	local count = tool:GetAttribute("StackCount")
+	if typeof(count) == "number" and count > 0 then
+		return math.floor(count)
+	end
+	return 1
+end
+local function ToolLabel(tool: Tool): string
+	if tool.Name == "Potion" then
+		return string.format("Potion %d", StackCount(tool))
+	end
+	return ToolNames[tool.Name] or tool.Name
+end
+local function ApplyToolName(button: ImageButton, tool: Tool): ()
+	local nameLabel = button:FindFirstChild("ToolNameText")
+	if nameLabel and nameLabel:IsA("TextLabel") then
+		local text = ToolLabel(tool)
+		if nameLabel.Text ~= text then
+			nameLabel.Text = text
+			UIManager.FitTextLabel(nameLabel)
+		end
+	end
+end
 local function ToolbarOrderOf(tool: Tool): number
 	local value = tool:GetAttribute("ToolbarOrder")
 	if typeof(value) == "number" then
@@ -274,11 +297,15 @@ function Toolbar.Create(self: Controller, tool: Tool): Slot
 	button.Visible = true
 	button.Parent = bar
 	local slotScope = Lifecycle.new()
+	ApplyToolName(button, tool)
 	local nameLabel = button:FindFirstChild("ToolNameText")
 	if nameLabel and nameLabel:IsA("TextLabel") then
-		nameLabel.Text = ToolNames[tool.Name] or tool.Name
+		UIManager.FitTextLabel(nameLabel)
 	end
 	RenderPreview(button, tool)
+	slotScope:Connect(tool:GetAttributeChangedSignal("StackCount"):Connect(function(): ()
+		ApplyToolName(button, tool)
+	end))
 	slotScope:Connect(button.Activated:Connect(function(): ()
 		self:Select(tool)
 	end))
@@ -316,12 +343,9 @@ function Toolbar.Refresh(self: Controller): ()
 		if not slot then
 			local created = self:Create(tool)
 			self.slots[tool] = created
-			local nameLabel = created.button:FindFirstChild("ToolNameText")
-			if nameLabel and nameLabel:IsA("TextLabel") then
-				UIManager.FitTextLabel(nameLabel)
-			end
 			slot = created
 		end
+		ApplyToolName(slot.button, tool)
 		if self.closed or self.slots[tool] ~= slot then
 			self:FinishRefresh()
 			return

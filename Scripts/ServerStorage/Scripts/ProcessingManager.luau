@@ -46,7 +46,7 @@ export type Manager = typeof(setmetatable(
 		players: { [Player]: PlayerRecord },
 		removing: { [Player]: boolean },
 		pool: { string },
-		shelf: { string },
+		shelf: { [number]: { string } },
 		tableId: string?,
 		altarId: string?,
 		altarEnds: number,
@@ -90,9 +90,36 @@ function Manager.new(data: PlayerData?): Manager
 		nextToolbarOrder = 0,
 	}, Manager)
 end
+function Manager.AltarSummary(self: Manager): (string?, number, string)
+	local now = workspace:GetServerTimeNow()
+	local soonestId: string? = nil
+	local soonest = math.huge
+	local waitingId: string? = nil
+	local parts: { string } = {}
+	for _, item in self.items do
+		if item.kind == "Body" and item.location == "Altar" and item.convertEnds then
+			table.insert(parts, item.id .. "@" .. tostring(item.convertEnds))
+			if item.convertEnds > now and item.convertEnds < soonest then
+				soonestId = item.id
+				soonest = item.convertEnds
+			elseif now >= item.convertEnds then
+				waitingId = waitingId or item.id
+			end
+		end
+	end
+	table.sort(parts)
+	return soonestId or waitingId, (if soonestId then soonest else 0), table.concat(parts, ",")
+end
 function Manager.Snapshot(self: Manager): Types.Snapshot
+	local shelfItems: { [string]: CFrame } = {}
+	for quality, ids in self.shelf do
+		for slot, id in ids do
+			shelfItems[id] = Scene.ShelfPose(quality, slot)
+		end
+	end
 	local list: { Types.ItemView } = {}
 	for _, item in self.items do
+		if item.location == "Shelf" then continue end
 		table.insert(list, {
 			id = item.id,
 			kind = item.kind,
@@ -105,9 +132,15 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 			progress = item.progress,
 			holder = if item.holder then item.holder.UserId else nil,
 			visualCount = if item.visualState then item.visualState.count else 0,
+			flyEnds = item.flyEnds,
+			convertEnds = item.convertEnds,
+			toss = if item.poolToss then { from = item.poolToss.from, target = item.poolToss.target, started = item.poolToss.started, owner = item.poolToss.owner } else nil,
+			altarTossStarted = if item.altarToss then item.altarToss.started else nil,
 		})
 	end
 	local body = if self.tableId then self.items[self.tableId] else nil
+	local altarId, altarEnds = self:AltarSummary()
+	self.altarId, self.altarEnds = altarId, altarEnds
 	return {
 		revision = self.revision,
 		poseYaw = if body then body.poseYaw or 0 else 0,
@@ -116,7 +149,8 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 		stationVersions = table.clone(self.stationVersions),
 		items = list,
 		pool = #self.pool,
-		shelf = #self.shelf,
+		shelf = self:ShelfCount(),
+		shelfItems = shelfItems,
 		tableId = self.tableId,
 		altarId = self.altarId,
 		altarEnds = self.altarEnds,
@@ -125,11 +159,12 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 	}
 end
 function Manager.Changed(self: Manager): ()
+	local _, _, altarKey = self:AltarSummary()
 	local keys: { [string]: string } = {
 		Pool = table.concat(self.pool, ","),
 		Table = (self.tableId or "") .. (if self.paint then self.paint.token else ""),
-		Altar = (self.altarId or "") .. tostring(self.altarEnds),
-		Shelf = table.concat(self.shelf, ","),
+		Altar = altarKey,
+		Shelf = self:ShelfKey(),
 	}
 	for name, key in keys do
 		if self.stationKeys[name] ~= key then
@@ -143,13 +178,60 @@ end
 function Manager.Tell(_self: Manager, player: Player, textId: GameTexts.TextId, args: {string}?): ()
 	Net.FireNotify(player, { kind = "Message", textId = textId, textArgs = args })
 end
+function Manager.Carried(self: Manager, player: Player): { Types.Item }
+	local list: { Types.Item } = {}
+	for _, item in self.items do
+		if item.holder == player and item.kind == "Body" then
+			table.insert(list, item)
+		end
+	end
+	table.sort(list, function(a: Types.Item, b: Types.Item): boolean
+		return (a.carryOrder or 0) > (b.carryOrder or 0)
+	end)
+	return list
+end
 function Manager.Held(self: Manager, player: Player): Types.Item?
+	local carried = self:Carried(player)
+	if carried[1] then
+		return carried[1]
+	end
 	for _, item in self.items do
 		if item.holder == player then
 			return item
 		end
 	end
 	return nil
+end
+function Manager.ShoulderOccupied(self: Manager, player: Player): boolean
+	for _, item in self.items do
+		if item.holder == player and item.kind ~= "Body" then
+			return true
+		end
+	end
+	return false
+end
+function Manager.HasOtherBodies(self: Manager, player: Player, except: Types.Item): boolean
+	for _, item in self.items do
+		if item ~= except and item.holder == player and item.kind == "Body" then
+			return true
+		end
+	end
+	return false
+end
+function Manager.Restack(self: Manager, player: Player): ()
+	local stack = self:Carried(player)
+	if #stack == 0 then
+		return
+	end
+	local bottomUp: { Types.Item } = {}
+	for index = #stack, 1, -1 do
+		table.insert(bottomUp, stack[index])
+	end
+	Carry.Restack(bottomUp)
+	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
+	if humanoid and humanoid.Health > 0 then
+		humanoid:UnequipTools()
+	end
 end
 function Manager.Root(_self: Manager, player: Player): BasePart?
 	local character = player.Character
@@ -165,19 +247,90 @@ function Manager.Near(self: Manager, player: Player, position: Vector3, range: n
 	local char = player.Character
 	return root ~= nil and char ~= nil and (root.Position - position).Magnitude <= range and Scene.Visible(char, position, target)
 end
-function Manager.Arrange(self: Manager): ()
-	for index, id in self.pool do
-		local item = self.items[id]
-		if item then
-			Carry.Static(item, Scene.PoolPose(index))
+function Manager.ShelfCount(self: Manager): number
+	local count = 0
+	for _, ids in self.shelf do
+		count += #ids
+	end
+	return count
+end
+function Manager.QualityCount(self: Manager, quality: number): number
+	local ids = self.shelf[quality]
+	return if ids then #ids else 0
+end
+function Manager.ShelfKey(self: Manager): string
+	local qualities: { number } = {}
+	for quality in self.shelf do
+		table.insert(qualities, quality)
+	end
+	table.sort(qualities)
+	local parts: { string } = {}
+	for _, quality in qualities do
+		local ids = self.shelf[quality]
+		if ids then
+			table.insert(parts, tostring(quality) .. ":" .. table.concat(ids, ","))
 		end
 	end
-	for index, id in self.shelf do
-		local item = self.items[id]
-		if item then
-			Carry.Static(item, Scene.ShelfPose(index))
-		end
+	return table.concat(parts, ";")
+end
+function Manager.LaunchToAltar(self: Manager, item: Types.Item): ()
+	local layer = 0
+	for _, other in self.items do
+		if other ~= item and other.kind == "Body" and other.location == "Altar" then layer += 1 end
 	end
+	local now = workspace:GetServerTimeNow()
+	local fromTable = item.location == "Table"
+	item.stage = "Converting"
+	item.location = "Altar"
+	item.flyEnds = nil
+	item.convertEnds = nil
+	item.altarHeld = false
+	item.version += 1
+	if self.tableId == item.id then self.tableId = nil end
+	local holder = item.holder
+	local keep = holder ~= nil and self:HasOtherBodies(holder, item)
+	Carry.BeginAltarToss(item, layer, fromTable, now, not keep)
+	if holder and keep then
+		self:Restack(holder)
+	end
+end
+function Manager.SpawnAltarPotion(self: Manager, item: Types.Item): ()
+	local quality = Config.DefaultPotionQuality
+	item.model:Destroy()
+	self.items[item.id] = nil
+	local model = ReplicatedStorage.Models.Potion:Clone() :: Model
+	local id = HttpService:GenerateGUID(false)
+	model:SetAttribute("ItemId", id)
+	model:SetAttribute("Quality", quality)
+	local potion: Types.Item = {
+		id = id,
+		kind = "Potion",
+		stage = "Ready",
+		location = "Shelf",
+		version = 1,
+		model = model,
+		holder = nil,
+		quality = quality,
+		hits = 0,
+		covered = {},
+		strokes = {},
+		strokePoints = 0,
+		area = 0,
+		totalArea = 0,
+		progress = 0,
+		paintSeconds = 0,
+		streetSlot = false,
+		nextWalk = 0,
+		carryWeld = nil,
+		walkTrack = nil,
+	}
+	self.items[id] = potion
+	local pile = self.shelf[quality]
+	if not pile then
+		pile = {}
+		self.shelf[quality] = pile
+	end
+	table.insert(pile, id)
 end
 function Manager.EndPaint(self: Manager, player: Player): ()
 	local session = self.paint
@@ -185,8 +338,11 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 		return
 	end
 	local item = self.items[session.id]
-	if item and item.progress>=1 then item.stage="Painted";item.version+=1 end
-	if item and item.stage ~= "Painted" then
+	local altarTossStarted: number? = nil
+	if item and item.progress >= 1 then
+		self:LaunchToAltar(item)
+		altarTossStarted = if item.altarToss then item.altarToss.started else nil
+	elseif item then
 		item.stage = "Painting"
 		item.version += 1
 	end
@@ -201,7 +357,7 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 	if root and root:IsA("BasePart") then
 		root.Anchored = false
 	end
-	if hum and hum.Health > 0 then
+	if hum and hum.Health > 0 and #self:Carried(player) == 0 then
 		local backpack = player:FindFirstChild("Backpack")
 		local club = backpack and backpack:FindFirstChild("Club")
 		if club and club:IsA("Tool") then
@@ -210,7 +366,7 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 	end
 	player:SetAttribute("Painting", false)
 	self.paint = nil
-	Net.FireNotify(player, { kind = "EndPaint", session = session.token })
+	Net.FireNotify(player, { kind = "EndPaint", session = session.token, id = session.id, started = altarTossStarted })
 end
 function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
 	if self.paint then
@@ -240,49 +396,63 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
 	item.poseBody=nil
 	item.stage = "Painting"
 	item.version += 1
+	local keep = self:HasOtherBodies(player, item)
 	hum:UnequipTools()
 	hum.WalkSpeed = 0
 	hum.JumpPower = 0
 	hum.JumpHeight = 0
 	root.Anchored = true
 	player:SetAttribute("Painting", true)
-	Carry.Static(item, Scene.TablePose())
+	Carry.Static(item, Scene.TablePose(), not keep)
+	if keep then
+		self:Restack(player)
+	end
 	Net.FireNotify(player, { kind = "BeginPaint", id = item.id, session = session.token })
 end
 function Manager.Pool(self: Manager, player: Player): ()
-	local held = self:Held(player)
-	if held then
-		if held.kind ~= "Body" or held.stage == "Painted" then
-			self:Tell(player, "StoreUnfinished")
-			return
+	local stack = self:Carried(player)
+	local chosen: Types.Item? = nil
+	for _, item in stack do
+		if item.stage ~= "Painted" then
+			chosen = item
+			break
 		end
+	end
+	if chosen then
 		if #self.pool >= Config.PoolCapacity then
 			self:Tell(player, "PoolFull")
 			return
 		end
-		Carry.Detach(held)
-		held.location = "Pool"
-		held.version += 1
-		table.insert(self.pool, held.id)
+		local keep = #stack > 1
+		chosen.location = "Pool"
+		chosen.version += 1
+		table.insert(self.pool, chosen.id)
+		Carry.TossIntoPool(chosen, not keep)
+		if keep then
+			self:Restack(player)
+		end
+	elseif #stack > 0 or self:ShoulderOccupied(player) then
+		self:Tell(player, "StoreUnfinished")
 	elseif #self.pool > 0 then
 		local id = self.pool[1]
 		local item = self.items[id]
 		if item and Carry.Take(item, player) then
 			table.remove(self.pool, 1)
+			self:Restack(player)
 		end
 	else
 		self:Tell(player, "PoolIsEmpty")
 	end
-	self:Arrange()
 end
 function Manager.Table(self: Manager, player: Player): ()
 	if self.paint then
 		self:Tell(player, "TableInUse")
 		return
 	end
-	local held = self:Held(player)
+	local stack = self:Carried(player)
+	local occupied = #stack > 0 or self:ShoulderOccupied(player)
 	if self.tableId then
-		if held then
+		if occupied then
 			self:Tell(player, "TableIsOccupied")
 			return
 		end
@@ -293,60 +463,82 @@ function Manager.Table(self: Manager, player: Player): ()
 		if item.stage == "Painted" then
 			if Carry.Take(item, player) then
 				self.tableId = nil
+				self:Restack(player)
 			end
 		else
 			self:BeginPaint(player, item)
 		end
 		return
 	end
-	if held and (held.kind ~= "Body" or held.stage == "Painted") then
+	local chosen: Types.Item? = nil
+	for _, item in stack do
+		if item.stage ~= "Painted" then
+			chosen = item
+			break
+		end
+	end
+	if not chosen and occupied then
 		self:Tell(player, "BringUnfinished")
 		return
 	end
-	local item = held
+	local item = chosen
 	if not item and #self.pool > 0 then
 		item = self.items[self.pool[1]]
 		table.remove(self.pool, 1)
-		self:Arrange()
 	end
 	if not item then
 		self:Tell(player, "BringStunned")
 		return
 	end
-	Carry.Static(item, Scene.TablePose())
+	local keep = chosen ~= nil and self:HasOtherBodies(player, item)
+	Carry.Static(item, Scene.TablePose(), not keep)
 	item.location = "Table"
 	item.streetSlot = false
 	item.version += 1
 	self.tableId = item.id
+	if keep then
+		self:Restack(player)
+	end
 	self:BeginPaint(player, item)
 end
 function Manager.Altar(self: Manager, player: Player): ()
-	local item = self:Held(player)
-	if self.altarId then
-		self:Tell(player, "AltarOccupied")
-		return
+	local chosen: Types.Item? = nil
+	for _, item in self:Carried(player) do
+		if item.stage == "Painted" then
+			chosen = item
+			break
+		end
 	end
-	if not item or item.kind ~= "Body" or item.stage ~= "Painted" then
+	if not chosen then
 		self:Tell(player, "AltarNeedsCompleted")
 		return
 	end
-	Carry.Static(item, Scene.Altar.CFrame * CFrame.new(0, 2, 0) * CFrame.Angles(math.pi / 2, 0, 0))
-	item.location, item.stage = "Altar", "Converting"
-	item.version += 1
-	self.altarId, self.altarEnds = item.id, workspace:GetServerTimeNow() + Config.ConversionSeconds
-	self.altarHeld = false
+	self:LaunchToAltar(chosen)
 end
-function Manager.TakePotion(self: Manager, player: Player, item: Types.Item): boolean
-	local character = player.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	local backpack = player:FindFirstChildOfClass("Backpack")
-	local tool = item.model
-	if self.paint and self.paint.player == player then
-		return false
+function Manager.OwnedPotion(self: Manager, player: Player, quality: number): Types.Item?
+	for _, item in self.items do
+		if item.kind == "Potion" and item.owner == player and item.quality == quality and item.location == "Toolbar" then
+			return item
+		end
 	end
-	if not character or not humanoid or humanoid.Health <= 0 or not backpack or not tool:IsA("Tool") then
-		return false
+	return nil
+end
+function Manager.GrantStack(self: Manager, player: Player, quality: number, count: number): Tool?
+	local existing = self:OwnedPotion(player, quality)
+	if existing and existing.model:IsA("Tool") then
+		local nextCount = (existing.stack or 1) + count
+		existing.stack = nextCount
+		existing.model:SetAttribute("StackCount", nextCount)
+		existing.version += 1
+		return existing.model
 	end
+	local model = ReplicatedStorage.Models.Potion:Clone()
+	if not model:IsA("Tool") then
+		model:Destroy()
+		return nil
+	end
+	local tool = model
+	local id = HttpService:GenerateGUID(false)
 	for _, descendant in tool:GetDescendants() do
 		if descendant:IsA("BasePart") then
 			descendant.Anchored = false
@@ -356,16 +548,41 @@ function Manager.TakePotion(self: Manager, player: Player, item: Types.Item): bo
 		end
 	end
 	self.nextToolbarOrder += 1
-	tool:SetAttribute("ItemId", item.id)
+	tool:SetAttribute("ItemId", id)
 	tool:SetAttribute("ToolbarOrder", self.nextToolbarOrder)
 	tool:SetAttribute("OwnerUserId", player.UserId)
-	item.location = "Toolbar"
-	item.holder = nil
-	item.owner = player
-	item.version += 1
-	tool.Parent = backpack
-	humanoid:EquipTool(tool)
-	return true
+	tool:SetAttribute("StackCount", count)
+	tool:SetAttribute("Quality", quality)
+	local potion: Types.Item = {
+		id = id,
+		kind = "Potion",
+		stage = "Ready",
+		location = "Toolbar",
+		version = 1,
+		model = tool,
+		holder = nil,
+		owner = player,
+		quality = quality,
+		stack = count,
+		hits = 0,
+		covered = {},
+		strokes = {},
+		strokePoints = 0,
+		area = 0,
+		totalArea = 0,
+		progress = 0,
+		paintSeconds = 0,
+		streetSlot = false,
+		nextWalk = 0,
+		carryWeld = nil,
+		walkTrack = nil,
+	}
+	self.items[id] = potion
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if backpack then
+		tool.Parent = backpack
+	end
+	return tool
 end
 function Manager.EquippedPotion(self: Manager, player: Player): Types.Item?
 	local character = player.Character
@@ -415,14 +632,55 @@ function Manager.ReleasePotions(self: Manager, player: Player): ()
 	end
 end
 function Manager.Shelf(self: Manager, player: Player): ()
-	if #self.shelf == 0 then
+	if #self:Carried(player) > 0 then
+		self:Tell(player, "HandsFull")
+		return
+	end
+	if self:ShelfCount() == 0 then
 		self:Tell(player, "PotionsNotReady")
 		return
 	end
-	local item = self.items[self.shelf[1]]
-	if item and self:TakePotion(player, item) then
-		table.remove(self.shelf, 1)
-		self:Arrange()
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if (self.paint and self.paint.player == player) or not character or not humanoid or humanoid.Health <= 0 or not backpack then
+		return
+	end
+	local qualities: { number } = {}
+	for quality, ids in self.shelf do
+		if #ids > 0 then
+			table.insert(qualities, quality)
+		end
+	end
+	table.sort(qualities)
+	local equip: Tool? = nil
+	local granted: { number } = {}
+	for _, quality in qualities do
+		local ids = self.shelf[quality]
+		local tool = if ids then self:GrantStack(player, quality, #ids) else nil
+		if tool then
+			if tool.Parent ~= backpack and tool.Parent ~= character then
+				tool.Parent = backpack
+			end
+			table.insert(granted, quality)
+			equip = tool
+		end
+	end
+	for _, quality in granted do
+		local ids = self.shelf[quality]
+		if ids then
+			for _, id in ids do
+				local item = self.items[id]
+				if item then
+					self.items[id] = nil
+					item.model:Destroy()
+				end
+			end
+			self.shelf[quality] = nil
+		end
+	end
+	if equip then
+		humanoid:EquipTool(equip)
 	end
 end
 function Manager.Submit(self: Manager, player: Player): ()
@@ -452,9 +710,16 @@ function Manager.Submit(self: Manager, player: Player): ()
 		self:Tell(player, "CoinLimit")
 		return
 	end
-	self.items[item.id] = nil
-	item.stage = "Consumed"
-	item.model:Destroy()
+	local count = item.stack or 1
+	if count > 1 then
+		item.stack = count - 1
+		item.model:SetAttribute("StackCount", item.stack)
+		item.version += 1
+	else
+		self.items[item.id] = nil
+		item.stage = "Consumed"
+		item.model:Destroy()
+	end
 	self.stationVersions.Sigil += 1
 	for _, other in recipients do
 		if self.data.AddCoins(other, reward) then
@@ -584,11 +849,11 @@ function Manager.PaintVisual(self: Manager,player: Player,request: Types.Request
 	item.visualState=state
 	session.visualSequence=sequence
 	session.visualPackets=(session.visualPackets or 0)+1
-	session.yaw=((request.yaw or session.yaw)+math.pi)%(2*math.pi)-math.pi
-	session.pitch=math.clamp(request.pitch or session.pitch,-Config.PaintPitchLimit,Config.PaintPitchLimit)
-	item.poseYaw,item.posePitch=session.yaw,session.pitch
-	if request.bodyPose and BodyPose.Validate(item.model,request.bodyPose) then item.poseBody=table.clone(request.bodyPose) end
-	BodyPose.Apply(item.model,Scene.TablePose()*CFrame.Angles(session.pitch,session.yaw,0),item.poseBody)
+	session.yaw = 0
+	session.pitch = 0
+	item.poseYaw, item.posePitch = 0, 0
+	if request.bodyPose and BodyPose.Validate(item.model, request.bodyPose) then item.poseBody = table.clone(request.bodyPose) end
+	BodyPose.Apply(item.model, Scene.TablePose(), item.poseBody)
 	Net.Broadcast({kind="VisualDelta",id=item.id,session=session.token,sequence=sequence,segments=accepted,visualRevision=state.revision,yaw=session.yaw,pitch=session.pitch,bodyPose=item.poseBody,started=math.min(request.started or now,now)})
 end
 function Manager.OnRequest(self: Manager, player: Player, request: Types.Request): ()
@@ -673,16 +938,26 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 	end
 	local target = request.target
 	if request.action == "Drop" then
-		local held = self:Held(player)
+		local stack = self:Carried(player)
 		local root = self:Root(player)
-		if held and root then
-			Carry.Drop(held, root.Position + root.CFrame.LookVector * 3)
+		local top = stack[1]
+		if top and root then
+			Carry.Drop(top, root.Position + root.CFrame.LookVector * 3, #stack == 1)
+			if #stack > 1 then
+				self:Restack(player)
+			end
+		elseif root then
+			local held = self:Held(player)
+			if held then
+				Carry.Drop(held, root.Position + root.CFrame.LookVector * 3)
+			end
 		end
 	elseif request.action == "TakeTable" then
 		if not self:Held(player) and not self.paint and self.tableId and self:Near(player, Scene.TableInteract.Position, Config.InteractionRange, nil) then
 			local item = self.items[self.tableId]
 			if item and Carry.Take(item, player) then
 				self.tableId = nil
+				self:Restack(player)
 			end
 		end
 	elseif request.action == "Interact" and target then
@@ -712,16 +987,19 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 			end
 		else
 			local item = self.items[target]
-			if self:Held(player) then
-				self:Tell(player, "HandsFull")
-				return
-			end
+			local carried = self:Carried(player)
 			if not item or item.version ~= request.version then
 				self:Tell(player, "ItemChanged")
+			elseif item.kind ~= "Body" and (#carried > 0 or self:Held(player) ~= nil) then
+				self:Tell(player, "HandsFull")
+			elseif item.kind == "Body" and self:ShoulderOccupied(player) then
+				self:Tell(player, "HandsFull")
 			elseif item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits) then
 				local root=item.model.PrimaryPart
 				if root and self:Near(player,root.Position,Config.InteractionRange,item.model) then
-					Carry.Take(item, player)
+					if Carry.Take(item, player, #carried) and item.kind == "Body" then
+						self:Restack(player)
+					end
 				else
 					self:Tell(player,"ItemUnavailable")
 				end
@@ -734,10 +1012,23 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 end
 function Manager.ReleasePlayer(self: Manager, player: Player): ()
 	self:EndPaint(player)
-	local held = self:Held(player)
-	if held then
-		local primary = held.model.PrimaryPart
-		Carry.Drop(held, if primary then primary.Position else Scene.PoolPickup.Position)
+	local stack = self:Carried(player)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	local origin = if root and root:IsA("BasePart") then root.Position else Scene.PoolPickup.Position
+	local right = if root and root:IsA("BasePart") then root.CFrame.RightVector else Vector3.xAxis
+	if #stack == 0 then
+		local held = self:Held(player)
+		if held then
+			local primary = held.model.PrimaryPart
+			Carry.Drop(held, if primary then primary.Position else origin)
+		end
+	else
+		for index, item in stack do
+			local primary = item.model.PrimaryPart
+			local base = if primary then primary.Position else origin
+			Carry.Drop(item, base + right * (index - 1) * Physics.CarryReleaseSpacing, index == #stack)
+		end
 	end
 	self:Changed()
 end
@@ -830,13 +1121,43 @@ function Manager.Update(self: Manager): ()
 		return
 	end
 	local now = workspace:GetServerTimeNow()
+	local changedMotion = false
+	for _, item in self.items do
+		local carrier = item.holder
+		if carrier and item.kind == "Body" and item.model.Parent == nil then
+			Carry.Detach(item, not self:HasOtherBodies(carrier, item))
+			self.items[item.id] = nil
+			self:Restack(carrier)
+			changedMotion = true
+			continue
+		end
+		if item.carryTransition then Carry.AdvanceTransition(item, now) end
+		if item.altarToss then
+			if not item.model:IsDescendantOf(workspace) then
+				self.items[item.id] = nil
+				changedMotion = true
+			elseif Carry.AdvanceAltarToss(item, now) then
+				item.convertEnds = now + Config.ConversionSeconds
+				changedMotion = true
+			end
+		elseif item.poolToss and Carry.AdvancePoolToss(item, now) then
+			changedMotion = true
+		end
+	end
+	if changedMotion then self:Changed() end
 	if now < self.nextUpdate then
 		return
 	end
 	self.nextUpdate = now + 0.1
 	local count, bodies = 0, 0
 	for _, item in self.items do
-		if Carry.Update(item, now) then self:Changed() end
+		local carrier = item.holder
+		if Carry.Update(item, now) then
+			if carrier then
+				self:Restack(carrier)
+			end
+			self:Changed()
+		end
 		if item.streetSlot then
 			count += 1
 		end
@@ -845,16 +1166,32 @@ function Manager.Update(self: Manager): ()
 		end
 		if item.kind == "Body" then
 			NPC.Update(item, now)
-			if item.hits >= Config.StunHits and not item.fall then
+			if item.location == "Pool" and item.poolToss == nil then
+				Ragdoll.LimitVelocity(item.model)
+			elseif item.hits >= Config.StunHits and not item.fall then
 				Ragdoll.LimitVelocity(item.model)
 			end
 		end
 		local primary = if item.location == "Toolbar" or item.model.Parent == nil then nil else item.model.PrimaryPart
-		if primary and primary.Position.Y < -40 then
-			if item.holder then
-				self:EndPaint(item.holder)
+		if item.kind == "Body" and item.location == "Pool" and item.poolToss == nil then
+			local torso = item.model:FindFirstChild("UpperTorso")
+			local outside = torso ~= nil and torso:IsA("BasePart") and not Scene.PoolContains(torso.Position)
+			local fallen = primary ~= nil and primary.Position.Y < -40
+			if (outside or fallen) and now >= (item.poolRecoverAt or 0) then
+				item.poolRecoverAt = now + Physics.PoolRecoverSeconds
+				Carry.RecoverPool(item)
+				self:Changed()
 			end
-			Carry.Drop(item, Vector3.new(0, -100, 0))
+		elseif item.location ~= "Altar" and primary and primary.Position.Y < -40 then
+			carrier = item.holder
+			if carrier then
+				self:EndPaint(carrier)
+			end
+			local keep = carrier ~= nil and self:HasOtherBodies(carrier, item)
+			Carry.Drop(item, Vector3.new(0, -100, 0), not keep)
+			if carrier and keep then
+				self:Restack(carrier)
+			end
 			item.streetSlot = false
 			self:Changed()
 		end
@@ -867,49 +1204,30 @@ function Manager.Update(self: Manager): ()
 		end
 		self.nextSpawn = now + Config.SpawnInterval
 	end
-	if self.altarId and now >= self.altarEnds and #self.shelf >= Config.ShelfCapacity then
-		self.altarHeld = true
-	elseif self.altarId and now >= self.altarEnds and self.altarHeld then
-		self.altarHeld = false
-		self.altarEnds = now + Config.AltarClimaxSeconds
-		self:Changed()
-	elseif self.altarId and now >= self.altarEnds and #self.shelf < Config.ShelfCapacity then
-		self.altarHeld = false
-		local item = self.items[self.altarId]
-		if item then
-			item.model:Destroy()
-			self.items[item.id] = nil
-			local model = ReplicatedStorage.Models.Potion:Clone() :: Model
-			local id = HttpService:GenerateGUID(false)
-			model:SetAttribute("ItemId", id)
-			model.Parent = self.runtime
-			local potion: Types.Item = {
-				id = id,
-				kind = "Potion",
-				stage = "Ready",
-				location = "Shelf",
-				version = 1,
-				model = model,
-				holder = nil,
-				hits = 0,
-				covered = {},
-				strokes = {},
-				strokePoints = 0,
-				area = 0,
-				totalArea = 0,
-				progress = 0,
-				paintSeconds = 0,
-				streetSlot = false,
-				nextWalk = 0,
-				carryWeld = nil,
-				walkTrack = nil,
-			}
-			self.items[id] = potion
-			table.insert(self.shelf, id)
+	local ready: { Types.Item } = {}
+	for _, item in self.items do
+		if item.kind == "Body" and item.location == "Altar" and item.convertEnds and now >= item.convertEnds then
+			table.insert(ready, item)
 		end
-		self.altarId = nil
-		self.altarEnds = 0
-		self:Arrange()
+	end
+	table.sort(ready, function(a: Types.Item, b: Types.Item): boolean
+		return (a.convertEnds or 0) < (b.convertEnds or 0)
+	end)
+	local changed = false
+	for _, item in ready do
+		if self.items[item.id] ~= item then continue end
+		if self:QualityCount(Config.DefaultPotionQuality) >= Config.ShelfCapacity then
+			item.altarHeld = true
+		elseif item.altarHeld then
+			item.altarHeld = false
+			item.convertEnds = now + Config.AltarClimaxSeconds
+			changed = true
+		else
+			self:SpawnAltarPotion(item)
+			changed = true
+		end
+	end
+	if changed then
 		self:Changed()
 	end
 	if self.paint and not self:Root(self.paint.player) then
@@ -931,7 +1249,9 @@ function Manager.Init(self: Manager): ()
 	self.runtime.Parent = workspace
 	self.scope:Own(self.runtime)
 	Ragdoll.Init()
+	Scene.EnsurePoolContainment()
 	if Physics.GroundRootEnabled then Ground.Init() end
+	Scene.BindPoolCollision()
 	Door.Init(self.scope)
 	self.scope:Connect(Net.ConnectRequest(function(player: Player, request: Types.Request): ()
 		self:OnRequest(player, request)

@@ -1,4 +1,4 @@
--- 工作台展示：躯干固定的本地物理悬挂、观察者姿态平滑和原实体可见性恢复
+-- 工作台展示：仰卧静止姿态、观察者插值，以及原实体可见性恢复
 --!strict
 local ReplicatedStorage=game:GetService("ReplicatedStorage")
 local Pose=require(ReplicatedStorage.Scripts.Shared.PaintBodyPose)
@@ -63,27 +63,17 @@ function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediat
 	local yawDelta=(self.targetYaw-self.yaw+math.pi)%(2*math.pi)-math.pi
 	self.yaw+=yawDelta*alpha
 	self.pitch+=(self.targetPitch-self.pitch)*alpha
-	local model=self.model
-	if not model then return end
-	if self.dynamic~=immediate then
-		self.dynamic=immediate
-		for name,part in self.parts do part.Anchored=not immediate or name=="UpperTorso" end
-		for _,joint in model:GetDescendants() do if joint:IsA("BallSocketConstraint") then joint.Enabled=immediate end end
-	end
+	if not self.model then return end
+	-- 工作台保持锚定的静止仰卧，不打开球窝，四肢不因重力垂落。
+	self.dynamic=false
 	local support=pose*CFrame.Angles(self.pitch,self.yaw,0)*self.rest
 	local torso=self.parts.UpperTorso
-	if torso then torso.CFrame=support end
-	if immediate then
-		for _,part in self.parts do
-			if part.Anchored then continue end
-			local velocity,angular=part.AssemblyLinearVelocity,part.AssemblyAngularVelocity
-			if velocity.Magnitude>Config.MaximumLinearSpeed then part.AssemblyLinearVelocity=velocity.Unit*Config.MaximumLinearSpeed end
-			if angular.Magnitude>Config.MaximumAngularSpeed then part.AssemblyAngularVelocity=angular.Unit*Config.MaximumAngularSpeed end
-		end
-	else
-		for name,frame in pairs(self.targetBodyPose or {}) do
-			local part=self.parts[name]
-			if part and name~="UpperTorso" then part.CFrame=part.CFrame:Lerp(support*frame,alpha) end
+	if torso then torso.CFrame=if immediate then support else torso.CFrame:Lerp(support,alpha) end
+	for name,frame in pairs(self.targetBodyPose or {}) do
+		local part=self.parts[name]
+		if part and name~="UpperTorso" then
+			local goal=support*frame
+			part.CFrame=if immediate then goal else part.CFrame:Lerp(goal,alpha)
 		end
 	end
 end

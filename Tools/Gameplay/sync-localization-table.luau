@@ -376,10 +376,10 @@ local entries: { Entry } = {
 	},
 	{
 		Key = "",
-		Source = "DRAG ON THE BODY TO PAINT + ROTATE",
+		Source = "DRAG ON THE BODY TO PAINT",
 		Context = "",
 		Example = "",
-		Values = {["ar"] = "اسحب على الجسد للرسم والتدوير", ["de"] = "ZIEHE ÜBER DEN KÖRPER ZUM MALEN UND DREHEN", ["es"] = "ARRASTRA SOBRE EL CUERPO PARA PINTAR Y ROTAR", ["fr"] = "GLISSEZ SUR LE CORPS POUR PEINDRE ET PIVOTER", ["id"] = "SERET PADA TUBUH UNTUK MELUKIS DAN MEMUTAR", ["it"] = "TRASCINA SUL CORPO PER DIPINGERE E RUOTARE", ["ja"] = "体の上をドラッグして描画＋回転", ["ko"] = "신체 위를 드래그하여 그리고 회전하세요", ["pl"] = "PRZECIĄGNIJ PO CIELE, ABY MALOWAĆ I OBRACAĆ", ["pt"] = "ARRASTE NO CORPO PARA PINTAR E GIRAR", ["ru"] = "ПРОВОДИТЕ ПО ТЕЛУ ДЛЯ РИСОВАНИЯ И ВРАЩАЙТЕ", ["th"] = "ลากบนร่างเพื่อวาดและหมุนมุมมอง", ["tr"] = "ÇİZMEK VE DÖNDÜRMEK İÇİN GÖVDE ÜZERİNDE SÜRÜKLE", ["vi"] = "KÉO TRÊN THÂN THỂ ĐỂ VẼ VÀ XOAY", ["zh-cn"] = "在躯体上滑动绘制符文并旋转视角", ["zh-hans"] = "在躯体上滑动绘制符文并旋转视角", ["zh-hant"] = "在軀體上滑動繪製符文並旋轉視角", ["zh-tw"] = "在軀體上滑動繪製符文並旋轉視角"},
+		Values = {["ar"] = "اسحب على الجسد للرسم والتدوير", ["de"] = "ZIEHE ÜBER DEN KÖRPER ZUM MALEN UND DREHEN", ["es"] = "ARRASTRA SOBRE EL CUERPO PARA PINTAR Y ROTAR", ["fr"] = "GLISSEZ SUR LE CORPS POUR PEINDRE ET PIVOTER", ["id"] = "SERET PADA TUBUH UNTUK MELUKIS DAN MEMUTAR", ["it"] = "TRASCINA SUL CORPO PER DIPINGERE E RUOTARE", ["ja"] = "体の上をドラッグして描画＋回転", ["ko"] = "신체 위를 드래그하여 그리고 회전하세요", ["pl"] = "PRZECIĄGNIJ PO CIELE, ABY MALOWAĆ I OBRACAĆ", ["pt"] = "ARRASTE NO CORPO PARA PINTAR E GIRAR", ["ru"] = "ПРОВОДИТЕ ПО ТЕЛУ ДЛЯ РИСОВАНИЯ И ВРАЩАЙТЕ", ["th"] = "ลากบนร่างเพื่อวาดและหมุนมุมมอง", ["tr"] = "ÇİZMEK VE DÖNDÜRMEK İÇİN GÖVDE ÜZERİNDE SÜRÜKLE", ["vi"] = "KÉO TRÊN THÂN THỂ ĐỂ VẼ VÀ XOAY", ["zh-cn"] = "在躯体上滑动绘制符文", ["zh-hans"] = "在躯体上滑动绘制符文", ["zh-hant"] = "在軀體上滑動繪製符文", ["zh-tw"] = "在軀體上滑動繪製符文"},
 	},
 	{
 		Key = "",
@@ -502,7 +502,7 @@ local entries: { Entry } = {
 	},
 	{
 		Key = "",
-		Source = "Rune complete. Pick up the body.",
+		Source = "Rune complete. The body flies to the altar.",
 		Context = "",
 		Example = "",
 		Values = {["ar"] = "اكتمل الرون. خذ الجسد.", ["de"] = "Rune vollständig. Nimm den Körper.", ["es"] = "Runa completada. Recoge el cuerpo.", ["fr"] = "Rune terminée. Ramassez le corps.", ["id"] = "Rune selesai. Ambil tubuh.", ["it"] = "Runa completata. Prendi il corpo.", ["ja"] = "ルーン完了。体を回収してください。", ["ko"] = "룬 완료. 신체를 가져가세요.", ["pl"] = "Runa ukończona. Podnieś ciało.", ["pt"] = "Runa concluída. Pegue o corpo.", ["ru"] = "Руна завершена. Заберите тело.", ["th"] = "รูนเสร็จสิ้น เก็บกู้ร่าง", ["tr"] = "Rün tamamlandı. Gövdeyi al.", ["vi"] = "Phù văn hoàn tất. Hãy lấy thân thể.", ["zh-cn"] = "符文绘制完成，请取走躯体。", ["zh-hans"] = "符文绘制完成，请取走躯体。", ["zh-hant"] = "符文繪製完成，請取走軀體。", ["zh-tw"] = "符文繪製完成，請取走軀體。"},

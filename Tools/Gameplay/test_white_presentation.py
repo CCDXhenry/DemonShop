@@ -43,7 +43,9 @@ local Impact=require('./ImpactReaction')
 local Mixer=require('./PoseMixer')
 local Contact=require('./SoftContact')
 local Fall=require('./LocalRagdoll')
+local Physics=require('./PhysicsConfig')
 local Input={TouchEnabled=false}
+local Players={LocalPlayer=nil,GetPlayers=function() return {} end}
 local Vector3=require('@lune/roblox').Vector3
 local GameConfig={StunHits=3,HitPredictionLifetime=2}
 """, [
@@ -83,3 +85,67 @@ local workspace={GetServerTimeNow=function() return 0.04 end}
 test = (ROOT / "Tools/Gameplay/test_white_presentation.luau").read_text(encoding="utf-8")
 (OUT / "test.luau").write_text(test, encoding="utf-8")
 subprocess.run(["lune", "run", str(OUT / "test.luau")], cwd=ROOT, check=True)
+
+server = ROOT / "Scripts/ServerStorage/Scripts"
+module("Carry", server, "local Carry = {}", roblox + """
+local B=require('./Boundary')
+local workspace={GetServerTimeNow=function() return B.now end}
+local Vector2=R.Vector2
+local Random={new=function() return {} end}
+local Config=require('./PhysicsConfig')
+local NPC={StopMotion=function() end}
+local Scene=require('./AltarScene')
+local function GetPivot(model)
+    return model.PrimaryPart.CFrame
+end
+local function PivotTo(model, frame)
+    local from=GetPivot(model)
+    for _,part in model:GetDescendants() do
+        if part:IsA("BasePart") then part.CFrame=frame*from:ToObjectSpace(part.CFrame) end
+    end
+end
+local Ragdoll={SetMode=function(model,mode,owner)
+    model:SetAttribute("PhysicsMode",mode)
+    if mode == "Loose" then
+        B.altarOwner=owner
+        for _,part in model:GetChildren() do
+            if part:IsA("BasePart") then
+                part.Anchored=false
+                part.CanCollide=part.Name~="HumanoidRootPart"
+            end
+        end
+    end
+end}
+""", [
+    ("humanoid:UnequipTools()", "B.unequip(humanoid)"),
+    ("support.AssemblyLinearVelocity", "Vector3.zero"),
+    ("torso.AssemblyMass", "1"),
+    ("item.model:GetPivot()", "GetPivot(item.model)"),
+    ("model:GetPivot()", "GetPivot(model)"),
+    ("item.model:PivotTo(", "PivotTo(item.model, "),
+    ("model:PivotTo(", "PivotTo(model, "),
+    ("then torso.Position else GetPivot(model)", "then torso.CFrame.Position else GetPivot(model)"),
+])
+scene = (server / "Scene.luau").read_text(encoding="utf-8")
+pile_pose = scene[scene.index("local function Unit("):scene.index("function Scene.TablePose(")]
+pile_pose += scene[scene.index("function Scene.AltarPilePose("):scene.index("function Scene.PoolPose(")]
+(OUT / "AltarScene.luau").write_text(roblox + """
+local bed=Instance.new("Part")
+bed.Size=Vector3.new(9,.5,5)
+bed.CFrame=CFrame.new(-12,1.25,-9)
+local Scene={AltarRest=bed}
+local Config={PaintLiePitch=math.pi/2,AltarPileSpread=1.2,AltarPilePitch=.2,AltarPileStep=.55}
+""" + pile_pose + "\nreturn Scene", encoding="utf-8")
+processing = (server / "ProcessingManager.luau").read_text(encoding="utf-8")
+update = processing[processing.index("function Manager.Update("):processing.index("function Manager.Close(")]
+(OUT / "AltarProcessing.luau").write_text("""
+local B=require('./Boundary')
+local workspace=B.world
+local Carry=require('./Carry')
+local Config={ConversionSeconds=5}
+local Manager={}
+""" + update.replace("workspace:GetServerTimeNow()", "B.now") + "\nreturn Manager", encoding="utf-8")
+for name in ("test_carry_stack", "test_altar_toss"):
+    test = (ROOT / "Tools/Gameplay" / f"{name}.luau").read_text(encoding="utf-8")
+    (OUT / f"{name}.luau").write_text(test, encoding="utf-8")
+    subprocess.run(["lune", "run", str(OUT / f"{name}.luau")], cwd=ROOT, check=True)

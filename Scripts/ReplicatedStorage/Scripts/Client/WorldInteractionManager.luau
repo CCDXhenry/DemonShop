@@ -14,7 +14,7 @@ local Manager = {}
 Manager.__index = Manager
 type PromptParent = BasePart | Model
 type Binding = { prompt: ProximityPrompt, scope: Lifecycle.Lifecycle, signature: string, holding: Rules.Action?, textValid: boolean, isDynamic: boolean }
-export type State = { snapshot: Types.Snapshot?, items: {[string]: Types.ItemView}, held: Types.ItemView?, potions: Rules.Potions?, enabled: boolean }
+export type State = { snapshot: Types.Snapshot?, items: {[string]: Types.ItemView}, held: Types.ItemView?, carried: {Types.ItemView}?, potions: Rules.Potions?, enabled: boolean }
 export type Manager = typeof(setmetatable({} :: {
 	bindings: {[string]: Binding}, anchors: {[string]: BasePart}, readState: () -> State, suppressUntil: number,
 }, Manager))
@@ -62,7 +62,7 @@ function Manager.Resolve(self: Manager, target: string): Rules.Action?
 	local anchor: Instance? = self.anchors[target] or GetPickupModel(state.items[target])
 	local binding = self.bindings[target]
 	if not anchor or not anchor.Parent or not binding or binding.prompt.Parent ~= anchor then return nil end
-	return if state.enabled then Rules.Resolve(target, state.snapshot, state.items, state.held, state.potions) else nil
+	return if state.enabled then Rules.Resolve(target, state.snapshot, state.items, state.held, state.potions, state.carried) else nil
 end
 function Manager.Create(self: Manager, target: string, anchor: PromptParent): Binding
 	local isStation = (self.anchors[target] :: BasePart?) ~= nil
@@ -113,7 +113,7 @@ function Manager.Refresh(self: Manager): ()
 	for target, part in self.anchors do anchors[target] = part end
 	for id, item in state.items do
 		local model = GetPickupModel(item)
-		if model and Rules.Resolve(id, state.snapshot, state.items, state.held, state.potions) then
+		if model and Rules.Resolve(id, state.snapshot, state.items, state.held, state.potions, state.carried) then
 			-- 用整个模型作为提示父级，原生视线检查会忽略物品自己的网格。
 			anchors[id] = model
 		end
@@ -123,7 +123,7 @@ function Manager.Refresh(self: Manager): ()
 		if not anchor or binding.prompt.Parent ~= anchor then self:Remove(target) end
 	end
 	for target, anchor in anchors do
-		local action = if state.enabled then Rules.Resolve(target, state.snapshot, state.items, state.held, state.potions) else nil
+		local action = if state.enabled then Rules.Resolve(target, state.snapshot, state.items, state.held, state.potions, state.carried) else nil
 		local binding = self.bindings[target]
 		if not binding and action and anchor.Parent then binding = self:Create(target, anchor) end
 		if not binding then continue end

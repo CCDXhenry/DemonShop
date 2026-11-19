@@ -13,6 +13,17 @@ export type VisualSegment = { key: string, version: number, gesture: number, par
 export type VisualState = { segments: { [string]: VisualSegment }, count: number, revision: number }
 export type Request = { action: string, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, yaw: number?, pitch: number?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose? }
 export type GroundFall = {target: CFrame, started: number, velocity: Vector3}
+export type PoolToss = { from: CFrame, target: CFrame, started: number, owner: number, collision: boolean? }
+export type AltarToss = {
+	from: CFrame,
+	rest: CFrame,
+	started: number,
+	flightStarts: number,
+	released: number?,
+	stableSince: number?,
+	recovery: { started: number, parts: { { part: BasePart, from: CFrame, target: CFrame } } }?,
+}
+export type CarryTransition = { kind: "Lift" | "Restack", from: CFrame, started: number, ends: number }
 export type Item = {
 	fall: GroundFall?,
 	id: string,
@@ -23,6 +34,8 @@ export type Item = {
 	model: Model,
 	holder: Player?,
 	owner: Player?,
+	quality: number?,
+	stack: number?,
 	hits: number,
 	covered: { [string]: boolean },
 	strokes: { Stroke },
@@ -48,14 +61,23 @@ export type Item = {
 	carryTarget: Attachment?,
 	carryErrorSince: number?,
 	carryBaseOffset: CFrame?,
+	carryTransition: CarryTransition?,
+	carryLayer: number?,
 	carryVelocity: Vector3?,
 	carryUpdated: number?,
 	carrySway: Vector2?,
+	carryOrder: number?,
 	releaseUntil: number?,
 	releaseCharacter: Model?,
+	poolToss: PoolToss?,
+	altarToss: AltarToss?,
+	poolRecoverAt: number?,
+	flyEnds: number?,
+	convertEnds: number?,
+	altarHeld: boolean?,
 }
 export type ItemView =
-	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, progress: number, holder: number?, visualCount: number?, fall: GroundFall? }
+	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, progress: number, holder: number?, visualCount: number?, fall: GroundFall?, flyEnds: number?, convertEnds: number?, toss: PoolToss?, altarTossStarted: number? }
 export type Snapshot = {
 	bodyPose: BodyPose?,
 	revision: number,
@@ -65,6 +87,7 @@ export type Snapshot = {
 	items: { ItemView },
 	pool: number,
 	shelf: number,
+	shelfItems: { [string]: CFrame },
 	tableId: string?,
 	altarId: string?,
 	altarEnds: number,

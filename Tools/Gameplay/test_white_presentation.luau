@@ -280,7 +280,8 @@ local function noticeFixture()
 	function fx:Burst() self.bursts+=1 end
 	function fx:UpgradeBurst() self.upgrades+=1 end
 	return setmetatable({bodies=Manager.new(tableView,fx,function() end),items={},waitingHits={},hitView=fx,
-		hitState=Rules.New(),presentation={},characterView={carriers={}},attackSequence=5,HitFeedback=function() end},
+		potionShelf={Apply=function() end},
+		hitState=Rules.New(),presentation={},characterView={carriers={}},attackSequence=5,HitFeedback=function() end,Held=function() return nil end},
 		{__index=Feedback})
 end
 local function hitNotice(h)
@@ -289,7 +290,7 @@ end
 local noticeRig=rig(false)
 local function snapshot(h,rev)
 	local fall=if h==3 then {started=0,target=F.new(1,2,3),velocity=V.xAxis*3} else nil
-	return {revision=rev,items={{id="body",kind="Body",location="Street",version=rev,hits=h,model=noticeRig,fall=fall}}}
+	return {revision=rev,shelfItems={},items={{id="body",kind="Body",location="Street",version=rev,hits=h,model=noticeRig,fall=fall}}}
 end
 for _,order in {"HRD","HDR","RDH","RHD","DHR","DRH"} do
 	for _,level in {1,3} do
@@ -343,4 +344,92 @@ client.bodies:Hit("body",1,6,4,3,V.xAxis,V.zero,0,false,true)
 client:OnNotice({kind="AttackResult",attackSequence=6,hit=false})
 check(client.bodies.views.body.mode=="Street" and not client.bodies.views.body.fall and client.bodies.views.body.impacts["1/6"].rejected,"rejected final leaves no physics or sleep cache")
 client.bodies:Destroy();noticeRig:Destroy()
+local shoulder=rig(false)
+local shoulders=Manager.new(tableView,{Remove=function() end,Sample=function() return F.identity end},function() end)
+local down={id="shoulder",kind="Body",location="Street",version=1,hits=3,model=shoulder,fall={target=F.new(0,1,0),started=0,velocity=V.zero}}
+shoulders:Bind(down)
+local fallen=shoulders.views.shoulder.visualModel
+check(shoulders.views.shoulder.mode=="Ground" and fallen~=nil and fallen.Parent~=nil,"fallen body has local pose")
+shoulder:SetAttribute("PhysicsMode","Carried")
+shoulders:Bind(down)
+check(shoulders.views.shoulder.mode=="CarryHandoff" and shoulders:GetVisualModel("shoulder")==fallen,"physics-first carry retains the visible downed pose")
+local carried=table.clone(down)
+carried.location,carried.version,carried.fall="Carried",2,nil
+shoulders:Bind(carried)
+local start=fallen.PrimaryPart.CFrame
+shoulder.PrimaryPart.CFrame=start+V.new(4,0,0)
+shoulders:Step(.06,1/60)
+check((fallen.PrimaryPart.CFrame.Position-start.Position-V.new(2,0,0)).Magnitude<1e-4,"handoff follows the moving replicated pose")
+check(shoulder.Head.LocalTransparencyModifier==1 and fallen.Head.Anchored and not fallen.Head.CanCollide,"one non-colliding display during carry handoff")
+shoulders:Step(.12,1/60)
+check(shoulders.views.shoulder.mode=="Authority" and fallen.Parent==nil and shoulder.Head.LocalTransparencyModifier==.375,"carry handoff releases the local clone and restores visibility")
+shoulders:Unbind("shoulder")
+shoulder:SetAttribute("PhysicsMode",nil)
+shoulders:Bind(down)
+fallen=shoulders:GetVisualModel("shoulder")
+shoulders:Bind(carried)
+check(shoulders.views.shoulder.mode=="CarryHandoff","snapshot-first carry starts the same handoff")
+local dropped=table.clone(down)
+dropped.location,dropped.version="Ground",3
+shoulders:Bind(dropped)
+check(fallen.Parent==nil and shoulders.views.shoulder.mode=="Ground","newer drop cancels carry handoff")
+fallen=shoulders:GetVisualModel("shoulder")
+carried.version=4
+shoulders:Bind(carried)
+shoulder.Parent=nil
+shoulders:Step(.02,1/60)
+check(fallen.Parent==nil and shoulders.views.shoulder==nil and shoulder.Head.LocalTransparencyModifier==.375,"stream out cancels carry handoff")
+shoulder.Parent=B.world
+shoulders:Step(.03,1/60)
+check(shoulders.views.shoulder.mode=="Authority" and shoulders:GetVisualModel("shoulder")==shoulder,"stream in while carried sees the current replicated pose")
+shoulders:Unbind("shoulder")
+shoulder:SetAttribute("MotionState","Carried")
+down.location,down.hits,down.version,down.fall="Street",0,3,nil
+shoulders:Bind(down)
+check(shoulders.views.shoulder.mode=="Authority" and shoulders.views.shoulder.diagnostic==nil and shoulders.views.shoulder.visualModel==nil,"carried motion skips joint parse")
+shoulders:Destroy();shoulder:Destroy()
+local offering=rig(false)
+local altar=Manager.new(tableView,{Remove=function() end},function() end)
+local painting={id="offering",kind="Body",location="Table",version=1,hits=3,model=offering}
+altar:UpdateState({offering=painting})
+local paintingClone=altar:GetVisualModel("offering")
+local flying=table.clone(painting)
+flying.location,flying.version,flying.altarTossStarted="Altar",2,0
+altar:UpdateState({offering=flying})
+check(altar.views.offering.mode=="AltarHandoff" and not tableView.model and paintingClone.Parent==B.world,"table display hands off before launch")
+local start=paintingClone.PrimaryPart.CFrame.Position
+offering.PrimaryPart.CFrame=paintingClone.PrimaryPart.CFrame+V.yAxis
+altar:Step(.125,1/60)
+check((paintingClone.PrimaryPart.CFrame.Position-start-V.yAxis*.5).Magnitude<1e-4,"lift handoff follows the authority pose continuously")
+altar:Step(.25,1/60)
+check(altar:GetVisualModel("offering")==offering and paintingClone.Parent==nil and not altar:GetAltarModel("offering"),"flight shows only the authority")
+local landed=table.clone(flying)
+landed.version,landed.altarTossStarted,landed.convertEnds=3,nil,8
+altar:UpdateState({offering=landed})
+check(not altar:GetAltarModel("offering"),"landing notification alone cannot start the altar presentation")
+offering:SetAttribute("PhysicsMode","AltarAnchored")
+altar:Step(2,1/60)
+check(not altar:GetAltarModel("offering"),"altar presentation waits for the anchor")
+offering.PrimaryPart.Anchored=true
+altar:Step(2.1,1/60)
+local landedVisual=altar:GetAltarModel("offering")
+check(landedVisual and landedVisual.PrimaryPart.CFrame==offering.PrimaryPart.CFrame,"sacrifice display starts from the replicated landing")
+altar:Destroy();offering:Destroy()
+local waiting=rig(false)
+local waits=Manager.new(tableView,{Remove=function() end,Sample=function() return F.identity end},function() end)
+local pending={id="wait",kind="Body",location="Street",version=1,hits=0,model=waiting}
+waits:Bind(pending)
+local kept=waits.views.wait.visualModel
+local keptGeneration=waits.views.wait.bindGeneration
+local saved=waiting.PrimaryPart
+waiting.PrimaryPart=waiting.Head
+B.signal(waiting,"root").last(saved)
+pending.version=2
+waits:Bind(pending)
+check(waits.views.wait.visualModel==kept and waits.views.wait.bindGeneration==keptGeneration and waits.views.wait.diagnostic==nil and waits.views.wait.dirty,"missing root keeps previous view")
+waiting.PrimaryPart=saved
+pending.version=3
+waits:Bind(pending)
+check(waits.views.wait.bindGeneration>keptGeneration and waits.views.wait.visualModel~=nil and waits.views.wait.visualModel~=kept and waits.views.wait.diagnostic==nil,"root return rebinds")
+waits:Destroy();waiting:Destroy()
 print("PASS",count,"presentation assertions; 50 rebinds, 0 remaining clones, tracks, hidden parts or connections")

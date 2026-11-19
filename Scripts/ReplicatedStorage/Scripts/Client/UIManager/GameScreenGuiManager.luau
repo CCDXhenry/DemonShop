@@ -136,7 +136,7 @@ function Manager.Refresh(self: Manager, state: DisplayState): ()
 		self:ApplyBrushCursor(true)
 	end
 	self.buttons.ExitPaintButton.Visible = state.painting and not touch
-	self.buttons.ResetViewButton.Visible = state.painting and not touch
+	self.buttons.ResetViewButton.Visible = false
 	self.touchFrames.TouchPaintFrame.Visible = touch and state.painting
 	local paintFrame = self.paintFrame
 	if paintFrame then

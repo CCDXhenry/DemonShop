@@ -6,41 +6,76 @@ local GameTexts = require(script.Parent.GameTexts)
 local Rules = {}
 export type Action = { target: string, version: number, action: GameTexts.TextId, object: GameTexts.TextId, signature: string }
 export type Potions = { stored: number, equipped: boolean }
-function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[string]: Types.ItemView}, held: Types.ItemView?, potions: Potions?): Action?
+type CarryLoad = { unfinished: boolean, painted: boolean, body: boolean, other: boolean }
+local function ReadCarry(held: Types.ItemView?, stack: { Types.ItemView }?): CarryLoad
+	local list: { Types.ItemView } = {}
+	if stack then
+		for _, item in stack do
+			table.insert(list, item)
+		end
+	elseif held then
+		table.insert(list, held)
+	end
+	local load: CarryLoad = { unfinished = false, painted = false, body = false, other = false }
+	for _, item in list do
+		if item.kind == "Body" then
+			load.body = true
+			if item.stage == "Painted" then
+				load.painted = true
+			else
+				load.unfinished = true
+			end
+		else
+			load.other = true
+		end
+	end
+	if stack and held and held.kind ~= "Body" then
+		load.other = true
+	end
+	return load
+end
+function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[string]: Types.ItemView}, held: Types.ItemView?, potions: Potions?, stack: { Types.ItemView }?): Action?
 	if not snapshot then return nil end
 	local action: GameTexts.TextId? = nil
 	local object: GameTexts.TextId = "PromptBody"
 	local version = snapshot.stationVersions[target]
-	local unfinished = held ~= nil and held.kind == "Body" and held.stage ~= "Painted"
+	local load = ReadCarry(held, stack)
+	local carrying = load.body or load.other or held ~= nil
 	if target == "Pool" then
 		object = "PromptPool"
-		if held then
-			if unfinished and snapshot.pool < Config.PoolCapacity then action = "StoreBody" end
-		elseif snapshot.pool > 0 then action = "TakeSharedBody" end
+		if load.unfinished and snapshot.pool < Config.PoolCapacity then action = "StoreBody"
+		elseif not carrying and snapshot.pool > 0 then action = "TakeSharedBody" end
 	elseif target == "Table" then
 		object = "PromptTable"
 		if not snapshot.painter then
 			if snapshot.tableId then
 				local item = items[snapshot.tableId]
-				if not held and item then action = if item.stage == "Painted" then "CollectRuneBody" else "ContinuePainting" end
-			elseif unfinished then action = "PlaceBody"
-			elseif not held and snapshot.pool > 0 then action = "FetchAndPaint" end
+				if not carrying and item then action = if item.stage == "Painted" then "CollectRuneBody" else "ContinuePainting" end
+			elseif load.unfinished then action = "PlaceBody"
+			elseif not carrying and snapshot.pool > 0 then action = "FetchAndPaint" end
 		end
 	elseif target == "Altar" then
 		object = "PromptAltar"
-		if not snapshot.altarId and held and held.kind == "Body" and held.stage == "Painted" then action = "InsertRuneBody" end
+		if load.painted then action = "InsertRuneBody" end
 	elseif target == "Shelf" then
 		object = "PromptShelf"
-		if snapshot.shelf > 0 then action = "CollectPotion" end
+		if snapshot.shelf > 0 and not load.body then action = "CollectPotion" end
 	elseif target == "Sigil" then
 		object = "PromptSigil"
 		if potions and potions.equipped then action = "PromptOffer" end
 	else
 		local item = items[target]
-		if item and not held and not item.holder and (item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits)) then
-			version = item.version
-			object = if item.kind == "Potion" then "PromptPotion" else "PromptBody"
-			action = "PromptPickUp"
+		local reachable = item and not item.holder and (item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits))
+		if reachable and item then
+			if item.kind == "Body" and not load.other then
+				version = item.version
+				object = "PromptBody"
+				action = "PromptPickUp"
+			elseif item.kind ~= "Body" and not load.body and not load.other then
+				version = item.version
+				object = "PromptPotion"
+				action = "PromptPickUp"
+			end
 		end
 	end
 	if not action or not version then return nil end

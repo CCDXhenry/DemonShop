@@ -732,10 +732,10 @@ ENTRIES = [
         }
     ),
     (
-        "", "DRAG ON THE BODY TO PAINT + ROTATE", "", "",
+        "", "DRAG ON THE BODY TO PAINT", "", "",
         {
-            "zh-hans": "在躯体上滑动绘制符文并旋转视角", "zh-hant": "在軀體上滑動繪製符文並旋轉視角",
-            "zh-cn": "在躯体上滑动绘制符文并旋转视角", "zh-tw": "在軀體上滑動繪製符文並旋轉視角",
+            "zh-hans": "在躯体上滑动绘制符文", "zh-hant": "在軀體上滑動繪製符文",
+            "zh-cn": "在躯体上滑动绘制符文", "zh-tw": "在軀體上滑動繪製符文",
             "ja": "体の上をドラッグして描画＋回転", "ko": "신체 위를 드래그하여 그리고 회전하세요",
             "es": "ARRASTRA SOBRE EL CUERPO PARA PINTAR Y ROTAR",
             "fr": "GLISSEZ SUR LE CORPS POUR PEINDRE ET PIVOTER",
@@ -943,7 +943,7 @@ ENTRIES = [
         }
     ),
     (
-        "", "Rune complete. Pick up the body.", "", "",
+        "", "Rune complete. The body flies to the altar.", "", "",
         {
             "zh-hans": "符文绘制完成，请取走躯体。", "zh-hant": "符文繪製完成，請取走軀體。", "zh-cn": "符文绘制完成，请取走躯体。", "zh-tw": "符文繪製完成，請取走軀體。",
             "ja": "ルーン完了。体を回収してください。", "ko": "룬 완료. 신체를 가져가세요.", "es": "Runa completada. Recoge el cuerpo.",

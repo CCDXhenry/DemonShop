@@ -23,10 +23,10 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 	if elapsed < Config.PaintBatchInterval * 0.7 then return nil end
 	session.last = now
 	-- 展示姿态由操作者提供；请求已通过有限数、会话及频率校验。
-	-- 在该姿态下重新射线校验每个表面采样，不用网络到达间隔回限本地旋转。
-	session.yaw = ((request.yaw or session.yaw) + math.pi) % (2 * math.pi) - math.pi
-	session.pitch = math.clamp(request.pitch or session.pitch, -Config.PaintPitchLimit, Config.PaintPitchLimit)
-	BodyPose.Apply(item.model,pose*CFrame.Angles(session.pitch,session.yaw,0),request.bodyPose)
+	-- 绘制固定仰卧，忽略请求里的转角，再按该姿态射线校验每个表面采样。
+	session.yaw = 0
+	session.pitch = 0
+	BodyPose.Apply(item.model,pose,request.bodyPose)
 	if request.bodyPose then item.poseBody=table.clone(request.bodyPose) end
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include

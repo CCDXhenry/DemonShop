@@ -68,7 +68,7 @@ function Ragdoll.Setup(model: Model): ()
 		end
 	end
 end
-function Ragdoll.SetMode(model: Model, mode: string): ()
+function Ragdoll.SetMode(model: Model, mode: string, owner: Player?): ()
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
 	assert(humanoid)
 	local base = if model.PrimaryPart then model.PrimaryPart.CFrame else model:GetPivot()
@@ -119,8 +119,9 @@ function Ragdoll.SetMode(model: Model, mode: string): ()
 				v.AssemblyLinearVelocity, v.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
 			end
 			if not static then
+				local networkOwner = owner
 				pcall(function(): ()
-					v:SetNetworkOwner(nil)
+					v:SetNetworkOwner(networkOwner)
 				end)
 			end
 		end

@@ -3,6 +3,7 @@ assert(game:GetService("RunService"):IsRunning(),"Play server required")
 local NPC=require(game.ServerStorage.Scripts.NPC)
 local Carry=require(game.ServerStorage.Scripts.Carry)
 local Scene=require(game.ServerStorage.Scripts.Scene)
+local Physics=require(game.ReplicatedStorage.Scripts.Shared.PhysicsConfig)
 local player=game.Players:GetPlayers()[1]
 assert(player and player.Character,"A live player is required")
 local character=player.Character
@@ -19,12 +20,14 @@ end
 local function updateFor(seconds)
  local deadline=os.clock()+seconds
  repeat
+  local now=workspace:GetServerTimeNow()
+  Carry.AdvanceTransition(item,now)
 	 if item.carryTarget then
 	  local distance=(item.model.UpperTorso.Position-item.carryTarget.WorldPosition).Magnitude
 	  results.maximumShoulderError=math.max(results.maximumShoulderError or 0,distance)
 	 end
-  NPC.Update(item,workspace:GetServerTimeNow())
-  Carry.Update(item,workspace:GetServerTimeNow())
+  NPC.Update(item,now)
+  Carry.Update(item,now)
   task.wait(.04)
  until os.clock()>=deadline
 end
@@ -49,7 +52,7 @@ local ok,reason=xpcall(function()
  check(item.motionState~="Hit","staggerRecovers")
  NPC.Hit(item,Vector3.xAxis)
  NPC.Hit(item,Vector3.xAxis)
- check(model:GetAttribute("PhysicsMode")=="Loose","thirdHitRagdoll")
+ check(model:GetAttribute("PhysicsMode")== (if Physics.GroundRootEnabled then "GroundRoot" else "Loose"),"thirdHitRagdoll")
  character:PivotTo(CFrame.new(root.Position+Vector3.new(3,1,0)))
  check(Carry.Take(item,player),"takeBody")
  updateFor(.6)

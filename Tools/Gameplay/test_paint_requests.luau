@@ -23,7 +23,7 @@ check(session.last == 100 and item.progress == 0, 'rejected requests must not up
 B.now += Config.PaintBatchInterval
 send(1001)
 check(#B.broadcasts == 1 and B.broadcasts[1].kind == 'PaintPose', 'accepted empty samples still broadcast pose')
-check(math.abs(B.broadcasts[1].yaw - .2) < .00001, 'accepted pose payload is retained')
+check(B.broadcasts[1].yaw == 0, 'accepted pose keeps the fixed painting angle')
 B.now += Config.PaintBatchInterval
 send(1001)
 check(#B.broadcasts == 1, 'duplicate sequence must not broadcast even after interval')

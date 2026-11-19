@@ -11,7 +11,7 @@ local raw={id='raw',kind='Body',stage='Raw',location='Ground',version=1,hits=0}
 local painted={id='painted',kind='Body',stage='Painted',location='Ground',version=1,hits=0}
 local potion={id='potion',kind='Potion',stage='Ready',location='Ground',version=1,hits=0}
 local items={raw=raw,painted=painted,potion=potion}
-local function Action(target,held,potions) local a=Rules.Resolve(target,snapshot,items,held,potions);return a and a.action end
+local function Action(target,held,potions,stack) local a=Rules.Resolve(target,snapshot,items,held,potions,stack);return a and a.action end
 Check(Action('Pool',nil)==nil,'empty pool hidden')
 Check(Action('Pool',raw)=='StoreBody','store unfinished')
 Check(Action('Pool',painted)==nil and Action('Pool',potion)==nil,'pool rejects completed or potion')
@@ -31,13 +31,21 @@ Check(Action('Table',nil)==nil,'busy table hidden')
 snapshot.painter=nil
 Check(Action('Altar',painted)=='InsertRuneBody' and Action('Altar',raw)==nil,'altar accepts completed body')
 snapshot.altarId='converting'
-Check(Action('Altar',painted)==nil,'busy altar hidden')
+Check(Action('Altar',painted)=='InsertRuneBody','altar still accepts another completed body')
 Check(Action('Shelf',nil)==nil,'empty shelf hidden')
 snapshot.shelf=1
-Check(Action('Shelf',nil)=='CollectPotion' and Action('Shelf',raw)=='CollectPotion','shelf pickup ignores shoulder carry')
+Check(Action('Shelf',nil)=='CollectPotion' and Action('Shelf',raw)==nil,'shelf hidden while carrying a body')
 Check(Action('Sigil',nil,{stored=1,equipped=true})=='PromptOffer' and Action('Sigil',raw)==nil,'offer only the equipped potion')
 Check(Action('raw',nil)=='PromptPickUp' and Action('raw',potion)==nil,'ground pickup requires free hands')
 Check(Action('potion',nil)=='PromptPickUp' and Rules.Resolve('potion',snapshot,items,nil).object=='PromptPotion','ground potion text')
+local other={id='other',kind='Body',stage='Raw',location='Ground',version=2,hits=Config.StunHits}
+items.other=other
+Check(Action('other',raw)=='PromptPickUp','pickup another body while carrying')
+Check(Action('potion',raw)==nil,'potion pickup blocked while carrying a body')
+Check(Action('Pool',nil,nil,{painted,raw})=='StoreBody','pool matches a lower unfinished body')
+Check(Action('Altar',nil,nil,{raw,painted})=='InsertRuneBody','altar matches a lower rune body')
+Check(Action('Shelf',nil,nil,{raw})==nil,'shelf hidden while a body stack is carried')
+items.other=nil
 raw.location='Street';raw.hits=Config.StunHits-1
 Check(Action('raw',nil)==nil,'awake body has no prompt')
 raw.hits=Config.StunHits

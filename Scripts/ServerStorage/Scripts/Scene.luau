@@ -1,8 +1,22 @@
--- 场景契约：静态锚点、街道路面采样、工位放置与安全地面回收
+-- 场景契约：静态锚点、街道路面采样、工位放置、存放池边界与安全地面回收
 --!strict
+local PhysicsService = game:GetService("PhysicsService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Physics = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
+local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local Scene = {}
 local district = workspace:WaitForChild("NeonContractDistrict")
+local pool = district:WaitForChild("SoulHoldingPool")
 local PointRowBand = 0.5 -- 同一排点位的高度差上限，studs
+local ShelfPivotOffset = -0.35 -- 相对符文托位下调瓶身枢轴，studs
+local ShelfSlotOffsets = {
+	Vector3.new(0, ShelfPivotOffset, 0.85),
+	Vector3.new(-1.20, ShelfPivotOffset, 0.85),
+	Vector3.new(1.20, ShelfPivotOffset, 0.85),
+	Vector3.new(0.45, ShelfPivotOffset, -0.35),
+	Vector3.new(-0.75, ShelfPivotOffset, -0.35),
+	Vector3.new(1.65, ShelfPivotOffset, -0.35),
+}
 local function Part(root: Instance, name: string): BasePart
 	local p = root:WaitForChild(name)
 	assert(p:IsA("BasePart"))
@@ -16,11 +30,14 @@ local function TopThenLeft(a: BasePart, b: BasePart): boolean
 end
 Scene.District = district
 Scene.Deck = Part(district:WaitForChild("deck"):WaitForChild("Generated"):WaitForChild("Street"):WaitForChild("Raised Street Deck With Stair Void"), "Box_005")
-Scene.PoolDrop = Part(district:WaitForChild("SoulHoldingPool"), "DropPointAnchor")
-Scene.PoolPickup = Part(district:WaitForChild("SoulHoldingPool"), "PickupPointAnchor")
+Scene.PoolDrop = Part(pool, "DropPointAnchor")
+Scene.PoolPickup = Part(pool, "PickupPointAnchor")
+Scene.PoolFloor = Part(pool, "PoolFloor")
 Scene.Table = Part(district:WaitForChild("RuneBodyTable"), "BodyPlacementAnchor")
+Scene.Slab = Part(district:WaitForChild("RuneBodyTable"), "FullBodySlab")
 Scene.TableInteract = Part(district:WaitForChild("RuneBodyTable"), "TransferStartAnchor")
 Scene.Altar = Part(district:WaitForChild("SoulConversionAltar"), "BodyArrivalAnchor")
+Scene.AltarRest = Part(district:WaitForChild("SoulConversionAltar"), "BodyRest")
 local display = district:WaitForChild("SoulCrystalDisplay")
 Scene.Shelf = Part(display, "StockPickupAnchor")
 local potionPointFolder = display:WaitForChild("PotionPoints")
@@ -34,20 +51,106 @@ table.sort(potionPoints, TopThenLeft)
 assert(#potionPoints > 0, "SoulCrystalDisplay.PotionPoints is empty")
 Scene.Spawn = Part(district, "StreetSpawn")
 Scene.SigilPosition = Part(district, "SummoningSubmitAnchor").Position
+local function Unit(text: string, salt: number): number
+	local value = salt
+	for index = 1, #text do
+		value = (value * 33 + string.byte(text, index)) % 1000003
+	end
+	return value / 1000003
+end
 function Scene.TablePose(): CFrame
-	return Scene.Table.CFrame * CFrame.new(0, 4, 0)
+	local slab = Scene.Slab
+	local top = slab.CFrame * CFrame.new(0, slab.Size.Y / 2 + Config.PaintLieClearance, 0)
+	-- 俯视画面上方为世界 -Z，左侧为世界 -X。头朝画面左，身体横放，面朝上。
+	return CFrame.fromMatrix(top.Position, Vector3.zAxis, -Vector3.xAxis)
 end
 function Scene.CameraPose(): CFrame
 	local center = Scene.TablePose().Position
-	return CFrame.lookAt(center + Vector3.new(0, 1, 12), center)
+	return CFrame.lookAt(center + Vector3.new(0, Config.PaintCameraHeight, 0), center, -Vector3.zAxis)
+end
+function Scene.AltarPilePose(id: string, layer: number): CFrame
+	local rest = Scene.AltarRest
+	local x = (Unit(id, 1) - 0.5) * 2 * math.clamp(rest.Size.X / 2 - 1.5, 0, Config.AltarPileSpread)
+	local z = (Unit(id, 4) - 0.5) * 2 * math.clamp(rest.Size.Z / 2 - 1.2, 0, Config.AltarPileSpread * 0.45)
+	local yaw = math.pi / 2 + (Unit(id, 2) - 0.5) * math.pi / 4
+	local pitch = (Unit(id, 3) - 0.5) * 2 * Config.AltarPilePitch
+	local height = rest.Size.Y / 2 + layer * Config.AltarPileStep
+	return rest.CFrame * CFrame.new(x, height, z)
+		* CFrame.Angles(0, yaw, 0) * CFrame.Angles(Config.PaintLiePitch + pitch, 0, 0)
 end
 function Scene.PoolPose(slot: number): CFrame
 	return CFrame.new(Scene.PoolPickup.Position + Vector3.new(((slot - 1) % 4 - 1.5) * 4, 1.7, -5 - math.floor((slot - 1) / 4) * 4))
 		* CFrame.Angles(math.pi / 2, 0, 0)
 end
-function Scene.ShelfPose(slot: number): CFrame
-	local index = math.clamp(slot, 1, #potionPoints)
-	return CFrame.new(potionPoints[index].Position)
+function Scene.PoolDropTarget(random: Random): CFrame
+	local floor = Scene.PoolFloor
+	local inset = math.min(Physics.PoolInset, floor.Size.X * 0.5, floor.Size.Z * 0.5)
+	local x = random:NextNumber(-floor.Size.X * 0.5 + inset, floor.Size.X * 0.5 - inset)
+	local z = random:NextNumber(-floor.Size.Z * 0.5 + inset, floor.Size.Z * 0.5 - inset)
+	local yaw = random:NextNumber(-math.pi, math.pi)
+	return floor.CFrame
+		* CFrame.new(x, floor.Size.Y * 0.5 + Physics.PoolTossClearance, z)
+		* CFrame.Angles(random:NextNumber(-0.4, 0.4), yaw, random:NextNumber(-0.4, 0.4))
+end
+function Scene.PoolContains(position: Vector3): boolean
+	local floor = Scene.PoolFloor
+	local localPosition = floor.CFrame:PointToObjectSpace(position)
+	local half = floor.Size * 0.5
+	local pad = 1.5
+	return math.abs(localPosition.X) <= half.X + pad
+		and math.abs(localPosition.Z) <= half.Z + pad
+		and localPosition.Y >= -2
+		and localPosition.Y <= half.Y + Physics.PoolWallHeight + 2
+end
+function Scene.EnsurePoolContainment(): ()
+	local existing = pool:FindFirstChild("PoolContainment")
+	if existing then
+		existing:Destroy()
+	end
+	local floor = Scene.PoolFloor
+	local height = Physics.PoolWallHeight
+	local thickness = 0.5
+	local centerY = floor.Size.Y * 0.5 + height * 0.5
+	local folder = Instance.new("Folder")
+	folder.Name = "PoolContainment"
+	folder.Parent = pool
+	local function Wall(name: string, offset: Vector3, size: Vector3): ()
+		local part = Instance.new("Part")
+		part.Name = name
+		part.Anchored = true
+		part.CanCollide = true
+		part.CanQuery = false
+		part.CanTouch = false
+		part.AudioCanCollide = false
+		part.Transparency = 1
+		part.CastShadow = false
+		part.Size = size
+		part.CFrame = floor.CFrame * CFrame.new(offset)
+		part.Parent = folder
+	end
+	local halfX, halfZ = floor.Size.X * 0.5, floor.Size.Z * 0.5
+	Wall("WallX", Vector3.new(halfX - thickness * 0.5, centerY, 0), Vector3.new(thickness, height, floor.Size.Z))
+	Wall("WallNegX", Vector3.new(-halfX + thickness * 0.5, centerY, 0), Vector3.new(thickness, height, floor.Size.Z))
+	Wall("WallZ", Vector3.new(0, centerY, halfZ - thickness * 0.5), Vector3.new(floor.Size.X, height, thickness))
+	Wall("WallNegZ", Vector3.new(0, centerY, -halfZ + thickness * 0.5), Vector3.new(floor.Size.X, height, thickness))
+end
+function Scene.BindPoolCollision(): ()
+	local folder = pool:FindFirstChild("PoolContainment")
+	local sceneryReady = PhysicsService:IsCollisionGroupRegistered(Physics.SceneryGroup)
+	if folder and sceneryReady then
+		for _, child in folder:GetChildren() do
+			if child:IsA("BasePart") then
+				child.CollisionGroup = Physics.SceneryGroup
+			end
+		end
+	end
+	if sceneryReady and PhysicsService:IsCollisionGroupRegistered(Physics.BodyGroup) then
+		PhysicsService:CollisionGroupSetCollidable(Physics.BodyGroup, Physics.SceneryGroup, true)
+	end
+end
+function Scene.ShelfPose(quality: number, slot: number): CFrame
+	local point = potionPoints[math.clamp(quality, 1, #potionPoints)]
+	return point.CFrame * CFrame.new(ShelfSlotOffsets[slot])
 end
 function Scene.SafePose(position: Vector3, fallback: Vector3, ignored: { Instance }): CFrame
 	local params = RaycastParams.new()

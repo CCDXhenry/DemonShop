@@ -33,12 +33,12 @@ World.visible = false
 request.sequence = 3
 request.yaw = .1
 local occluded = Painting.Apply(session,item,request,pose,origin,.3)
-check(occluded and not occluded.stroke and math.abs(session.yaw - .1) < .00001,'occluded sample keeps client presentation pose but leaves no stroke')
+check(occluded and not occluded.stroke and session.yaw == 0,'occluded sample ignores rotation and leaves no stroke')
 check(item.area == area,'occlusion cannot paint through body')
 World.visible = true
 request.sequence, request.yaw = 4, 2
 local fast = Painting.Apply(session,item,request,pose,origin,.4)
-check(fast and fast.stroke and session.yaw == 2,'fast local rotation is not rejected by network timing')
+check(fast and fast.stroke and session.yaw == 0,'fast local rotation is ignored and does not reject the stroke')
 request.sequence, request.yaw = 5, 0
 item.totalArea = item.area / Config.PaintTarget
 local complete = Painting.Apply(session,item,request,pose,origin,.5)
@@ -51,9 +51,9 @@ request.sequence, request.yaw, request.pitch, request.samples = 7, math.pi + .2,
 local beforeEmpty = item.area
 local empty = Painting.Apply(session,item,request,pose,origin,.7)
 check(empty and not empty.stroke and item.area == beforeEmpty,'pose-only batch cannot award coverage')
-check(math.abs(session.yaw - (-math.pi + .2)) < .00001 and session.pitch == Config.PaintPitchLimit,'presentation angles normalize and pitch remains bounded')
+check(math.abs(session.yaw) < .00001 and session.pitch == 0,'presentation angles stay fixed while painting')
 request.sequence = 6
 request.yaw = 0
-check(Painting.Apply(session,item,request,pose,origin,.8) == nil and math.abs(session.yaw - (-math.pi + .2)) < .00001,'old batch cannot roll pose back')
+check(Painting.Apply(session,item,request,pose,origin,.8) == nil and session.yaw == 0,'old batch cannot roll pose back')
 container:Destroy()
 print(string.format('PASS: %d painting assertions (production module; mocked raycast boundary)',checks))

@@ -1,4 +1,4 @@
--- 加工客户端：共享状态展示、键鼠触屏交互、工作台镜头及拖画旋转
+-- 加工客户端：共享状态展示、键鼠触屏交互、工作台俯视镜头及拖画
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -22,10 +22,12 @@ local Tuning = require(script.Parent.PresentationTuning)
 local CharacterPresentation = require(script.Parent.CharacterPresentation)
 local HitPresentation = require(script.Parent.HitPresentation)
 local HitRules = require(Shared.HitFeedbackRules)
+local Physics = require(Shared.PhysicsConfig)
 local PaintCamera = require(script.Parent.PaintCamera)
 local VisualUpload = require(script.Parent.VisualUpload)
 local WorldInteractionManager = require(script.Parent.WorldInteractionManager)
 local AltarSacrifice = require(script.Parent.AltarSacrificeView)
+local PotionShelf = require(script.Parent.PotionShelfView)
 local Client = {}
 Client.__index = Client
 local player = Players.LocalPlayer
@@ -50,11 +52,14 @@ export type Client = typeof(setmetatable(
 		comboEnds: number,
 		bodies: WhiteBodies.Manager,
 		altarView: AltarSacrifice.View,
+		altarViews: { [string]: AltarSacrifice.View },
 		altarBodyId: string?,
 		altarLoopSound: Sound?,
+		potionShelf: PotionShelf.View,
 		lastHeldId: string?,
 		lastHeldKind: string?,
 		lastPoolCount: number?,
+		lastPotionCount: number?,
 		lastPaintSound: number,
 		lastFrame: number,
 		snapshot: Types.Snapshot?,
@@ -90,8 +95,9 @@ export type Client = typeof(setmetatable(
 	Client
 ))
 local district = workspace:WaitForChild("NeonContractDistrict")
-local tableAnchor = district:WaitForChild("RuneBodyTable"):WaitForChild("BodyPlacementAnchor") :: BasePart
-local tableInteract = district.RuneBodyTable:WaitForChild("TransferStartAnchor") :: BasePart
+local tableModel = district:WaitForChild("RuneBodyTable")
+local tableSlab = tableModel:WaitForChild("FullBodySlab") :: BasePart
+local tableInteract = tableModel:WaitForChild("TransferStartAnchor") :: BasePart
 local function Anchor(station: string, name: string): BasePart
 	return district:WaitForChild(station):WaitForChild(name) :: BasePart
 end
@@ -111,11 +117,13 @@ local positions: { [string]: Vector3 } = {
 	Sigil = submitAnchor.Position,
 }
 local function TablePose(): CFrame
-	return tableAnchor.CFrame * CFrame.new(0, 4, 0)
+	local top = tableSlab.CFrame * CFrame.new(0, tableSlab.Size.Y / 2 + Config.PaintLieClearance, 0)
+	-- 与服务端 Scene.TablePose 相同：头朝画面左，身体横放，面朝上。
+	return CFrame.fromMatrix(top.Position, Vector3.zAxis, -Vector3.xAxis)
 end
 local function CameraPose(): CFrame
 	local center = TablePose().Position
-	return CFrame.lookAt(center + Vector3.new(0, 1, 12), center)
+	return CFrame.lookAt(center + Vector3.new(0, Config.PaintCameraHeight, 0), center, -Vector3.zAxis)
 end
 function Client.new(): Client
 	local tableView, hitView, paint = Presentation.new(), HitPresentation.new(), PaintView.new()
@@ -141,11 +149,14 @@ function Client.new(): Client
 			comboEnds = 0,
 			bodies = bodies,
 			altarView = AltarSacrifice.new(),
+			altarViews = {},
 			altarBodyId = nil,
 			altarLoopSound = nil,
+			potionShelf = PotionShelf.new(positions.Shelf),
 			lastHeldId = nil,
 			lastHeldKind = nil,
 			lastPoolCount = nil,
+			lastPotionCount = nil,
 			lastPaintSound = 0,
 			lastFrame = os.clock(),
 			snapshot = nil,
@@ -187,7 +198,20 @@ end
 function Client.Notice(self: Client, notice: Types.Notice): ()
 	self.ui:ShowNotice(notice)
 end
+function Client.Carried(self: Client): { Types.ItemView }
+	local list: { Types.ItemView } = {}
+	for _, item in self.items do
+		if item.holder == player.UserId and item.kind == "Body" then
+			table.insert(list, item)
+		end
+	end
+	return list
+end
 function Client.Held(self: Client): Types.ItemView?
+	local carried = self:Carried()
+	if carried[1] then
+		return carried[1]
+	end
 	for _, item in self.items do
 		if item.holder == player.UserId then
 			return item
@@ -195,26 +219,31 @@ function Client.Held(self: Client): Types.ItemView?
 	end
 	return nil
 end
+local function StackCount(model: Model): number
+	local count = model:GetAttribute("StackCount")
+	if typeof(count) == "number" and count > 0 then
+		return count
+	end
+	return 1
+end
 function Client.Potions(self: Client): Hints.Potions
 	local stored = 0
 	local equipped = false
 	local character = player.Character
-	local backpack = player:FindFirstChildOfClass("Backpack")
 	for _, item in self.items do
 		local model = item.model
 		if item.kind == "Potion" and item.location == "Toolbar" and model then
+			stored += StackCount(model)
 			if model.Parent == character then
-				stored += 1
 				equipped = true
-			elseif backpack ~= nil and model.Parent == backpack then
-				stored += 1
 			end
 		end
 	end
 	return { stored = stored, equipped = equipped }
 end
-function Client.ExitView(self: Client): ()
-	if not self.paintId then
+function Client.ExitView(self: Client, altarTossStarted: number?): ()
+	local id = self.paintId
+	if not id then
 		return
 	end
 	self.paintId = nil
@@ -229,7 +258,15 @@ function Client.ExitView(self: Client): ()
 	self.paintPrevious = nil
 	self.touch = nil
 	self.rotationInput, self.angularVelocity = Vector2.zero, Vector2.zero
-	self.paintCamera:Exit()
+	if altarTossStarted then
+		local ends = altarTossStarted + Physics.AltarToss.LiftSeconds + Physics.AltarToss.CameraFollowSeconds
+		self.paintCamera:FollowToss(ends, function(): Vector3?
+			local torso = self.bodies:GetVisualPart(id, "UpperTorso")
+			return if torso and torso:IsDescendantOf(workspace) then torso.Position else nil
+		end)
+	else
+		self.paintCamera:Exit()
+	end
 	local touchGui = player:WaitForChild("PlayerGui"):FindFirstChild("TouchGui")
 	if touchGui and touchGui:IsA("ScreenGui") and self.touchGuiEnabled ~= nil then
 		touchGui.Enabled = self.touchGuiEnabled
@@ -370,6 +407,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			for _, item in merged do table.insert(snapshot.items, item) end
 		end
 		self.snapshot = snapshot
+		self.potionShelf:Apply(snapshot.shelfItems, notice.kind == "Delta" and self.synced, os.clock())
 		if snapshot.painter ~= player.UserId then
 			self.presentation.targetYaw = snapshot.poseYaw or 0
 			self.presentation.targetPitch = snapshot.posePitch or 0
@@ -408,14 +446,13 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 					else
 						Sound.Play("BodyPickup")
 					end
-				elseif currentHeldKind == "Potion" then
-					Sound.Play("PotionPickup", positions.Shelf)
 				end
 			elseif lastId and not currentHeld then
 				if lastKind == "Body" then
+					local released = nextItems[lastId]
 					if snapshot.pool > lastPool then
 						Sound.Play("PoolDeposit", positions.Pool)
-					elseif snapshot.altarId == lastId then
+					elseif released and released.location == "Altar" then
 						Sound.Play("AltarPlace", positions.Altar)
 					else
 						Sound.Play("BodyDrop")
@@ -434,7 +471,8 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			if item.holder and item.kind == "Body" then self.characterView.carriers[item.holder] = true end
 		end
 		if self.paintId and (snapshot.painter ~= player.UserId or snapshot.session ~= self.session) then
-			self:ExitView()
+			local body = nextItems[self.paintId]
+			self:ExitView(if body then body.altarTossStarted else nil)
 		end
 	elseif notice.kind == "Swing" and notice.actor and notice.started then
 		-- 本地已预测；其他角色由 Animator 复制，确认通知不重复播放。
@@ -477,7 +515,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 	elseif notice.kind == "BeginPaint" and notice.id and notice.session then
 		self:EnterView(notice.id, notice.session)
 	elseif notice.kind == "EndPaint" and notice.session == self.session then
-		self:ExitView()
+		self:ExitView(notice.started)
 	elseif notice.kind == "Message" and (notice.textId or notice.text) then
 		self:Notice(notice)
 		self.messageEnds = os.clock() + 3
@@ -610,7 +648,6 @@ function Client.Update(self: Client): ()
 	local now = os.clock()
 	if self.worldInteraction then self.worldInteraction:Refresh() end
 	local camera = workspace.CurrentCamera
-	local dt = math.min(now - self.lastFrame, 0.1)
 	self.lastFrame = now
 	local missingModel = false
 	for _, item in self.items do
@@ -630,15 +667,8 @@ function Client.Update(self: Client): ()
 		self.messageEnds=now+5
 	end
 	if self.paintId then
-		if self.drawing or self.finishPaint then
-			local desired = self.rotationInput * Config.PaintSensitivity / math.max(dt, 0.001)
-			if desired.Magnitude > Config.PaintAngularSpeed then desired = desired.Unit * Config.PaintAngularSpeed end
-			self.angularVelocity = self.angularVelocity:Lerp(desired, 1 - math.exp(-Config.PaintRotationResponse * dt))
-			self.yaw = (self.yaw + self.angularVelocity.X * dt + math.pi) % (2 * math.pi) - math.pi
-			self.pitch = math.clamp(self.pitch + self.angularVelocity.Y * dt, -Config.PaintPitchLimit, Config.PaintPitchLimit)
-		else
-			self.angularVelocity = Vector2.zero
-		end
+		self.yaw, self.pitch = 0, 0
+		self.angularVelocity = Vector2.zero
 		self.rotationInput = Vector2.zero
 	end
 	local snapshot = self.snapshot
@@ -664,6 +694,7 @@ function Client.Update(self: Client): ()
 	end
 	self.lastHint = now
 	self:Text("CoinsText", {textId = "Coins", args = {tostring(player:GetAttribute("Coins") or 0)}})
+	local carried = self:Carried()
 	local held = self:Held()
 	local focused = if self.attackTarget then self.items[self.attackTarget] else nil
 	local head = focused and self.bodies:GetVisualPart(focused.id,"Head")
@@ -673,11 +704,25 @@ function Client.Update(self: Client): ()
 		hits = if focused then focused.hits else 0,
 		touch = UserInputService.TouchEnabled,
 	})
-	self:Text("CarryText", {textId = if held then (if held.stage == "Painted" then "CarryingRuneBody" else "CarryingBody") else "HandsEmpty"})
+	local carryText: GameTexts.Description = { textId = "HandsEmpty" }
+	if #carried > 1 then
+		carryText = { textId = "CarryingBodies", args = { tostring(#carried) } }
+	elseif carried[1] then
+		carryText = { textId = if carried[1].stage == "Painted" then "CarryingRuneBody" else "CarryingBody" }
+	elseif held then
+		carryText = { textId = if held.stage == "Painted" then "CarryingRuneBody" else "CarryingBody" }
+	end
+	self:Text("CarryText", carryText)
 	if snapshot then
 		local stock: GameTexts.Description = {textId = "Stock", args = {tostring(snapshot.pool), tostring(Config.PoolCapacity), tostring(snapshot.shelf), tostring(Config.ShelfCapacity)}}
-		if snapshot.altarId then
-			local seconds = math.max(0, math.ceil(snapshot.altarEnds - workspace:GetServerTimeNow()))
+		local soonest: number? = nil
+		for _, item in self.items do
+			if item.kind == "Body" and item.location == "Altar" and item.convertEnds and item.convertEnds > workspace:GetServerTimeNow() then
+				soonest = if soonest and soonest < item.convertEnds then soonest else item.convertEnds
+			end
+		end
+		if snapshot.altarId or soonest then
+			local seconds = if soonest then math.max(0, math.ceil(soonest - workspace:GetServerTimeNow())) else 0
 			stock = if seconds > 0 then {textId = "AltarCountdown", args = {tostring(seconds), tostring(snapshot.shelf), tostring(Config.ShelfCapacity)}} else {textId = "AltarShelfFull"}
 		end
 		self:Text("StockText", stock)
@@ -706,10 +751,13 @@ function Client.Update(self: Client): ()
 			self.target = name
 		end
 	end
-	if not held then
+	local carryingBody = #carried > 0
+	if not held or carryingBody then
 		for _, item in self.items do
-			if (item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits)) and item.model and item.model.PrimaryPart then
-				local distance = (hrp.Position - item.model.PrimaryPart.Position).Magnitude
+			local model = item.model
+			local rootPart = model and model.PrimaryPart
+			if rootPart and (item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits)) and (item.kind == "Body" or not carryingBody) then
+				local distance = (hrp.Position - rootPart.Position).Magnitude
 				if distance < best then
 					best = distance
 					self.target = item.id
@@ -719,7 +767,12 @@ function Client.Update(self: Client): ()
 	end
 	local target = self.target
 	local potions = self:Potions()
-	self:Text("HintText", if target then Hints.Action(target, snapshot, held, player.UserId, potions) else Hints.Next(snapshot, held, potions));
+	local previousPotions = self.lastPotionCount
+	if previousPotions ~= nil and potions.stored > previousPotions then
+		Sound.Play("PotionPickup", positions.Shelf)
+	end
+	self.lastPotionCount = potions.stored
+	self:Text("HintText", if target then Hints.Action(target, snapshot, held, player.UserId, potions, carried) else Hints.Next(snapshot, held, potions, carried));
 	self.ui:Refresh({painting=false,hasTarget=target~=nil,windowOpen=UIManager.HasShowingWindow()})
 end
 function Client.OnInput(self: Client, input: InputObject, processed: boolean): ()
@@ -756,21 +809,6 @@ function Client.OnMove(self: Client, input: InputObject): ()
 		return
 	end
 	local point = Vector2.new(input.Position.X, input.Position.Y)
-	if self.paintId and self.drawing then
-		local delta = point - self.pointer
-		-- 只有笔尖仍落在身体上时才驱动旋转，单批旋转有界并与服务端一致。
-		local item = self.items[self.paintId]
-		local camera = workspace.CurrentCamera
-		if item and item.model and camera then
-			local params = RaycastParams.new()
-			params.FilterType = Enum.RaycastFilterType.Include
-			params.FilterDescendantsInstances = { self.bodies:GetPaintModel(item.id) or item.model }
-			local ray = camera:ScreenPointToRay(point.X, point.Y)
-			if workspace:Raycast(ray.Origin, ray.Direction * 100, params) then
-				if delta.Magnitude >= Config.PaintDeadzonePixels then self.rotationInput += delta end
-			end
-		end
-	end
 	self.pointer = point
 end
 function Client.OnRelease(self: Client, input: InputObject): ()
@@ -791,9 +829,13 @@ function Client.ResetPaintView(self: Client): ()
 	Net.FireRequest({action="ResetView",session=self.session})
 end
 function Client.UpdateAltar(self: Client, now: number): ()
-	local snapshot = self.snapshot
-	local altarId = snapshot and snapshot.altarId
-	if not snapshot or not altarId then
+	local active: { Types.ItemView } = {}
+	for _, item in self.items do
+		if item.kind == "Body" and item.location == "Altar" then
+			table.insert(active, item)
+		end
+	end
+	if #active == 0 then
 		if self.altarLoopSound then
 			self.altarLoopSound:Stop()
 			self.altarLoopSound = nil
@@ -801,25 +843,55 @@ function Client.UpdateAltar(self: Client, now: number): ()
 				Sound.Play("AltarComplete", positions.Altar)
 			end
 		end
-		if self.altarBodyId then
-			self.view:ClearSacrifice(self.altarBodyId)
-			self.altarBodyId = nil
+		for id, view in self.altarViews do
+			self.view:ClearSacrifice(id)
+			view:Clear()
+			self.altarViews[id] = nil
 		end
+		self.altarBodyId = nil
 		self.altarView:Clear()
 		return
 	end
 	if not self.altarLoopSound then
 		self.altarLoopSound = Sound.Play("AltarLoop", positions.Altar)
 	end
-	if self.altarBodyId and self.altarBodyId ~= altarId then
-		self.view:ClearSacrifice(self.altarBodyId)
+	local seen: { [string]: boolean } = {}
+	local shelfFull = self.snapshot ~= nil and self.snapshot.shelf >= Config.ShelfCapacity
+	for _, item in active do
+		seen[item.id] = true
+		local model = self.bodies:GetAltarModel(item.id)
+		if not model then
+			self.view:ClearSacrifice(item.id)
+			local flying = self.altarViews[item.id]
+			if flying then flying:Clear(); self.altarViews[item.id] = nil end
+			continue
+		end
+		if item.flyEnds and now < item.flyEnds then
+			self.bodies:Fly(item.id, now)
+			self.view:ClearSacrifice(item.id)
+			local flying = self.altarViews[item.id]
+			if flying then flying:Clear(); self.altarViews[item.id] = nil end
+			continue
+		end
+		self.bodies:Fly(item.id, now)
+		local view = self.altarViews[item.id]
+		if not view then
+			view = AltarSacrifice.new()
+			self.altarViews[item.id] = view
+		end
+		local sample = view:Update(item.id, model, now, item.convertEnds or now, shelfFull)
+		if sample then
+			self.view:SetSacrifice(item.id, sample.brightness, sample.fade)
+		end
 	end
-	local sample = self.altarView:Update(altarId, self.bodies:GetVisualModel(altarId), now, snapshot.altarEnds, snapshot.shelf >= Config.ShelfCapacity)
-	if not sample then
-		return
+	for id, view in self.altarViews do
+		if not seen[id] then
+			self.view:ClearSacrifice(id)
+			view:Clear()
+			self.altarViews[id] = nil
+		end
 	end
-	self.view:SetSacrifice(altarId, sample.brightness, sample.fade)
-	self.altarBodyId = altarId
+	self.altarBodyId = active[1].id
 end
 function Client.Init(self: Client, gui: ScreenGui): ()
 	if self.initialized then
@@ -832,7 +904,7 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		local character = player.Character
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 		local modal = gui:FindFirstChild("ModalButton") :: GuiButton?
-		return {snapshot=self.snapshot, items=self.items, held=self:Held(), potions=self:Potions(), enabled=self.initialized and self.synced and not self.paintId and humanoid ~= nil and humanoid.Health > 0 and not (modal and modal.Visible)}
+		return {snapshot=self.snapshot, items=self.items, held=self:Held(), carried=self:Carried(), potions=self:Potions(), enabled=self.initialized and self.synced and not self.paintId and humanoid ~= nil and humanoid.Health > 0 and not (modal and modal.Visible)}
 	end)
 	UIManager.GetTargetGuiManager():Init()
 	self.ui:BindActions({
@@ -889,7 +961,9 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		self.hitView:UpdateCamera(now,enabled)
 		self.hitView:UpdateEffects(now)
 	end)
-	self.scope:Connect(RunService.RenderStepped:Connect(function(): ()
+	self.scope:Connect(RunService.RenderStepped:Connect(function(dt): ()
+		self.paintCamera:StepToss(workspace:GetServerTimeNow(), dt)
+		self.potionShelf:Step(os.clock())
 		self:Update()
 	end))
 end
@@ -904,8 +978,14 @@ function Client.Destroy(self: Client): ()
 	UIManager.GetTargetGuiManager():Destroy()
 	if self.worldInteraction then self.worldInteraction:Destroy(); self.worldInteraction = nil end
 	self.scope:Destroy()
+	self.potionShelf:Destroy()
 	if self.altarBodyId then self.view:ClearSacrifice(self.altarBodyId); self.altarBodyId = nil end
 	if self.altarLoopSound then self.altarLoopSound:Stop(); self.altarLoopSound = nil end
+	for id, view in self.altarViews do
+		self.view:ClearSacrifice(id)
+		view:Clear()
+		self.altarViews[id] = nil
+	end
 	self.altarView:Clear()
 	self.bodies:Destroy()
 	self.view:Destroy()

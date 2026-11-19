@@ -94,7 +94,7 @@ subprocess.run(["lune","run",str(OUT/"test_painting.luau")],cwd=ROOT,check=True)
 
 # Exercise the complete production request dispatcher with real painting rules.
 source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
-prefix="local Config=require('./GameConfig')\nlocal Painting=require('./Painting')\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\n"
+prefix="local Config=require('./GameConfig')\nlocal Painting=require('./Painting')\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\nlocal Random={new=function() return {} end}\n"
 (OUT/"PaintRequestManager.luau").write_text(prefix+source[source.index('type PlayerData ='):],encoding="utf-8")
 for name in ("PaintRequestBoundary","test_paint_requests"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -109,6 +109,19 @@ text="local Types=require('./GameTypes')\nlocal Net=require('./ReplicationNet')\
 for name in ("ReplicationNet","test_replication"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_replication.luau")],cwd=ROOT,check=True)
+text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/PotionShelfView.luau").read_text(encoding="utf-8")
+prefix="""local R=require('@lune/roblox')
+local Instance,Vector3=R.Instance,R.Vector3
+local B=require('./test_potion_shelf').Boundary
+local ReplicatedStorage,workspace=B.ReplicatedStorage,B.workspace
+"""
+text=text[text.index("local View ="):]
+for model in ("bottle.model", "model"):
+    text=text.replace(f"{model}:GetPivot()",f"{model}.WorldPivot").replace(f"{model}:PivotTo(",f"B.PivotTo({model}, ")
+(OUT/"PotionShelfView.luau").write_text(prefix+text,encoding="utf-8")
+(OUT/"test_potion_shelf.luau").write_text((ROOT/"Tools/Gameplay/test_potion_shelf.luau").read_text(encoding="utf-8"),encoding="utf-8")
+(OUT/"run_potion_shelf.luau").write_text("require('./test_potion_shelf').Run(require('./PotionShelfView'))\n",encoding="utf-8")
+subprocess.run(["lune","run",str(OUT/"run_potion_shelf.luau")],cwd=ROOT,check=True)
 (OUT/"test_stroke_path.luau").write_text((ROOT/"Tools/Gameplay/test_stroke_path.luau").read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_stroke_path.luau")],cwd=ROOT,check=True)
 # Execute extracted UI managers with real Lune GUI instances; each simulated client owns a pair.
@@ -231,3 +244,4 @@ run_hit_feedback_tests()
 
 # World prompts use production rules/controller with only native service boundaries mocked.
 subprocess.run(["python",str(ROOT/"Tools/Gameplay/test_world_interaction.py")],cwd=ROOT,check=True)
+subprocess.run([sys.executable,str(ROOT/"Tools/Gameplay/test_white_presentation.py")],cwd=ROOT,check=True)

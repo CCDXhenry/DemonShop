@@ -38,10 +38,13 @@ for _,case in {
 	{"Altar",Snapshot({altarId="a",shelf=13}),nil,"ShelfFull"},
 	{"Altar",Snapshot({altarId="a",shelf=12}),nil,"AltarBusy"},
 	{"Altar",nil,painted,"InsertRuneBody"},{"Altar",nil,raw,"AltarNeedsRuneBody"},
-	{"Shelf",Snapshot({shelf=1}),raw,"CollectPotion"},{"Shelf",Snapshot({shelf=1}),nil,"CollectPotion"},
+	{"Shelf",Snapshot({shelf=1}),raw,"HandsFullHint"},{"Shelf",Snapshot({shelf=1}),nil,"CollectPotion"},
 	{"Shelf",nil,nil,"NoPotion"},{"Sigil",nil,nil,"OfferPotion",equippedPotions},{"Sigil",nil,nil,"EquipPotion",storedPotions},{"Sigil",nil,nil,"BringPotion"},
 	{"item-id",nil,nil,"CarryBody"},
 } do Check(Hints.Action(case[1],case[2],case[3],1,case[5]).textId,case[4]) end
+Check(Hints.Action("Pool",nil,nil,1,nil,{painted,raw}).textId,"StoreBody")
+Check(Hints.Action("Altar",nil,raw,1,nil,{raw,painted}).textId,"InsertRuneBody")
+Check(Hints.Next(nil,nil,nil,{painted,raw}).textId,"TakeBody")
 Check(Hints.Next(nil,nil,equippedPotions).args[1],"237")
 Check(Hints.Action("Sigil",nil,nil,1,equippedPotions).args[1],"237")
 Check(Hints.Next(nil,nil).args[1],"5")
@@ -60,7 +63,7 @@ for _, group in groups do
 	table.sort(names)
 	for _, textId in names do table.insert(ordered,textId) end
 end
-Check(#ordered,85)
+Check(#ordered,86)
 local index = 0
 -- Match LocalizationExtension's generalized iteration, including nested independent cursors.
 for key, entry in Texts do

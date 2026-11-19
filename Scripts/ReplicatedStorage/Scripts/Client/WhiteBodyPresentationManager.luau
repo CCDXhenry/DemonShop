@@ -3,6 +3,7 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local GameConfig = require(script.Parent.Parent.Shared.GameConfig)
+local Physics = require(script.Parent.Parent.Shared.PhysicsConfig)
 local HitRules = require(script.Parent.Parent.Shared.HitFeedbackRules)
 local Types = require(script.Parent.Parent.Shared.GameTypes)
 local Adapter = require(script.Parent.JointAdapter)
@@ -16,9 +17,15 @@ local Fall = require(script.Parent.LocalRagdoll)
 local Input = game:GetService("UserInputService")
 local Manager = {}
 Manager.__index = Manager
+type AuthorityHandoff = {
+	started: number, duration: number, version: number, fromRoot: CFrame, sourceRoot: BasePart,
+	altar: boolean,
+	parts: {{visual: BasePart, source: BasePart, from: CFrame}},
+}
 type BodyView = {
 	id: string, authorityModel: Model, visualModel: Model?, bindGeneration: number, appliedVersion: number,
 	fall: Fall.State?, history: Fall.History?, sampleDt: number?,
+	handoff: AuthorityHandoff?,
 	offsets: {[string]: CFrame}, modelSince: number, boundAt: number, impacts: Impact.State, finalVersion: number?, mode: string, requested: string, jointMap: Adapter.Map, sourceJoints: Adapter.Map, rootTarget: BasePart?,
 	physicsMask: {[string]: boolean}, predictionTokens: {[number]: HitRules.Prediction},
 	cleanup: {RBXScriptConnection}, hidden: {[BasePart]: number}, dirty: boolean, retryAt: number, diagnostic: string?,
@@ -29,11 +36,12 @@ export type Manager = typeof(setmetatable({} :: {
 	retiredAt: {[string]: number}, lastPositions: {[BasePart]: Vector3}, queries: number,
 	generation: number, step: number, tableView: TableView.Presentation, hitView: HitView.Presentation,
 	onDisplay: (string, Model?) -> (), phases: {RBXScriptConnection}, debugEndpoint: BindableFunction?,
+	flyOrigin: { [string]: CFrame }, rootMissingAt: { [string]: number }, rootWarned: { [string]: boolean },
 }, Manager))
 function Manager.new(tableView: TableView.Presentation, hitView: HitView.Presentation, onDisplay: (string, Model?) -> ()): Manager
 	local self: Manager = setmetatable({views={}, items={}, enabled=true, destroyed=false, generation=0, step=0,
 		contacts={}, retiredAt={}, lastPositions={}, queries=0, contactEnabled=true, impactEnabled=true, fallEnabled=true, pureModel=false,
-		tableView=tableView, hitView=hitView, onDisplay=onDisplay, phases={}}, Manager)
+		tableView=tableView, hitView=hitView, onDisplay=onDisplay, phases={}, flyOrigin={}, rootMissingAt={}, rootWarned={}}, Manager)
 	hitView.managed = function(id, source)
 		local v = self.views[id]
 		return v ~= nil and v.mode == "Street" and v.authorityModel == source
@@ -57,9 +65,14 @@ end
 function Manager.GetPaintModel(self: Manager, id: string): Model?
 	return self:GetVisualModel(id)
 end
+function Manager.GetAltarModel(self: Manager, id: string): Model?
+	local view = self.views[id]
+	return if view and view.mode == "Altar" then view.visualModel else nil
+end
 local function Release(self: Manager, v: BodyView)
 	self.views[v.id] = nil
 	self.contacts[v.id]=nil
+	v.handoff = nil
 	table.clear(v.impacts)
 	for part, value in v.hidden do part.LocalTransparencyModifier = value end
 	table.clear(v.hidden)
@@ -80,11 +93,26 @@ function Manager.Unbind(self: Manager, id: string)
 	local v = self.views[id]
 	if self.items[id] and not self.destroyed then self.retiredAt[id]=workspace:GetServerTimeNow() end
 	self.items[id] = nil
+	self.flyOrigin[id] = nil
+	self.rootMissingAt[id] = nil
+	self.rootWarned[id] = nil
 	if v then Release(self,v); self.onDisplay(id,nil) end
 end
+local function HasPrimaryRoot(model: Model): boolean
+	local root = model.PrimaryPart
+	return root ~= nil and root.Name == "HumanoidRootPart" and root:IsDescendantOf(model)
+end
 local function Mode(item: Types.ItemView, source: Model, enabled: boolean): string
+	if item.toss then return "Authority" end
 	if item.location == "Table" then return "Table" end
-	if item.location == "Altar" then return "Altar" end
+	if item.location == "Altar" then
+		local root = source.PrimaryPart
+		if not item.convertEnds or not root or not root.Anchored or source:GetAttribute("PhysicsMode") ~= "AltarAnchored" then
+			return "Authority"
+		end
+		return "Altar"
+	end
+	if item.location == "Carried" or source:GetAttribute("PhysicsMode") == "Carried" or source:GetAttribute("MotionState") == "Carried" then return "Authority" end
 	if enabled and item.fall and (item.location=="Ground" or (item.location=="Street" and item.hits>=GameConfig.StunHits)) then return "Ground" end
 	if enabled and item.location=="Street" and item.hits<GameConfig.StunHits and source:GetAttribute("GroundPresentation")==true then return "Street" end
 	if enabled and item.location == "Street" and item.hits < GameConfig.StunHits
@@ -115,6 +143,8 @@ local function Prepare(self: Manager, v: BodyView, receivedPose: Types.BodyPose?
 	local clone = source:Clone()
 	assert(clone, "source is not archivable")
 	v.visualModel = clone
+	local clonedRoot = clone:FindFirstChild("HumanoidRootPart")
+	if not HasPrimaryRoot(clone) and clonedRoot and clonedRoot:IsA("BasePart") then clone.PrimaryPart = clonedRoot end
 	clone.Name = if v.requested == "Table" then "LocalRuneBody" elseif v.requested == "Altar" then "LocalAltarBody" else "LocalWhiteBody"
 	local forTable = v.requested == "Table"
 	local forAltar = v.requested == "Altar"
@@ -173,6 +203,53 @@ local function BeginFall(self: Manager,v: BodyView,fall: Types.GroundFall,late: 
 	table.clear(v.offsets)
 	self.hitView:Remove(v.id)
 end
+local function BeginHandoff(v: BodyView, version: number, duration: number, altar: boolean): boolean
+	local visual = v.visualModel
+	local visualRoot = visual and visual.PrimaryPart
+	local sourceRoot = v.authorityModel.PrimaryPart
+	if not visual or visual.Parent ~= workspace or not visualRoot or not sourceRoot then return false end
+	local handoff: AuthorityHandoff = {
+		started=workspace:GetServerTimeNow(), duration=duration, version=version, altar=altar,
+		fromRoot=visualRoot.CFrame, sourceRoot=sourceRoot, parts={},
+	}
+	for part in v.hidden do
+		local copy = visual:FindFirstChild(part.Name)
+		if not copy or not copy:IsA("BasePart") or not part:IsDescendantOf(v.authorityModel) then return false end
+		table.insert(handoff.parts, {visual=copy, source=part, from=handoff.fromRoot:ToObjectSpace(copy.CFrame)})
+	end
+	if v.fall then Fall.StopPhysics(v.fall, v.jointMap) end
+	for _, joint in v.jointMap do
+		local drive = joint.drive
+		if drive:IsA("Motor6D") then
+			drive.Enabled = false
+		else
+			drive.IsKinematic, drive.Enabled = true, false
+		end
+	end
+	for _, part in handoff.parts do
+		part.visual.Anchored = true
+		part.visual.CanCollide = false
+	end
+	v.fall, v.history = nil, nil
+	v.mode, v.requested = if altar then "AltarHandoff" else "CarryHandoff", "Authority"
+	v.handoff = handoff
+	return true
+end
+
+local function StepHandoff(v: BodyView, handoff: AuthorityHandoff, now: number): boolean
+	local duration = handoff.duration
+	if now >= handoff.started + duration or handoff.sourceRoot ~= v.authorityModel.PrimaryPart then return false end
+	local t = math.clamp((now - handoff.started) / duration, 0, 1)
+	local alpha = t * t * (3 - 2 * t)
+	local sourceRoot = handoff.sourceRoot.CFrame
+	local root = handoff.fromRoot:Lerp(sourceRoot, alpha)
+	for _, part in handoff.parts do
+		if part.visual.Parent ~= v.visualModel or part.source.Parent ~= v.authorityModel then return false end
+		part.visual.CFrame = root * part.from:Lerp(sourceRoot:ToObjectSpace(part.source.CFrame), alpha)
+	end
+	return true
+end
+
 function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.BodyPose?)
 	if self.destroyed then return end
 	local id = item.id
@@ -184,12 +261,44 @@ function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.B
 	if previous and previous.version > item.version then return end
 	self.items[id] = item
 	local source = self:GetAuthorityModel(id)
-	local v = self.views[id]
+	local v: BodyView? = self.views[id]
 	if not source then
+		self.rootMissingAt[id] = nil
+		self.rootWarned[id] = nil
 		if v then Release(self,v); self.onDisplay(id,source) end
 		return
 	end
 	local mode = Mode(item, source, self.enabled)
+	if v and v.handoff then
+		local handoff = v.handoff
+		local expected = handoff.version
+		-- 物理属性与快照可能先后抵达，只接受本次拾取。
+		local matching = if handoff.altar then item.location == "Altar" and item.version == expected
+			elseif item.location == "Carried" then item.version == expected
+			else item.version == expected - 1 and item.version == v.appliedVersion
+		if self.enabled and v.authorityModel == source and mode == "Authority" and matching
+			and v.visualModel and v.visualModel.Parent == workspace then
+			return
+		end
+		Release(self, v)
+		v = nil
+	elseif self.enabled and v and v.mode == "Ground" and v.authorityModel == source and mode == "Authority"
+		and not item.toss and (item.location == "Carried" or (item.version == v.appliedVersion and item.fall)) then
+		local version = if item.location == "Carried" then item.version else item.version + 1
+		if BeginHandoff(v, version, Physics.CarryStack.HandoffSeconds, false) then return end
+	end
+	if mode ~= "Authority" and not HasPrimaryRoot(source) then
+		local since = self.rootMissingAt[id]
+		if not since then
+			self.rootMissingAt[id] = os.clock()
+		elseif not self.rootWarned[id] and os.clock() - since >= 2 then
+			self.rootWarned[id] = true
+			warn("[WhiteBody]", id, if v then v.bindGeneration else self.generation, "missing HumanoidRootPart primary root")
+		end
+		return
+	end
+	self.rootMissingAt[id] = nil
+	self.rootWarned[id] = nil
 	if v and v.authorityModel == source and v.requested == mode and not v.dirty
 		and (not v.diagnostic or os.clock() < v.retryAt) and (not v.visualModel or v.visualModel.Parent == workspace) then
 		v.appliedVersion = item.version
@@ -235,16 +344,51 @@ function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.B
 		end))
 	end
 	self.onDisplay(id,self:GetPaintModel(id))
+	if item.location == "Altar" and item.flyEnds then self:Fly(id, workspace:GetServerTimeNow()) end
+end
+function Manager.Fly(self: Manager, id: string, now: number): ()
+	local item = self.items[id]
+	local v = self.views[id]
+	local visual = v and v.visualModel
+	local landing = v and v.authorityModel:GetPivot()
+	if not item or not v or not visual or not visual.Parent or not landing or not item.flyEnds then return end
+	if now >= item.flyEnds then
+		visual:PivotTo(landing)
+		self.flyOrigin[id] = nil
+		return
+	end
+	local origin = self.flyOrigin[id]
+	if not origin then
+		origin = CFrame.new(landing.Position + Vector3.new(0, GameConfig.PaintFlyHeight, 0)) * landing.Rotation
+		self.flyOrigin[id] = origin
+	end
+	local span = math.max(GameConfig.PaintFlySeconds, 0.001)
+	local alpha = math.clamp(1 - (item.flyEnds - now) / span, 0, 1)
+	local smooth = alpha * alpha * (3 - 2 * alpha)
+	local posed = origin:Lerp(landing, smooth)
+	visual:PivotTo(CFrame.new(posed.Position + Vector3.yAxis * math.sin(smooth * math.pi) * GameConfig.PaintFlyHeight) * posed.Rotation)
 end
 function Manager.UpdateState(self: Manager, items: {[string]: Types.ItemView}, tablePose: Types.BodyPose?)
 	-- Release the departing table controller before attaching the next occupant, independent of map order.
 	for id, v in self.views do
 		local nextItem = items[id]
 		if not nextItem then self:Unbind(id)
-		elseif v.mode == "Table" and (nextItem.location ~= "Table" or nextItem.model ~= v.authorityModel) then
-			-- Same id keeps its atlas across this synchronous handoff.
-			Release(self,v)
-			if not nextItem.model or not nextItem.model:IsDescendantOf(workspace) then self.onDisplay(id,nil) end
+		else
+			if nextItem.location == "Altar" and nextItem.flyEnds and workspace:GetServerTimeNow() < nextItem.flyEnds and not self.flyOrigin[id] and v.visualModel and v.visualModel.Parent then
+				self.flyOrigin[id] = v.visualModel:GetPivot()
+			end
+			if v.mode == "Table" and (nextItem.location ~= "Table" or nextItem.model ~= v.authorityModel) then
+				local started = nextItem.altarTossStarted
+				local remaining = if started then started + Physics.AltarToss.LiftSeconds - workspace:GetServerTimeNow() else 0
+				if nextItem.location == "Altar" and nextItem.model == v.authorityModel and remaining > 0
+					and BeginHandoff(v, nextItem.version, remaining, true) then
+					self.tableView:Clear()
+				else
+					-- 同一 ItemId 的笔迹保留到新展示模型。
+					Release(self,v)
+					if not nextItem.model or not nextItem.model:IsDescendantOf(workspace) then self.onDisplay(id,nil) end
+				end
+			end
 		end
 	end
 	for id in self.items do if not items[id] then self:Unbind(id) end end
@@ -343,6 +487,37 @@ local function UpdateContact(self: Manager, dt: number)
 	self.queries=Contact.Update(bodies,actors,self.contacts,dt,cfg)
 	self.lastPositions=positions
 end
+local function ArcPosition(from: Vector3, to: Vector3, alpha: number): Vector3
+	local mid = (from + to) * 0.5 + Vector3.new(0, Physics.PoolTossArcHeight, 0)
+	return from:Lerp(mid, alpha):Lerp(mid:Lerp(to, alpha), alpha)
+end
+local function DrivePoolToss(item: Types.ItemView, now: number): ()
+	local toss = item.toss
+	local player = Players.LocalPlayer
+	local model = item.model
+	if not toss or not player or toss.owner ~= player.UserId or not model or not model.Parent then return end
+	local root = model.PrimaryPart
+	if root and root.Anchored then return end
+	local duration = Physics.PoolTossSeconds
+	local alpha = if duration <= 0 then 1 else math.clamp((now - toss.started) / duration, 0, 1)
+	if alpha < 1 then
+		local rotation = toss.from.Rotation:Lerp(toss.target.Rotation, alpha)
+		model:PivotTo(CFrame.new(ArcPosition(toss.from.Position, toss.target.Position, alpha)) * rotation)
+		return
+	end
+	if model:GetAttribute("PoolTossLaunched") == toss.started then return end
+	model:SetAttribute("PoolTossLaunched", toss.started)
+	model:PivotTo(toss.target)
+	local velocity = Vector3.new(0, -Physics.PoolDropSpeed, 0)
+	local limit = Physics.PoolSpin
+	local spin = Vector3.new((math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit)
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") and not part.Anchored then
+			part.AssemblyLinearVelocity = velocity
+			part.AssemblyAngularVelocity = spin
+		end
+	end
+end
 function Manager.Step(self: Manager, now: number, seconds: number, painting: boolean?)
 	if self.destroyed then return end
 	self.step += 1
@@ -353,8 +528,17 @@ function Manager.Step(self: Manager, now: number, seconds: number, painting: boo
 	local cfg=Tuning.GetEffectiveConfig()
 	local available=math.floor(if Input.TouchEnabled then cfg.Fall.MobileBodies else cfg.Fall.DesktopBodies)-(if painting or self.tableView.dynamic then 1 else 0)
 	for _,item in self.items do
+		DrivePoolToss(item, now)
 		local v = self.views[item.id]
 		if not v then continue end
+		local handoff = v.handoff
+		if handoff then
+			if not StepHandoff(v, handoff, now) then
+				Release(self, v)
+				self:Bind(item)
+			end
+			continue
+		end
 		for sequence,prediction in v.predictionTokens do
 			if now>prediction.expires then v.predictionTokens[sequence]=nil end
 		end
@@ -422,7 +606,7 @@ function Manager.GetDebugStats(self: Manager)
 			elseif v.physicsMask[name] then owner="Physics" end
 			joints[name] = {owner=owner, submissions=submissions}
 		end
-		local controllers=(if streetController then 1 else 0)+(if tableController then 1 else 0)+(if altarController then 1 else 0)+(if authorityController then 1 else 0)
+		local controllers=(if streetController or v.handoff then 1 else 0)+(if tableController then 1 else 0)+(if altarController then 1 else 0)+(if authorityController then 1 else 0)
 		local contact=self.contacts[id]
 		local touches,springs,pulses,predictions={},{},{},{}
 		for sequence,p in v.predictionTokens do predictions[sequence]={due=p.due,played=p.played,resolved=p.resolved} end
