@@ -137,6 +137,13 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 			flyEnds = item.flyEnds,
 			convertEnds = item.convertEnds,
 			toss = if item.poolToss then { from = item.poolToss.from, target = item.poolToss.target, started = item.poolToss.started, owner = item.poolToss.owner } else nil,
+			altarToss = if item.altarToss then {
+				from = item.altarToss.from,
+				rest = item.altarToss.rest,
+				started = item.altarToss.started,
+				flightStarts = item.altarToss.flightStarts,
+				landEnds = item.altarToss.landEnds,
+			} else nil,
 			altarTossStarted = if item.altarToss then item.altarToss.started else nil,
 		})
 	end
@@ -339,10 +346,20 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 		return
 	end
 	local item = self.items[session.id]
+	local altarToss: Types.AltarTossView? = nil
 	local altarTossStarted: number? = nil
 	if item and item.progress >= 1 then
 		self:LaunchToAltar(item)
-		altarTossStarted = if item.altarToss then item.altarToss.started else nil
+		if item.altarToss then
+			altarTossStarted = item.altarToss.started
+			altarToss = {
+				from = item.altarToss.from,
+				rest = item.altarToss.rest,
+				started = item.altarToss.started,
+				flightStarts = item.altarToss.flightStarts,
+				landEnds = item.altarToss.landEnds,
+			}
+		end
 	elseif item then
 		Painting.SetPose(session, item, Scene.TablePose(), CFrame.identity)
 		item.stage = "Painting"
@@ -368,7 +385,7 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 	end
 	player:SetAttribute("Painting", false)
 	self.paint = nil
-	Net.FireNotify(player, { kind = "EndPaint", session = session.token, id = session.id, started = altarTossStarted })
+	Net.FireNotify(player, { kind = "EndPaint", session = session.token, id = session.id, started = altarTossStarted, altarToss = altarToss })
 end
 function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
 	if self.paint then
@@ -850,7 +867,7 @@ function Manager.PaintVisual(self: Manager,player: Player,request: Types.Request
 	item.visualState=state
 	session.visualSequence=sequence
 	session.visualPackets=(session.visualPackets or 0)+1
-	if request.bodyPose and BodyPose.Validate(item.model, request.bodyPose) then
+	if Config.PaintPhysicsEnabled and request.bodyPose and BodyPose.Validate(item.model, request.bodyPose) then
 		item.poseBody = table.clone(request.bodyPose)
 		Painting.SetPose(session, item, Scene.TablePose(), session.orientation, true)
 	end

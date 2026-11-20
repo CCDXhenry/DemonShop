@@ -221,7 +221,7 @@ GameConfig.AltarClimaxSeconds = 1.5 -- 献祭淡出时长，秒；架满解除�
 GameConfig.AltarRiseStuds = 1.2 -- 献祭过程中白膜上浮高度，studs
 GameConfig.AltarStrokeHighlight = Color3.fromRGB(255, 28, 198) -- 已画笔迹在完成闪烁及献祭中加亮到的高饱和霓虹品红
 GameConfig.PotionReward = 100 -- 每瓶售出时，当前服务器每位资料已就绪的玩家各得的金币
-GameConfig.PaintTarget = 0.7 -- 可涂表面面积的目标比例
+GameConfig.PaintTarget = 0.4 -- 可涂表面面积的目标比例
 GameConfig.RuneGlyphCount = 3 -- AI 符文字形数量
 GameConfig.RuneStampSpacing = 0.27 -- 连续拖动时的表面落印间距，studs
 GameConfig.RuneStampSize = 0.38 -- 单枚符文标准落印宽度，studs
@@ -263,5 +263,7 @@ GameConfig.PaintFlyHeight = 6 -- 飞向祭坛的弧线抬升，studs
 GameConfig.AltarPileStep = 0.55 -- 后落到祭坛的白膜再抬高的高度，studs
 GameConfig.AltarPileSpread = 1.2 -- 祭坛石床上水平散开的半宽，studs
 GameConfig.AltarPilePitch = 0.2 -- 堆叠时额外俯仰的幅度，弧度
+GameConfig.PaintRotationEnabled = false -- 绘画台白膜旋转开关；关闭时保持仰卧躺平朝向不旋转
+GameConfig.PaintPhysicsEnabled = false -- 绘画台白膜物理开关；关闭时全身锚定固定身躯与四肢
 
 return GameConfig

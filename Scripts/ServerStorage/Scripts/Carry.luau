@@ -382,102 +382,53 @@ function Carry.BeginAltarToss(item: Types.Item, layer: number, fromTable: boolea
 	local from = item.model:GetPivot()
 	Carry.Detach(item, restoreTool)
 	FreezePose(item, false)
+	local flightStarts = now + (if fromTable then Altar.LiftSeconds else 0)
+	local landSeconds = Altar.LandSeconds or 0.32
 	item.altarToss = {
 		from = from,
 		rest = AltarRestPose(item.model, from, Scene.AltarPilePose(item.id, layer)),
 		started = now,
-		flightStarts = now + (if fromTable then Altar.LiftSeconds else 0),
+		flightStarts = flightStarts,
+		landEnds = flightStarts + Altar.FlightSeconds + landSeconds,
 	}
 	item.motionState = "AltarToss"
 	item.model:SetAttribute("MotionState", "AltarToss")
-end
-local function BeginAltarRecovery(item: Types.Item, toss: Types.AltarToss, now: number): ()
-	local model = item.model
-	local pivot = model:GetPivot()
-	local parts = {}
-	for _, part in model:GetDescendants() do
-		if part:IsA("BasePart") then
-			local offset = AltarRestOffset(part, model, pivot)
-			table.insert(parts, { part = part, from = part.CFrame, target = toss.rest * offset })
-		end
-	end
-	FreezePose(item, false)
-	toss.recovery = { started = now, parts = parts }
-end
-local function IsAltarBodyStill(model: Model): boolean
-	for _, part in model:GetDescendants() do
-		if part:IsA("BasePart") and not part.Anchored
-			and (part.AssemblyLinearVelocity.Magnitude > Altar.StableSpeed or part.AssemblyAngularVelocity.Magnitude > Altar.StableSpeed) then
-			return false
-		end
-	end
-	return true
 end
 function Carry.AdvanceAltarToss(item: Types.Item, now: number): boolean
 	local toss = item.altarToss
 	if not toss then return false end
 	local model = item.model
-	local recovery = toss.recovery
-	if recovery then
-		local progress = math.clamp((now - recovery.started) / Altar.RecoverySeconds, 0, 1)
-		for _, entry in recovery.parts do
-			if entry.part:IsDescendantOf(model) then
-				entry.part.CFrame = entry.from:Lerp(entry.target, Smooth(progress))
-			end
-		end
-		if progress < 1 then return false end
-		AnchorLanded(item, "AltarAnchored", "Altar")
-		return true
-	end
-
 	local bed = Scene.AltarRest
-	local released = toss.released
-	if not released then
-		local lifted = if toss.flightStarts > toss.started then Altar.LiftHeight else 0
-		if now < toss.flightStarts then
-			local progress = math.clamp((now - toss.started) / Altar.LiftSeconds, 0, 1)
-			model:PivotTo(toss.from + Vector3.yAxis * (lifted * Smooth(progress)))
-			return false
-		end
-		local drop = toss.rest + bed.CFrame.UpVector * Altar.DropClearance
-		if now < toss.flightStarts + Altar.FlightSeconds then
-			local progress = Smooth(math.clamp((now - toss.flightStarts) / Altar.FlightSeconds, 0, 1))
-			local pose = (toss.from + Vector3.yAxis * lifted):Lerp(drop, progress)
-			model:PivotTo(pose + Vector3.yAxis * (4 * progress * (1 - progress) * Altar.ArcHeight))
-			return false
-		end
-		model:PivotTo(drop)
-		Ragdoll.SetMode(model, "Loose")
-		toss.released = now
+	local lifted = if toss.flightStarts > toss.started then Altar.LiftHeight else 0
+	if now < toss.flightStarts then
+		local progress = math.clamp((now - toss.started) / math.max(Altar.LiftSeconds, 0.001), 0, 1)
+		model:PivotTo(toss.from + Vector3.yAxis * (lifted * Smooth(progress)))
 		return false
 	end
-
-	local torso = model:FindFirstChild("UpperTorso")
-	local position = if torso and torso:IsA("BasePart") then torso.Position else model:GetPivot().Position
-	local localPosition = bed.CFrame:PointToObjectSpace(position)
-	local half = bed.Size * 0.5
-	local outside = math.abs(localPosition.X) > half.X + Altar.EdgeTolerance
-		or math.abs(localPosition.Z) > half.Z + Altar.EdgeTolerance
-		or localPosition.Y < half.Y - Altar.BelowSurfaceTolerance
-	if outside then
-		BeginAltarRecovery(item, toss, now)
+	local flightEnds = toss.flightStarts + Altar.FlightSeconds
+	local drop = toss.rest + bed.CFrame.UpVector * Altar.DropClearance
+	if now < flightEnds then
+		local progress = Smooth(math.clamp((now - toss.flightStarts) / math.max(Altar.FlightSeconds, 0.001), 0, 1))
+		local pose = (toss.from + Vector3.yAxis * lifted):Lerp(drop, progress)
+		model:PivotTo(pose + Vector3.yAxis * (4 * progress * (1 - progress) * Altar.ArcHeight))
 		return false
 	end
-	local settledHeight = bed.CFrame:PointToObjectSpace(toss.rest.Position).Y + Altar.SupportHeight
-	if localPosition.Y <= settledHeight and IsAltarBodyStill(model) then
-		local stableSince = toss.stableSince or now
-		toss.stableSince = stableSince
-		if now >= stableSince + Altar.StableSeconds then
-			AnchorLanded(item, "AltarAnchored", "Altar")
-			return true
+	local landEnds = toss.landEnds or (flightEnds + (Altar.LandSeconds or 0.32))
+	if now < landEnds then
+		local span = math.max(landEnds - flightEnds, 0.001)
+		local progress = math.clamp((now - flightEnds) / span, 0, 1)
+		model:PivotTo(drop:Lerp(toss.rest, progress * progress))
+		return false
+	end
+	local pivot = model:GetPivot()
+	model:PivotTo(toss.rest)
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.CFrame = toss.rest * AltarRestOffset(part, model, pivot)
 		end
-	else
-		toss.stableSince = nil
 	end
-	if now >= released + Altar.SettleSeconds then
-		BeginAltarRecovery(item, toss, now)
-	end
-	return false
+	AnchorLanded(item, "AltarAnchored", "Altar")
+	return true
 end
 function Carry.RecoverPool(item: Types.Item): ()
 	item.poolToss = nil

@@ -506,7 +506,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		self.snapshot = snapshot
 		self.potionShelf:Apply(snapshot.shelfItems, notice.kind == "Delta" and self.synced, os.clock())
 		if snapshot.painter ~= player.UserId then
-			self.presentation.targetOrientation = snapshot.paintOrientation or CFrame.identity
+			self.presentation.targetOrientation = if Config.PaintRotationEnabled then (snapshot.paintOrientation or CFrame.identity) else CFrame.identity
 		end
 		if snapshot.bodyPose and (self.paintId == nil or self.paintId == snapshot.tableId) then
 			self.presentation.targetBodyPose = snapshot.bodyPose
@@ -606,8 +606,8 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		end
 		if isOperator and self.pendingCoverage and notice.sequence == self.pendingCoverage.sequence then self.pendingCoverage=nil end
 		if not isOperator then
-			self.presentation.targetOrientation = notice.orientation or CFrame.identity
-			if notice.bodyPose then
+			self.presentation.targetOrientation = if Config.PaintRotationEnabled then (notice.orientation or CFrame.identity) else CFrame.identity
+			if Config.PaintPhysicsEnabled and notice.bodyPose then
 				self.presentation.targetBodyPose = notice.bodyPose
 			end
 		end
@@ -619,7 +619,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		local snapshot = self.snapshot
 		local isOperator = notice.id == self.paintId and notice.session == self.session
 		local isCurrentTable = snapshot and notice.id == snapshot.tableId and notice.session == snapshot.session
-		if not isOperator and isCurrentTable and notice.bodyPose then
+		if not isOperator and isCurrentTable and Config.PaintPhysicsEnabled and notice.bodyPose then
 			self.presentation.targetBodyPose = notice.bodyPose
 		end
 	elseif notice.kind == "VisualSnapshot" and notice.id and notice.segments then
@@ -651,7 +651,20 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 	elseif notice.kind == "BeginPaint" and notice.id and notice.session then
 		self:EnterView(notice.id, notice.session, notice.bodyPose)
 	elseif notice.kind == "EndPaint" and notice.session == self.session then
-		self:ExitView(notice.started)
+		local id = notice.id or self.paintId
+		if id and (notice.altarToss or notice.started) then
+			local item = self.items[id]
+			if item then
+				item.location = "Altar"
+				item.stage = "Converting"
+				item.altarToss = notice.altarToss or item.altarToss
+				item.altarTossStarted = notice.started or (if notice.altarToss then notice.altarToss.started else item.altarTossStarted)
+				if self.bodies and self.bodies.Bind then
+					self.bodies:Bind(item)
+				end
+			end
+		end
+		self:ExitView(notice.started or (if notice.altarToss then notice.altarToss.started else nil))
 	elseif notice.kind == "Message" and (notice.textId or notice.text) then
 		self:Notice(notice)
 		self.messageEnds = os.clock() + 3
@@ -940,7 +953,7 @@ function Client.SamplePaint(self: Client, now: number): Vector2?
 	local previous = self.brushFrame
 	local basePose = TablePose()
 	local rotationAxis: Vector3? = nil
-	if self.rotationAnchor then
+	if Config.PaintRotationEnabled and self.rotationAnchor then
 		local target = PaintControl(self.rotationAnchor, pointer, camera.ViewportSize)
 		if target.Magnitude > 1e-6 then
 			local localAxis = Vector3.new(target.Y, target.X, 0) / target.Magnitude
@@ -1021,6 +1034,11 @@ function Client.Paint(self: Client, now: number): Vector2?
 end
 
 function Client.StepPaintRotation(self: Client, dt: number): ()
+	if not Config.PaintRotationEnabled then
+		self.orientation = CFrame.identity
+		self.angularSpeed = 0
+		return
+	end
 	local camera = workspace.CurrentCamera
 	local anchor, pointer = self.rotationAnchor, self.pointer
 	if not self.drawing or not self.paintCamera.ready or not camera or not anchor or not pointer then
@@ -1214,7 +1232,7 @@ function Client.OnInput(self: Client, input: InputObject, processed: boolean): (
 		else
 			self.pointer = PointerFromHardware(self, hardware)
 		end
-		self.rotationAnchor = self.pointer
+		self.rotationAnchor = if Config.PaintRotationEnabled then self.pointer else nil
 		self.brushFrame = nil
 		self.visualGesture += 1
 		self.finishPaint = false
@@ -1320,7 +1338,8 @@ function Client.UpdateAltar(self: Client, now: number): ()
 			if flying then flying:Clear(); self.altarViews[item.id] = nil end
 			continue
 		end
-		if item.flyEnds and now < item.flyEnds then
+		local tossing = self.bodies.IsAltarTossing and self.bodies:IsAltarTossing(item.id, now)
+		if (item.flyEnds and now < item.flyEnds) or tossing then
 			self.bodies:Fly(item.id, now)
 			self.view:ClearSacrifice(item.id)
 			local flying = self.altarViews[item.id]
@@ -1333,7 +1352,8 @@ function Client.UpdateAltar(self: Client, now: number): ()
 			view = AltarSacrifice.new()
 			self.altarViews[item.id] = view
 		end
-		local sample = view:Update(item.id, model, now, item.convertEnds or now, shelfFull)
+		local convertEnds = item.convertEnds or ((if item.altarToss then item.altarToss.landEnds else now) + Config.ConversionSeconds)
+		local sample = view:Update(item.id, model, now, convertEnds, shelfFull)
 		if sample then
 			self.view:SetSacrifice(item.id, sample.brightness, sample.fade)
 		end

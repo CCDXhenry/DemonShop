@@ -23,6 +23,11 @@ for sequence = 1, 1000 do send(sequence) end
 check(#B.broadcasts == 0, '1000 too-fast requests must produce no broadcasts')
 check(session.last == 100 and item.progress == 0, 'rejected requests must not update coverage')
 B.now += Config.PaintBatchInterval
+send(1000)
+check(#B.broadcasts == 1 and B.broadcasts[1].orientation == C.identity, 'disabled PaintRotationEnabled broadcasts locked identity orientation')
+table.clear(B.broadcasts)
+Config.PaintRotationEnabled = true
+B.now += Config.PaintBatchInterval
 send(1001)
 check(#B.broadcasts == 1 and B.broadcasts[1].kind == 'PaintPose', 'accepted empty samples still broadcast pose')
 check(B.broadcasts[1].orientation == turn, 'accepted pose publishes the new painting angle')
@@ -37,4 +42,5 @@ check(#B.broadcasts == 2, 'accepted completion broadcasts final pose')
 check(session.finishing and #B.notices == 1 and B.notices[1].notice.kind == 'FinishPaint', 'completion still notifies painter once')
 send(1003)
 check(#B.broadcasts == 2 and #B.notices == 1, 'finishing session ignores later requests')
+Config.PaintRotationEnabled = false
 print('PASS: '..checks..' production paint request assertions (clock/scene/network boundaries mocked)')

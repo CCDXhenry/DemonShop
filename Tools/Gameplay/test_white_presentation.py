@@ -46,7 +46,7 @@ local Fall=require('./LocalRagdoll')
 local Physics=require('./PhysicsConfig')
 local Input={TouchEnabled=false}
 local Players={LocalPlayer=nil,GetPlayers=function() return {} end}
-local Vector3=require('@lune/roblox').Vector3
+local Vector3,CFrame=require('@lune/roblox').Vector3,require('@lune/roblox').CFrame
 local GameConfig={StunHits=3,HitPredictionLifetime=2}
 """, [
     ("workspace:GetServerTimeNow()", '0'),
@@ -126,7 +126,6 @@ end}
     ("model:GetPivot()", "GetPivot(model)"),
     ("item.model:PivotTo(", "PivotTo(item.model, "),
     ("model:PivotTo(", "PivotTo(model, "),
-    ("then torso.Position else GetPivot(model)", "then torso.CFrame.Position else GetPivot(model)"),
 ])
 scene = (server / "Scene.luau").read_text(encoding="utf-8")
 pile_pose = scene[scene.index("local function Unit("):scene.index("function Scene.TablePose(")]

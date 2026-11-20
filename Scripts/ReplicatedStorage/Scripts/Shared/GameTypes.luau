@@ -19,9 +19,17 @@ export type AltarToss = {
 	rest: CFrame,
 	started: number,
 	flightStarts: number,
+	landEnds: number,
 	released: number?,
 	stableSince: number?,
 	recovery: { started: number, parts: { { part: BasePart, from: CFrame, target: CFrame } } }?,
+}
+export type AltarTossView = {
+	from: CFrame,
+	rest: CFrame,
+	started: number,
+	flightStarts: number,
+	landEnds: number,
 }
 export type CarryTransition = { kind: "Lift" | "Restack", from: CFrame, started: number, ends: number }
 export type Item = {
@@ -77,7 +85,7 @@ export type Item = {
 	altarHeld: boolean?,
 }
 export type ItemView =
-	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, progress: number, holder: number?, visualCount: number?, fall: GroundFall?, flyEnds: number?, convertEnds: number?, toss: PoolToss?, altarTossStarted: number? }
+	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, progress: number, holder: number?, visualCount: number?, fall: GroundFall?, flyEnds: number?, convertEnds: number?, toss: PoolToss?, altarToss: AltarTossView?, altarTossStarted: number? }
 export type Snapshot = {
 	bodyPose: BodyPose?,
 	revision: number,
@@ -93,5 +101,5 @@ export type Snapshot = {
 	painter: number?,
 	session: string?,
 }
-export type Notice = { kind: string, attackSequence: number?, hit: boolean?, version: number?, hits: number?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
+export type Notice = { kind: string, attackSequence: number?, hit: boolean?, version: number?, hits: number?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
 return {}

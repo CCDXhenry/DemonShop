@@ -47,11 +47,13 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 	session.sequence = sequence
 	session.last = now
 	local poseChanged = false
-	if request.bodyPose and BodyPose.Validate(item.model, request.bodyPose) then
+	if Config.PaintPhysicsEnabled and request.bodyPose and BodyPose.Validate(item.model, request.bodyPose) then
 		item.poseBody = table.clone(request.bodyPose)
 		poseChanged = true
 	end
-	local orientation = (request.orientation or session.orientation).Rotation
+	local orientation = if Config.PaintRotationEnabled
+		then (request.orientation or session.orientation).Rotation
+		else CFrame.identity
 	local current = Rotation.Pose(pose, session.geometry, session.orientation)
 	if poseChanged and item.poseBody then
 		BodyPose.Apply(item.model, current, item.poseBody)
@@ -70,7 +72,9 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 		local part = item.model:FindFirstChild(sample.part)
 		if not part or not part:IsA("BasePart") or not Surface.IsBody(part) or not Surface.IsPaintSample(part, sample) then previous = nil; continue end
 		local curved=Curve.IsPart(part)
-		local sampledOrientation = (sample.orientation or orientation).Rotation
+		local sampledOrientation = if Config.PaintRotationEnabled
+			then (sample.orientation or orientation).Rotation
+			else CFrame.identity
 		if sampledOrientation ~= rayOrientation then
 			-- 将历史视点换算到当前模型姿态，每批只移动实体一次；保留连续笔划 previous 供同面线段补采样。
 			local sampled = Rotation.Pose(pose, session.geometry, sampledOrientation)
@@ -82,7 +86,7 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 		local direction = point - rayOrigin
 		if direction.Magnitude < 0.001 then previous = nil; continue end
 		if curved then
-			if sample.slice then
+			if sample.slice and Config.PaintRotationEnabled then
 				-- 旋转横截面采样允许肢体凹处与内侧落墨，仅校验采样点位于旋转姿态的镜头侧有效半球，防止不旋转直涂背面。
 				local toCameraVec = rayOrigin - pivotAtCurrent
 				local toCamera = if toCameraVec.Magnitude > 0.001 then toCameraVec.Unit else Vector3.yAxis

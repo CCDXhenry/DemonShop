@@ -36,12 +36,17 @@ World.visible = false
 request.sequence = 3
 local smallTurn = C.Angles(0,.1,0)
 request.orientation = smallTurn
+check(Config.PaintRotationEnabled == false, 'PaintRotationEnabled defaults to false')
+local lockedTurn = Painting.Apply(session,item,request,pose,origin,.25)
+check(lockedTurn and not lockedTurn.stroke and session.orientation==C.identity,'disabled PaintRotationEnabled keeps server orientation locked at identity')
+Config.PaintRotationEnabled = true
+request.sequence = 4
 local occluded = Painting.Apply(session,item,request,pose,origin,.3)
 check(occluded and not occluded.stroke and session.orientation==smallTurn,'occluded sample leaves no stroke while display still rotates')
 check(item.area == area,'occlusion cannot paint through body')
 World.visible = true
 local back = C.Angles(0,math.pi,0)
-request.sequence, request.orientation = 4, back
+request.sequence, request.orientation = 5, back
 request.samples = {
 	{part='UpperTorso', face=1, u=.5, v=.5, orientation=C.identity},
 	{part='UpperTorso', face=2, u=.5, v=.5, orientation=back},
@@ -51,28 +56,28 @@ local fast = Painting.Apply(session,item,request,pose,origin,.4)
 check(fast and fast.stroke and #fast.stroke.samples == 2 and fast.stroke.samples[2].face == 2,
 	'front and back use their own sampled poses and the hidden face is rejected')
 check(session.orientation==back and item.area>area,'back paint adds coverage and updates table orientation')
-request.sequence, request.orientation = 5, C.identity
+request.sequence, request.orientation = 6, C.identity
 request.samples = {sample}
 item.totalArea = item.area / Config.PaintTarget
 local complete = Painting.Apply(session,item,request,pose,origin,.5)
 check(complete and complete.complete and item.progress == 1 and item.paintSeconds < 12,'coverage completes without hidden 12 second gate')
 item.strokePoints = Config.PaintStrokePointBudget
-request.sequence = 6
+request.sequence = 7
 local capped = Painting.Apply(session,item,request,pose,origin,.6)
 check(capped and not capped.stroke and item.strokePoints == Config.PaintStrokePointBudget,'visual budget remains bounded independently of coverage')
 local combined = C.Angles(.7,-.3,.4)
-request.sequence, request.orientation, request.samples = 7, combined, {}
+request.sequence, request.orientation, request.samples = 8, combined, {}
 local beforeEmpty = item.area
 local empty = Painting.Apply(session,item,request,pose,origin,.7)
 check(empty and not empty.stroke and item.area == beforeEmpty,'pose-only batch cannot award coverage')
 check(session.orientation == combined,'pose-only batch publishes complete orientation')
-request.sequence = 6
+request.sequence = 7
 request.orientation = C.identity
 check(Painting.Apply(session,item,request,pose,origin,.8) == nil and session.orientation == combined,'old batch cannot roll pose back')
 local originalTarget = Config.PaintTarget
 item.totalArea = item.area / 0.4
 Config.PaintTarget = 0.8
-request.sequence = 8
+request.sequence = 9
 local partial = Painting.Apply(session,item,request,pose,origin,.9)
 check(partial and not partial.complete and math.abs(item.progress-.5)<1e-6,'changing the target changes the completion threshold')
 Config.PaintTarget = originalTarget
@@ -95,7 +100,7 @@ local front=Curve.Intersect(arm,arm.CFrame:PointToObjectSpace(origin),Roblox.Vec
 World.visible=false
 item.model,item.area,item.covered,item.strokePoints,item.totalArea=mesh,0,{},0,100
 session.orientation=C.identity
-local exact=Painting.Apply(session,item,{sequence=9,orientation=C.identity,samples={blocked,front}},pose,origin,1)
+local exact=Painting.Apply(session,item,{sequence=10,orientation=C.identity,samples={blocked,front}},pose,origin,1)
 check(exact and exact.stroke and #exact.stroke.samples==1 and exact.stroke.samples[1].part==arm.Name and item.area>0,'exact frontmost curved mesh wins on server independent of collision shell')
 -- 超出线段预算后的 packedInk 样本按 InkCenter 量子化盖章，不跨点插值，与客户端位图对齐。
 local function visibleArm(x)
@@ -107,7 +112,7 @@ end
 local leftPacked,rightPacked=visibleArm(-.1),visibleArm(.1)
 leftPacked.packedInk,rightPacked.packedInk=true,true
 item.area,item.covered,item.strokePoints=0,{},0
-local packedResult=Painting.Apply(session,item,{sequence=10,orientation=C.identity,samples={leftPacked,rightPacked}},pose,origin,1.1)
+local packedResult=Painting.Apply(session,item,{sequence=11,orientation=C.identity,samples={leftPacked,rightPacked}},pose,origin,1.1)
 local expectedCovered,expectedArea={},0
 for _,s in {leftPacked,rightPacked} do
 	local q=table.clone(s)
@@ -121,7 +126,7 @@ for k in expectedCovered do if not item.covered[k] then sameCells=false;break en
 check(packedResult and math.abs(item.area-expectedArea)<1e-6 and sameCells,'packedInk stamps only quantized InkCenter cells without segment interpolation')
 local leftPlain,rightPlain=visibleArm(-.1),visibleArm(.1)
 item.area,item.covered,item.strokePoints=0,{},0
-Painting.Apply(session,item,{sequence=11,orientation=C.identity,samples={leftPlain,rightPlain}},pose,origin,1.2)
+Painting.Apply(session,item,{sequence=12,orientation=C.identity,samples={leftPlain,rightPlain}},pose,origin,1.2)
 check(item.area>expectedArea,'non-packed adjacent curved samples still interpolate across the gap')
 -- 旋转横截面采样（slice=true）允许被手臂遮挡的躯干凹处落墨，同时拒绝未旋转时的背面采样。
 local sliceOccluded = table.clone(blocked)
@@ -131,7 +136,7 @@ assert(backPoint, 'back point fixture')
 local sliceBack = table.clone(backPoint)
 sliceBack.slice = true
 item.area, item.covered, item.strokePoints = 0, {}, 0
-local sliceResult = Painting.Apply(session, item, { sequence = 12, orientation = C.identity, samples = { sliceOccluded, sliceBack } }, pose, origin, 1.3)
+local sliceResult = Painting.Apply(session, item, { sequence = 13, orientation = C.identity, samples = { sliceOccluded, sliceBack } }, pose, origin, 1.3)
 check(sliceResult and sliceResult.stroke and #sliceResult.stroke.samples == 1 and sliceResult.stroke.samples[1].part == chest.Name and item.area > 0,
 	'slice mode accepts concave front-hemisphere surface occluded by limb and rejects unrotated back side')
 -- 旋转连续采样即使每点 orientation 不同，服务端仍保留同面线段补采样。
@@ -141,8 +146,9 @@ rotA.slice, rotB.slice = true, true
 rotA.orientation = C.identity
 rotB.orientation = C.Angles(0, 0.02, 0)
 item.area, item.covered, item.strokePoints = 0, {}, 0
-Painting.Apply(session, item, { sequence = 13, orientation = C.identity, samples = { rotA, rotB } }, pose, origin, 1.4)
+Painting.Apply(session, item, { sequence = 14, orientation = C.identity, samples = { rotA, rotB } }, pose, origin, 1.4)
 check(item.area > expectedArea, 'rotating consecutive samples keep server segment interpolation instead of resetting previous')
+Config.PaintRotationEnabled = false
 local sourceInk=Curve.CopyInk(nil)
 Curve.MarkInk(sourceInk,.2,.2)
 local mergedInk=Curve.MergeInk(nil,sourceInk)

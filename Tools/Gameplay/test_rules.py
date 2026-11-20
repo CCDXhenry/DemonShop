@@ -72,7 +72,7 @@ for name in ("PaintingWorld","test_painting","test_paint_rotation"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
 client=ROOT/"Scripts/ReplicatedStorage/Scripts/Client"
 text=(client/"BodyPresentation.luau").read_text(encoding="utf-8")
-prefix="local R=require('@lune/roblox')\nlocal CFrame,Vector3,Instance,Enum=R.CFrame,R.Vector3,R.Instance,R.Enum\nlocal workspace={Gravity=196.2}\nlocal Config=require('./PhysicsConfig')\nlocal Rotation=require('./PaintRotation')\nlocal Pose=require('./PaintBodyPose')\n"
+prefix="local R=require('@lune/roblox')\nlocal CFrame,Vector3,Instance,Enum=R.CFrame,R.Vector3,R.Instance,R.Enum\nlocal workspace={Gravity=196.2}\nlocal GameConfig=require('./GameConfig')\nlocal Config=require('./PhysicsConfig')\nlocal Rotation=require('./PaintRotation')\nlocal Pose=require('./PaintBodyPose')\n"
 (OUT/"BodyPresentation.luau").write_text(prefix+text[text.index("local Presentation={}"):],encoding="utf-8")
 text=(client/"PaintBrushContact.luau").read_text(encoding="utf-8")
 prefix="local R=require('@lune/roblox')\nlocal Vector2,Vector3,Enum,CFrame=R.Vector2,R.Vector3,R.Enum,R.CFrame\nlocal Config=require('./GameConfig')\nlocal Surface=require('./PaintSurface')\nlocal Curve=require('./CurvedSurface')\nlocal Rotation=require('./PaintRotation')\nlocal workspace=require('./PaintingWorld')\nlocal RaycastParams={new=function() return {} end}\n"

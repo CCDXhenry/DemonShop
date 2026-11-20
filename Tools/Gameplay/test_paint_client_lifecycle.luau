@@ -123,6 +123,24 @@ B.resolve={
 }
 local drawn={}
 painter.view.DrawLocal=function(_,_,_,_,samples) table.insert(drawn,samples) end
+-- 默认 PaintRotationEnabled=false 时按下并拖动只落笔手绘，不产生旋转锚点与旋转角速度。
+check(Config.PaintRotationEnabled == false, 'PaintRotationEnabled defaults to false')
+local noRotTouch={UserInputType=R.Enum.UserInputType.Touch,Position=R.Vector3.new(10,0,0)}
+painter:OnInput(noRotTouch,false)
+check(painter.rotationAnchor == nil, 'disabled PaintRotationEnabled creates no rotation anchor')
+noRotTouch.Position=R.Vector3.new(80,0,0)
+painter:OnMove(noRotTouch)
+painter:StepPaintRotation(.03)
+painter:Paint(B.time)
+check(painter.orientation == C.identity and painter.angularSpeed == 0 and #drawn > 0,
+	'disabled PaintRotationEnabled keeps body flat without rotating while still hand-drawing')
+painter:OnRelease(noRotTouch)
+table.clear(drawn)
+table.clear(painter.paintSamples)
+table.clear(Net.requests)
+painter.pendingCoverage = nil
+
+Config.PaintRotationEnabled = true
 local touch={UserInputType=R.Enum.UserInputType.Touch,Position=R.Vector3.new(100,0,0)}
 painter:OnInput(touch,false)
 painter:OnMove({UserInputType=R.Enum.UserInputType.MouseMovement,Position=R.Vector3.new(900,950,0)})
@@ -351,4 +369,8 @@ observer:OnNotice({kind='VisualDelta',id='body',session='current',segments={},or
 observer:OnNotice({kind='PaintPose',id='body',session='old',orientation=C.identity,progress=.1})
 check(applied and observer.presentation.targetOrientation==C.Angles(-2,1.2,.3) and observer.items.body.progress==.3,
 	'visual acknowledgement and previous-session pose cannot roll back the observer')
+Config.PaintRotationEnabled = false
+observer:OnNotice({kind='PaintPose',id='body',session='current',orientation=C.Angles(1,1,1),progress=.4})
+check(observer.presentation.targetOrientation==C.identity and observer.items.body.progress==.4,
+	'disabled PaintRotationEnabled locks observer targetOrientation to identity')
 print('PASS: '..count..' production paint client lifecycle assertions')

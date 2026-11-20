@@ -22,10 +22,30 @@ type AuthorityHandoff = {
 	altar: boolean,
 	parts: {{visual: BasePart, source: BasePart, from: CFrame}},
 }
+type LocalAltarPart = {
+	visual: BasePart,
+	source: BasePart,
+	fromOffset: CFrame,
+	restOffset: CFrame,
+	lag: number,
+	swingAngle: number,
+}
+type LocalAltarToss = {
+	started: number,
+	flightStarts: number,
+	flightEnds: number,
+	landEnds: number,
+	fromRoot: CFrame,
+	restRoot: CFrame,
+	fromTable: boolean,
+	settled: boolean,
+	parts: { LocalAltarPart },
+}
 type BodyView = {
 	id: string, authorityModel: Model, visualModel: Model?, bindGeneration: number, appliedVersion: number,
 	fall: Fall.State?, history: Fall.History?, sampleDt: number?,
 	handoff: AuthorityHandoff?,
+	altarToss: LocalAltarToss?,
 	offsets: {[string]: CFrame}, modelSince: number, boundAt: number, impacts: Impact.State, finalVersion: number?, mode: string, requested: string, jointMap: Adapter.Map, sourceJoints: Adapter.Map, rootTarget: BasePart?,
 	physicsMask: {[string]: boolean}, predictionTokens: {[number]: HitRules.Prediction},
 	cleanup: {RBXScriptConnection}, hidden: {[BasePart]: number}, dirty: boolean, retryAt: number, diagnostic: string?,
@@ -69,10 +89,17 @@ function Manager.GetAltarModel(self: Manager, id: string): Model?
 	local view = self.views[id]
 	return if view and view.mode == "Altar" then view.visualModel else nil
 end
+function Manager.IsAltarTossing(self: Manager, id: string, now: number): boolean
+	local view = self.views[id]
+	local toss = view and view.altarToss
+	if not toss then return false end
+	return not toss.settled and now < toss.landEnds
+end
 local function Release(self: Manager, v: BodyView)
 	self.views[v.id] = nil
 	self.contacts[v.id]=nil
 	v.handoff = nil
+	v.altarToss = nil
 	table.clear(v.impacts)
 	for part, value in v.hidden do part.LocalTransparencyModifier = value end
 	table.clear(v.hidden)
@@ -106,11 +133,7 @@ local function Mode(item: Types.ItemView, source: Model, enabled: boolean): stri
 	if item.toss then return "Authority" end
 	if item.location == "Table" then return "Table" end
 	if item.location == "Altar" then
-		local root = source.PrimaryPart
-		if not item.convertEnds or not root or not root.Anchored or source:GetAttribute("PhysicsMode") ~= "AltarAnchored" then
-			return "Authority"
-		end
-		return "Altar"
+		return if enabled then "Altar" else "Authority"
 	end
 	if item.location == "Carried" or source:GetAttribute("PhysicsMode") == "Carried" or source:GetAttribute("MotionState") == "Carried" then return "Authority" end
 	if enabled and item.fall and (item.location=="Ground" or (item.location=="Street" and item.hits>=GameConfig.StunHits)) then return "Ground" end
@@ -154,6 +177,16 @@ local function Prepare(self: Manager, v: BodyView, receivedPose: Types.BodyPose?
 	if forTable then
 		self.tableView:Attach(source,clone,v.jointMap.Root.drive,receivedPose)
 	elseif forAltar or v.requested=="Ground" then
+		if forAltar then
+			for _, joint in v.jointMap do
+				local drive = joint.drive
+				if drive:IsA("Motor6D") then
+					drive.Enabled = false
+				else
+					drive.IsKinematic, drive.Enabled = true, false
+				end
+			end
+		end
 		for _, node in source:GetDescendants() do
 			if node:IsA("BasePart") then
 				local copy = clone:FindFirstChild(node.Name, true)
@@ -250,6 +283,238 @@ local function StepHandoff(v: BodyView, handoff: AuthorityHandoff, now: number):
 	return true
 end
 
+local function SmoothStep(t: number): number
+	local clamped = math.clamp(t, 0, 1)
+	return clamped * clamped * (3 - 2 * clamped)
+end
+
+local function LimbInertia(name: string): (number, number)
+	if name == "HumanoidRootPart" or name == "LowerTorso" or name == "UpperTorso" then
+		return 0, 0
+	elseif name == "Head" then
+		return 0.35, 0.14
+	elseif string.find(name, "Upper") then
+		return 0.55, 0.22
+	elseif string.find(name, "Lower") then
+		return 0.80, 0.30
+	end
+	return 1.0, 0.36
+end
+
+local function PartRestOffset(visual: BasePart, source: BasePart, sourceRoot: BasePart): CFrame
+	if visual.Name == "HumanoidRootPart" then
+		return CFrame.identity
+	end
+	local rest = visual:GetAttribute("RestPose") or source:GetAttribute("RestPose")
+	if typeof(rest) == "CFrame" then
+		return rest
+	end
+	return sourceRoot.CFrame:ToObjectSpace(source.CFrame)
+end
+
+local function DisableAltarJointDrives(v: BodyView): ()
+	for _, joint in v.jointMap do
+		local drive = joint.drive
+		if drive:IsA("Motor6D") then
+			drive.Enabled = false
+		else
+			drive.IsKinematic, drive.Enabled = true, false
+		end
+	end
+end
+
+local function ApplyAltarSettledPose(v: BodyView, toss: LocalAltarToss): ()
+	local visual = v.visualModel
+	local visualRoot = visual and visual.PrimaryPart
+	if not visual or visual.Parent ~= workspace or not visualRoot then return end
+	visualRoot.CFrame = toss.restRoot
+	for _, part in toss.parts do
+		if part.visual.Parent == visual then
+			part.visual.CFrame = toss.restRoot * part.restOffset
+		end
+	end
+	toss.settled = true
+end
+
+local function StepAltarToss(v: BodyView, item: Types.ItemView, now: number): ()
+	local toss = v.altarToss
+	local visual = v.visualModel
+	local visualRoot = visual and visual.PrimaryPart
+	if not toss or toss.settled or not visual or visual.Parent ~= workspace or not visualRoot then return end
+	if item.altarToss then
+		toss.restRoot = item.altarToss.rest
+	elseif v.authorityModel.PrimaryPart then
+		toss.restRoot = v.authorityModel.PrimaryPart.CFrame
+	end
+	if now >= toss.landEnds then
+		ApplyAltarSettledPose(v, toss)
+		return
+	end
+	local altarCfg = Physics.AltarToss
+	local liftHeight = if toss.fromTable then altarCfg.LiftHeight else 0
+	local launchRoot = toss.fromRoot + Vector3.yAxis * liftHeight
+	local dropRoot = toss.restRoot + Vector3.yAxis * altarCfg.DropClearance
+	local rootCFrame: CFrame
+	local limbProgress = 0
+	local limbPitch = 0
+	if now < toss.flightStarts then
+		local span = math.max(toss.flightStarts - toss.started, 0.001)
+		local raw = math.clamp((now - toss.started) / span, 0, 1)
+		local alpha = SmoothStep(raw)
+		rootCFrame = toss.fromRoot + Vector3.yAxis * (liftHeight * alpha)
+		limbProgress = alpha * 0.35
+		limbPitch = -math.sin(raw * math.pi) * 0.55
+	elseif now < toss.flightEnds then
+		local span = math.max(toss.flightEnds - toss.flightStarts, 0.001)
+		local raw = math.clamp((now - toss.flightStarts) / span, 0, 1)
+		local alpha = SmoothStep(raw)
+		local base = launchRoot:Lerp(dropRoot, alpha)
+		local arc = 4 * alpha * (1 - alpha) * altarCfg.ArcHeight
+		rootCFrame = base + Vector3.yAxis * arc
+		limbProgress = (if toss.fromTable then 0.35 else 0) + alpha * (if toss.fromTable then 0.50 else 0.85)
+		limbPitch = math.sin(raw * math.pi) * 0.75
+	else
+		local span = math.max(toss.landEnds - toss.flightEnds, 0.001)
+		local raw = math.clamp((now - toss.flightEnds) / span, 0, 1)
+		local touchSplit = 0.45
+		if raw < touchSplit then
+			local fallT = raw / touchSplit
+			local fallAlpha = fallT * fallT
+			rootCFrame = dropRoot:Lerp(toss.restRoot, fallAlpha)
+		else
+			local impactT = (raw - touchSplit) / (1 - touchSplit)
+			local bounce = math.sin(impactT * math.pi) * (1 - impactT) * (altarCfg.LandBounceStuds or 0.14)
+			rootCFrame = toss.restRoot + Vector3.yAxis * bounce
+		end
+		limbProgress = 0.85 + SmoothStep(raw) * 0.15
+		limbPitch = -math.sin(raw * math.pi) * (1 - raw) * 0.65
+	end
+	visualRoot.CFrame = rootCFrame
+	for _, part in toss.parts do
+		if part.visual.Parent ~= visual then continue end
+		local delayed = math.clamp((limbProgress - part.lag * 0.12) / math.max(1 - part.lag * 0.12, 0.001), 0, 1)
+		local localFrame = part.fromOffset:Lerp(part.restOffset, SmoothStep(delayed))
+		if part.swingAngle > 0 and math.abs(limbPitch) > 1e-4 then
+			localFrame = localFrame * CFrame.Angles(limbPitch * part.swingAngle, 0, 0)
+		end
+		part.visual.CFrame = rootCFrame * localFrame
+	end
+end
+
+local function BeginAltarToss(v: BodyView, item: Types.ItemView, fromTable: boolean): boolean
+	local visual = v.visualModel
+	local visualRoot = visual and visual.PrimaryPart
+	local sourceRoot = v.authorityModel.PrimaryPart
+	if not visual or visual.Parent ~= workspace or not visualRoot or not sourceRoot then return false end
+	local tossInfo = item.altarToss
+	local started = if tossInfo then tossInfo.started else item.altarTossStarted
+	if started == nil then
+		v.altarToss = nil
+		return false
+	end
+	DisableAltarJointDrives(v)
+	local visualTorso = visual:FindFirstChild("UpperTorso")
+	local sourceTorso = v.authorityModel:FindFirstChild("UpperTorso")
+	local fromRoot = visualRoot.CFrame
+	if fromTable then
+		if visualTorso and visualTorso:IsA("BasePart") and sourceTorso and sourceTorso:IsA("BasePart") then
+			local torsoRest = PartRestOffset(visualTorso, sourceTorso, sourceRoot)
+			fromRoot = visualTorso.CFrame * torsoRest:Inverse()
+			visualRoot.CFrame = fromRoot
+		end
+	elseif tossInfo then
+		fromRoot = tossInfo.from
+		visualRoot.CFrame = fromRoot
+	end
+	local altarCfg = Physics.AltarToss
+	local flightStarts = if tossInfo then tossInfo.flightStarts else started + (if fromTable then altarCfg.LiftSeconds else 0)
+	local flightEnds = flightStarts + altarCfg.FlightSeconds
+	local landSeconds = altarCfg.LandSeconds or 0.32
+	local landEnds = if tossInfo and tossInfo.landEnds then tossInfo.landEnds else flightEnds + landSeconds
+	local restRoot = if tossInfo then tossInfo.rest else sourceRoot.CFrame
+	local parts: { LocalAltarPart } = {}
+	for part in v.hidden do
+		local copy = visual:FindFirstChild(part.Name)
+		if not copy or not copy:IsA("BasePart") or not part:IsDescendantOf(v.authorityModel) then return false end
+		copy.Anchored = true
+		copy.CanCollide = false
+		copy.CanTouch = false
+		copy.CanQuery = false
+		copy.AssemblyLinearVelocity = Vector3.zero
+		copy.AssemblyAngularVelocity = Vector3.zero
+		local lag, swingAngle = LimbInertia(copy.Name)
+		local fromOffset = if fromTable
+			then fromRoot:ToObjectSpace(copy.CFrame)
+			else sourceRoot.CFrame:ToObjectSpace(part.CFrame)
+		table.insert(parts, {
+			visual = copy,
+			source = part,
+			fromOffset = fromOffset,
+			restOffset = PartRestOffset(copy, part, sourceRoot),
+			lag = lag,
+			swingAngle = swingAngle,
+		})
+	end
+	v.altarToss = {
+		started = started,
+		flightStarts = flightStarts,
+		flightEnds = flightEnds,
+		landEnds = landEnds,
+		fromRoot = fromRoot,
+		restRoot = restRoot,
+		fromTable = flightStarts > started,
+		settled = false,
+		parts = parts,
+	}
+	return true
+end
+
+local function SyncAltarToss(v: BodyView, item: Types.ItemView): ()
+	local tossInfo = item.altarToss
+	local started = if tossInfo then tossInfo.started else item.altarTossStarted
+	local current = v.altarToss
+	if not current then
+		if started ~= nil then
+			BeginAltarToss(v, item, false)
+		end
+		return
+	end
+	if tossInfo then
+		current.restRoot = tossInfo.rest
+		current.flightStarts = tossInfo.flightStarts
+		current.flightEnds = tossInfo.flightStarts + Physics.AltarToss.FlightSeconds
+		current.landEnds = tossInfo.landEnds
+		current.fromTable = tossInfo.flightStarts > tossInfo.started
+	elseif started == nil and item.convertEnds ~= nil and v.authorityModel.PrimaryPart then
+		current.restRoot = v.authorityModel.PrimaryPart.CFrame
+	end
+end
+
+local function TransitionTableToAltar(self: Manager, v: BodyView, item: Types.ItemView): boolean
+	local visual = v.visualModel
+	if not visual or visual.Parent ~= workspace or not HasPrimaryRoot(visual) then return false end
+	if self.tableView.model == visual then
+		self.tableView:Clear()
+	end
+	visual.Name = "LocalAltarBody"
+	DisableAltarJointDrives(v)
+	for _, node in visual:GetDescendants() do
+		if node:IsA("BasePart") then
+			node.Anchored = true
+			node.CanCollide, node.CanTouch, node.CanQuery = false, false, false
+			node.Massless = true
+			node.AssemblyLinearVelocity = Vector3.zero
+			node.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+	v.handoff = nil
+	v.fall, v.history = nil, nil
+	v.mode, v.requested = "Altar", "Altar"
+	v.appliedVersion = item.version
+	BeginAltarToss(v, item, true)
+	return true
+end
+
 function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.BodyPose?)
 	if self.destroyed then return end
 	local id = item.id
@@ -299,9 +564,18 @@ function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.B
 	end
 	self.rootMissingAt[id] = nil
 	self.rootWarned[id] = nil
+	if v and v.authorityModel == source and v.mode == "Table" and mode == "Altar" and not v.dirty
+		and (not v.diagnostic or os.clock() < v.retryAt) and v.visualModel and v.visualModel.Parent == workspace then
+		if TransitionTableToAltar(self, v, item) then
+			return
+		end
+	end
 	if v and v.authorityModel == source and v.requested == mode and not v.dirty
 		and (not v.diagnostic or os.clock() < v.retryAt) and (not v.visualModel or v.visualModel.Parent == workspace) then
 		v.appliedVersion = item.version
+		if mode == "Altar" then
+			SyncAltarToss(v, item)
+		end
 		return
 	end
 	if mode=="Ground" and item.fall and v and v.mode=="Street" and not v.dirty and v.authorityModel==source and v.visualModel and v.visualModel.Parent==workspace then
@@ -323,7 +597,11 @@ function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.B
 	if mode ~= "Authority" then
 		local ok, reason = pcall(function()
 			Prepare(self,view,receivedPose)
-			if mode=="Ground" and item.fall then BeginFall(self,view,item.fall,true) end
+			if mode=="Ground" and item.fall then
+				BeginFall(self,view,item.fall,true)
+			elseif mode == "Altar" then
+				BeginAltarToss(view, item, false)
+			end
 		end)
 		if not ok then
 			Release(self,view)
@@ -378,11 +656,10 @@ function Manager.UpdateState(self: Manager, items: {[string]: Types.ItemView}, t
 				self.flyOrigin[id] = v.visualModel:GetPivot()
 			end
 			if v.mode == "Table" and (nextItem.location ~= "Table" or nextItem.model ~= v.authorityModel) then
-				local started = nextItem.altarTossStarted
-				local remaining = if started then started + Physics.AltarToss.LiftSeconds - workspace:GetServerTimeNow() else 0
-				if nextItem.location == "Altar" and nextItem.model == v.authorityModel and remaining > 0
-					and BeginHandoff(v, nextItem.version, remaining, true) then
-					self.tableView:Clear()
+				if self.enabled and nextItem.location == "Altar" and nextItem.model == v.authorityModel
+					and not v.dirty and v.visualModel and v.visualModel.Parent == workspace then
+					self.items[id] = nextItem
+					TransitionTableToAltar(self, v, nextItem)
 				else
 					-- 同一 ItemId 的笔迹保留到新展示模型。
 					Release(self,v)
@@ -537,6 +814,10 @@ function Manager.Step(self: Manager, now: number, seconds: number, painting: boo
 				Release(self, v)
 				self:Bind(item)
 			end
+			continue
+		end
+		if v.mode == "Altar" and v.altarToss and not v.altarToss.settled then
+			StepAltarToss(v, item, now)
 			continue
 		end
 		for sequence,prediction in v.predictionTokens do

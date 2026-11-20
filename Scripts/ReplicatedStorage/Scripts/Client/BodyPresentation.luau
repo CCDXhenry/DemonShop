@@ -1,6 +1,7 @@
 -- 工作台展示：双轴白膜零重力甩动物理、停转回正与旁观者插值。
 --!strict
 local ReplicatedStorage=game:GetService("ReplicatedStorage")
+local GameConfig=require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local Pose=require(ReplicatedStorage.Scripts.Shared.PaintBodyPose)
 local Config=require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
 local Types=require(ReplicatedStorage.Scripts.Shared.GameTypes)
@@ -122,6 +123,10 @@ function Presentation.CapturePose(self: Presentation): Types.BodyPose?
 	return Pose.Capture(self.model)
 end
 function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediate: boolean): ()
+	if not GameConfig.PaintRotationEnabled then
+		self.targetOrientation=CFrame.identity
+		self.orientation=CFrame.identity
+	end
 	local prevOrientation=self.orientation
 	local alpha=if immediate then 1 else 1-math.exp(-Config.TableObserverResponse*dt)
 	self.orientation=if immediate then self.targetOrientation else self.orientation:Lerp(self.targetOrientation,alpha)
@@ -140,15 +145,16 @@ function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediat
 	self.center=pivotWorld
 	local support=rotated*geometry.rest
 
+	local wantDynamic=immediate and GameConfig.PaintPhysicsEnabled==true
 	local delta=self.orientation*prevOrientation:Inverse()
 	local localAxis,deltaAngle=delta:ToAxisAngle()
 	local absAngle=math.abs(deltaAngle)
 	local isJump=absAngle>Config.TableSpinResetAngle
 	local angularSpeed=if dt>1e-4 and not isJump then math.min(absAngle/dt,Config.MaximumAngularSpeed*2) else 0
-	local isSpinning=immediate and angularSpeed>Config.TableSpinThreshold and localAxis.Magnitude>1e-4
+	local isSpinning=wantDynamic and GameConfig.PaintRotationEnabled==true and angularSpeed>Config.TableSpinThreshold and localAxis.Magnitude>1e-4
 
-	if self.dynamic~=immediate then
-		if immediate then
+	if self.dynamic~=wantDynamic then
+		if wantDynamic then
 			for name,frame in frames do
 				local part=self.parts[name]
 				if part then
@@ -193,7 +199,7 @@ function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediat
 	end
 	local torso=self.parts.UpperTorso
 	if torso then torso.CFrame=support end
-	if immediate then
+	if wantDynamic then
 		if self.spinning~=isSpinning then
 			self.spinning=isSpinning
 			ApplySocketFriction(self,if isSpinning then Config.TableSpinFrictionScale else Config.TableRecoverFrictionScale)
@@ -241,7 +247,7 @@ function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediat
 			local part=self.parts[name]
 			if part and name~="UpperTorso" then
 				local target=support*frame
-				part.CFrame=if not hadGeometry then target else part.CFrame:Lerp(target,alpha)
+				part.CFrame=if not hadGeometry or immediate then target else part.CFrame:Lerp(target,alpha)
 			end
 		end
 	end

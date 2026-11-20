@@ -68,6 +68,14 @@ for _, angles in { V.new(0, math.pi / 2), V.new(math.pi / 2, 0), V.new(-2.4, 1.8
 end
 local viewer = Presentation.new()
 viewer.model, viewer.parts.UpperTorso, viewer.targetBodyPose = mockModel, torso, mockFrames
+check(Config.PaintRotationEnabled == false and Config.PaintPhysicsEnabled == false,
+	'rotation and physics switches default to false so body lies flat and fixed')
+viewer.orientation = C.Angles(0, math.pi - 0.02, 0)
+viewer.targetOrientation = C.Angles(0, -math.pi + 0.02, 0)
+viewer:Update(base, 0.01, true)
+check(viewer.orientation == C.identity and viewer.targetOrientation == C.identity,
+	'disabled rotation switch locks table orientation to neutral flat pose')
+Config.PaintRotationEnabled = true
 viewer.orientation = C.Angles(0, math.pi - 0.02, 0)
 viewer.targetOrientation = C.Angles(0, -math.pi + 0.02, 0)
 viewer:Update(base, 0.01, false)
@@ -75,6 +83,7 @@ check(Rotation.Distance(viewer.orientation, viewer.targetOrientation) < 0.04, 'o
 viewer:Update(base, 0.01, true)
 local expected = Rotation.Pose(base, geometry, viewer.targetOrientation) * geometry.rest
 check((torso.CFrame.Position - expected.Position).Magnitude < 1e-5, 'observers and operators use the same rigid transform')
+Config.PaintRotationEnabled = false
 torso:Destroy()
 
 -- 3. 3D 椭圆体解析投影验证（内部 1:1 跟随，外部严格贴合透视地平线，旋转窄侧面平滑收窄无跳动）。
@@ -197,6 +206,7 @@ local excludedArea = Curve.ExcludeInterior(bodyModel, interiorCovered)
 local effectiveArea = totalBodyArea - excludedArea
 
 -- 5a. 绕长轴（头-脚）旋转 360°：胸部/腋下横截面必须完整覆盖手臂外侧、手臂内侧以及被手臂遮挡的躯干左右侧面！
+Config.PaintRotationEnabled = true
 local function runRoll(fps, pointer)
 	local curFrame = nil
 	local collected = {}
@@ -312,6 +322,7 @@ end
 check(spiralParts.Head and spiralParts.UpperTorso and (spiralParts.LeftUpperLeg or spiralParts.RightUpperLeg),
 	'sliding brush along the rotation axis inside the ellipsoid paints continuously from head through torso to legs')
 
+Config.PaintRotationEnabled = false
 bodyModel:Destroy()
 
 -- 6. 工作台零重力物理生命周期与服务端动态姿态重建校验。
@@ -372,6 +383,25 @@ do
 	end
 	check(forceCount == 14 and alignCount == 14, 'all 14 non-torso limbs receive anti-gravity forces and pose aligners')
 	check(tableView.parts.HumanoidRootPart.Massless and tableView.parts.UpperTorso.Anchored, 'HumanoidRootPart stays massless and UpperTorso stays anchored')
+
+	-- 默认物理与旋转均关闭：操作者更新仍保持全身锚定躺平，不启用球窝或零重力约束。
+	tableView.targetOrientation = C.Angles(0, 0.5, 0)
+	tableView:Update(flatBase, 0.016, true)
+	check(not tableView.dynamic and not tableView.spinning and tableView.orientation == C.identity and tableView:CapturePose() == nil,
+		'disabled physics and rotation switches keep table body static and flat during operator painting')
+	for _, part in tableView.parts do
+		check(part.Anchored, 'all body parts remain anchored when PaintPhysicsEnabled is false: ' .. part.Name)
+	end
+	for _, socket in tableView.sockets do
+		check(not socket.Enabled, 'BallSocketConstraints stay disabled when PaintPhysicsEnabled is false')
+	end
+	for _, force in tableView.antiGravity do
+		check(not force.Enabled, 'VectorForces stay disabled when PaintPhysicsEnabled is false')
+	end
+
+	-- 开启旋转与物理开关后验证完整零重力物理生命周期。
+	Config.PaintRotationEnabled = true
+	Config.PaintPhysicsEnabled = true
 
 	-- 静止切入动态模式：仅 UpperTorso 锚定，纯零重力，处于恢复态。
 	tableView.targetOrientation = C.identity
@@ -500,6 +530,18 @@ do
 	}, flatBase, camPos, 2)
 	check((physItem.poseBody.Head.Position - bentFrames.Head.Position).Magnitude < 1e-5,
 		'Painting.Apply rejects detached invalid bodyPose and keeps previous valid pose')
+
+	Config.PaintRotationEnabled = false
+	Config.PaintPhysicsEnabled = false
+	local furtherTilted = neck.Part0.CFrame * neck.C0 * C.Angles(0.45, 0, 0) * neck.C1:Inverse()
+	local ignoredFrames = table.clone(initialFrames)
+	ignoredFrames.Head = source.UpperTorso.CFrame:ToObjectSpace(furtherTilted)
+	Painting.Apply(physSession, physItem, {
+		action = 'Paint', session = 'phys', sequence = 3, samples = {},
+		orientation = C.Angles(0, 0.8, 0), bodyPose = ignoredFrames,
+	}, flatBase, camPos, 3)
+	check(physSession.orientation == C.identity and (physItem.poseBody.Head.Position - bentFrames.Head.Position).Magnitude < 1e-5,
+		'disabled PaintRotationEnabled and PaintPhysicsEnabled ignore incoming rotation and bodyPose on server')
 
 	clone:Destroy()
 	source:Destroy()

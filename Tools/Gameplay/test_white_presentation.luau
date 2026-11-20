@@ -389,31 +389,51 @@ shoulders:Bind(down)
 check(shoulders.views.shoulder.mode=="Authority" and shoulders.views.shoulder.diagnostic==nil and shoulders.views.shoulder.visualModel==nil,"carried motion skips joint parse")
 shoulders:Destroy();shoulder:Destroy()
 local offering=rig(false)
-local altar=Manager.new(tableView,{Remove=function() end},function() end)
+local displayCalls=0
+local altar=Manager.new(tableView,{Remove=function() end},function() displayCalls+=1 end)
 local painting={id="offering",kind="Body",location="Table",version=1,hits=3,model=offering}
 altar:UpdateState({offering=painting})
 local paintingClone=altar:GetVisualModel("offering")
+local tableGeneration=altar.views.offering.bindGeneration
+local tableDisplays=displayCalls
+local targetRest=offering.PrimaryPart.CFrame+V.new(-10,1,-6)
 local flying=table.clone(painting)
 flying.location,flying.version,flying.altarTossStarted="Altar",2,0
+flying.altarToss={from=paintingClone.PrimaryPart.CFrame,rest=targetRest,started=0,flightStarts=.25,landEnds=1.52}
 altar:UpdateState({offering=flying})
-check(altar.views.offering.mode=="AltarHandoff" and not tableView.model and paintingClone.Parent==B.world,"table display hands off before launch")
+check(altar.views.offering.mode=="Altar" and not tableView.model and paintingClone.Parent==B.world,"table display transitions in-place to altar without destroying clone")
+check(altar:GetAltarModel("offering")==paintingClone and altar.views.offering.bindGeneration==tableGeneration and displayCalls==tableDisplays,"in-place transition avoids re-cloning or re-binding rune textures")
+check(offering.Head.LocalTransparencyModifier==1 and altar:IsAltarTossing("offering",.1),"authority stays hidden while client drives altar toss")
 local start=paintingClone.PrimaryPart.CFrame.Position
-offering.PrimaryPart.CFrame=paintingClone.PrimaryPart.CFrame+V.yAxis
 altar:Step(.125,1/60)
-check((paintingClone.PrimaryPart.CFrame.Position-start-V.yAxis*.5).Magnitude<1e-4,"lift handoff follows the authority pose continuously")
-altar:Step(.25,1/60)
-check(altar:GetVisualModel("offering")==offering and paintingClone.Parent==nil and not altar:GetAltarModel("offering"),"flight shows only the authority")
+check((paintingClone.PrimaryPart.CFrame.Position-start-V.yAxis*(.85*.5)).Magnitude<1e-4,"client lift phase elevates smoothly from table pose")
+altar:Step(.25+.95*.5,1/60)
+check(paintingClone.PrimaryPart.CFrame.Position.Y>targetRest.Position.Y+2.5 and altar:IsAltarTossing("offering",.25+.95*.5),"client flight phase follows parabolic arc above drop clearance")
+altar:Step(1.20+.32*.7,1/60)
+check(paintingClone.PrimaryPart.CFrame.Position.Y>=targetRest.Position.Y and altar:IsAltarTossing("offering",1.20+.32*.7),"client landing phase cushions body on altar surface")
+altar:Step(1.52,1/60)
+check(not altar:IsAltarTossing("offering",1.52) and (paintingClone.PrimaryPart.CFrame.Position-targetRest.Position).Magnitude<1e-4,"client toss settles cleanly at altar rest pose")
 local landed=table.clone(flying)
-landed.version,landed.altarTossStarted,landed.convertEnds=3,nil,8
+landed.version,landed.altarToss,landed.altarTossStarted,landed.convertEnds=3,nil,nil,8
 altar:UpdateState({offering=landed})
-check(not altar:GetAltarModel("offering"),"landing notification alone cannot start the altar presentation")
-offering:SetAttribute("PhysicsMode","AltarAnchored")
-altar:Step(2,1/60)
-check(not altar:GetAltarModel("offering"),"altar presentation waits for the anchor")
-offering.PrimaryPart.Anchored=true
-altar:Step(2.1,1/60)
 local landedVisual=altar:GetAltarModel("offering")
-check(landedVisual and landedVisual.PrimaryPart.CFrame==offering.PrimaryPart.CFrame,"sacrifice display starts from the replicated landing")
+check(landedVisual==paintingClone and altar.views.offering.bindGeneration==tableGeneration,"landing confirmation keeps the same local altar clone for sacrifice float")
+-- 其他客户端（旁观者）从肩扛或远端收到祭坛抛掷快照时，同样创建本地克隆并完整播放抛掷与落台过程
+local remoteOffering=rig(false)
+local observer=Manager.new(tableView,{Remove=function() end},function() end)
+local shoulderToss={
+	id="remote",kind="Body",location="Altar",version=1,hits=3,model=remoteOffering,
+	altarTossStarted=0,
+	altarToss={from=remoteOffering.PrimaryPart.CFrame,rest=targetRest,started=0,flightStarts=0,landEnds=1.27},
+}
+observer:UpdateState({remote=shoulderToss})
+local observerClone=observer:GetAltarModel("remote")
+check(observerClone~=nil and observerClone~=remoteOffering and remoteOffering.Head.LocalTransparencyModifier==1 and observer:IsAltarTossing("remote",.2),"other client creates local altar clone and hides authority immediately on toss")
+observer:Step(.475,1/60)
+check(observerClone.PrimaryPart.CFrame.Position.Y>targetRest.Position.Y+2.5,"other client sees the full parabolic toss arc locally")
+observer:Step(1.27,1/60)
+check(not observer:IsAltarTossing("remote",1.27) and (observerClone.PrimaryPart.CFrame.Position-targetRest.Position).Magnitude<1e-4,"other client settles smoothly onto altar surface")
+observer:Destroy();remoteOffering:Destroy()
 altar:Destroy();offering:Destroy()
 local waiting=rig(false)
 local waits=Manager.new(tableView,{Remove=function() end,Sample=function() return F.identity end},function() end)
