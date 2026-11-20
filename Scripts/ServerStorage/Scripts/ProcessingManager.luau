@@ -813,7 +813,7 @@ function Manager.Paint(self: Manager, player: Player, request: Types.Request): (
 	if not result then
 		return
 	end
-	Net.Broadcast({ kind = "PaintPose", id = item.id, session = session.token, sequence = request.sequence, orientation = session.orientation, progress = item.progress, started=workspace:GetServerTimeNow() })
+	Net.Broadcast({ kind = "PaintPose", id = item.id, session = session.token, sequence = request.sequence, orientation = session.orientation, bodyPose = item.poseBody, progress = item.progress, started=workspace:GetServerTimeNow() })
 	if result.complete then
 		session.finishing=true
 		Net.FireNotify(player,{kind="FinishPaint",session=session.token,id=item.id})
@@ -850,7 +850,18 @@ function Manager.PaintVisual(self: Manager,player: Player,request: Types.Request
 	item.visualState=state
 	session.visualSequence=sequence
 	session.visualPackets=(session.visualPackets or 0)+1
-	Net.Broadcast({kind="VisualDelta",id=item.id,session=session.token,sequence=sequence,segments=accepted,visualRevision=state.revision})
+	if request.bodyPose and BodyPose.Validate(item.model, request.bodyPose) then
+		item.poseBody = table.clone(request.bodyPose)
+		Painting.SetPose(session, item, Scene.TablePose(), session.orientation, true)
+	end
+	-- 操作者本地已即时渲染，只回传轻量序号确认；完整符文增量仅同步给其他旁观者。
+	Net.FireNotify(player, { kind = "VisualDelta", id = item.id, session = session.token, sequence = sequence, segments = {}, visualRevision = state.revision })
+	local observerNotice: Types.Notice = { kind = "VisualDelta", id = item.id, session = session.token, sequence = sequence, segments = accepted, visualRevision = state.revision, bodyPose = item.poseBody }
+	for _, other in Players:GetPlayers() do
+		if other ~= player then
+			Net.FireNotify(other, observerNotice)
+		end
+	end
 end
 function Manager.OnRequest(self: Manager, player: Player, request: Types.Request): ()
 	local record = self.players[player]

@@ -11,7 +11,7 @@ local Types = require(Shared.GameTypes)
 local Brush = {}
 local RayLength = 100
 local EdgeRefinements = 5
-local MaxSlicesPerFrame = 12
+local MaxSlicesPerFrame = 6
 local TwoPi = math.pi * 2
 
 export type Contact = {
@@ -218,7 +218,7 @@ function Brush.Resolver(
 			local adjNormal = correction:VectorToWorldSpace(planeNormal).Unit
 			local adjToward = correction:VectorToWorldSpace(towardCamera).Unit
 			local adjTangent = correction:VectorToWorldSpace(tangent).Unit
-			return Curve.SliceCrossSection(
+			local sliced = Curve.SliceCrossSection(
 				parts,
 				adjPivot,
 				adjNormal,
@@ -230,6 +230,43 @@ function Brush.Resolver(
 				deltaAngle,
 				Config.BrushRadius * 0.5
 			)
+			if not cameraPos or #sliced == 0 then
+				return sliced
+			end
+			-- 与服务端 Painting.Apply 保持同一镜头侧半球过滤，避免客户端提前记录服务端会拒收的背面切片点。
+			local adjCamPos = correction:PointToWorldSpace(cameraPos)
+			local toCameraVec = adjCamPos - adjPivot
+			local toCamera = if toCameraVec.Magnitude > 0.001 then toCameraVec.Unit else Vector3.yAxis
+			local minDot = Config.PaintSliceHemisphereMinDot
+			local filtered: { Types.Sample } = {}
+			local broke = false
+			local cachedPartName: string? = nil
+			local cachedPart: BasePart? = nil
+			local cachedTris: typeof(Curve.Geometry(nil :: any).triangles)? = nil
+			for _, sample in sliced do
+				if sample.part ~= cachedPartName then
+					cachedPartName = sample.part
+					cachedPart = partMap[sample.part]
+					cachedTris = if cachedPart then Curve.Geometry(cachedPart).triangles else nil
+				end
+				local tri = if cachedTris and sample.triangle then cachedTris[sample.triangle] else nil
+				if cachedPart and tri then
+					local localPoint = tri.a + (tri.b - tri.a) * sample.u + (tri.c - tri.a) * sample.v
+					local worldPoint = cachedPart.CFrame:PointToWorldSpace(localPoint)
+					if (worldPoint - adjPivot):Dot(toCamera) >= minDot then
+						if broke then
+							sample.breakBefore = true
+							broke = false
+						end
+						table.insert(filtered, sample)
+					else
+						broke = true
+					end
+				else
+					broke = true
+				end
+			end
+			return filtered
 		end
 	end
 

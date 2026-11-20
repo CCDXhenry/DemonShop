@@ -5,14 +5,19 @@ local Types = require(script.Parent.GameTypes)
 local Curve = {}
 Curve.Version = Data.Version
 type Triangle = {a: Vector3,b: Vector3,c: Vector3,normal: Vector3,area: number,allowed: boolean}
-type Geometry = {size: Vector3,triangles: {Triangle},bins: {[string]: {number}},total: number}
+type Geometry = {size: Vector3,triangles: {Triangle},bins: {[number]: {number}},total: number}
 local geometries: {[string]: Geometry} = {}
 local BinCount=8
+local BinKeyBase=BinCount+2
 Curve.BinCount=BinCount
+Curve.BinKeyBase=BinKeyBase
 local function Bin(point: Vector3): Vector3
 	return Vector3.new(math.floor((point.X+.5)*BinCount),math.floor((point.Y+.5)*BinCount),math.floor((point.Z+.5)*BinCount))
 end
-local function Key(point: Vector3): string return tostring(point.X)..":"..tostring(point.Y)..":"..tostring(point.Z) end
+local function BinKey(x: number, y: number, z: number): number
+	return ((x + 1) * BinKeyBase + (y + 1)) * BinKeyBase + (z + 1)
+end
+Curve.BinKey=BinKey
 function Curve.IsPart(part: BasePart): boolean return part:GetAttribute("SurfaceVersion")==Data.Version and Data.Parts[part.Name]~=nil end
 function Curve.Geometry(part: BasePart): Geometry
 	local key=part.Name..":"..tostring(part.Size)
@@ -31,7 +36,7 @@ function Curve.Geometry(part: BasePart): Geometry
 		local low=Bin(a:Min(b):Min(c)/part.Size)
 		local high=Bin(a:Max(b):Max(c)/part.Size)
 		for x=low.X,high.X do for y=low.Y,high.Y do for z=low.Z,high.Z do
-			local binKey=Key(Vector3.new(x,y,z))
+			local binKey=BinKey(x,y,z)
 			local bucket=geometry.bins[binKey] or {}
 			geometry.bins[binKey]=bucket
 			table.insert(bucket,index)
@@ -74,7 +79,7 @@ function Curve.Intersect(part: BasePart, origin: Vector3, direction: Vector3, li
 	local best, bestIndex, u, v = limit, 0, 0, 0
 	local visited: {[number]: boolean} = {}
 	while x>=0 and x<BinCount and y>=0 and y<BinCount and z>=0 and z<BinCount do
-		local bucket = geometry.bins[Key(Vector3.new(x,y,z))]
+		local bucket = geometry.bins[BinKey(x,y,z)]
 		if bucket then
 			for _,index in bucket do
 				if visited[index] then continue end
@@ -137,8 +142,11 @@ function Curve.Candidates(part: BasePart, point: Vector3, radius: number): {numb
 	local high=Bin((point+Vector3.one*radius)/part.Size)
 	local result,seen={},{} :: {[number]: boolean}
 	for x=math.max(-1,low.X),math.min(BinCount,high.X) do for y=math.max(-1,low.Y),math.min(BinCount,high.Y) do for z=math.max(-1,low.Z),math.min(BinCount,high.Z) do
-		for _,index in ipairs(geometry.bins[Key(Vector3.new(x,y,z))] or {}) do
-			if not seen[index] then seen[index]=true;table.insert(result,index) end
+		local bucket=geometry.bins[BinKey(x,y,z)]
+		if bucket then
+			for _,index in ipairs(bucket) do
+				if not seen[index] then seen[index]=true;table.insert(result,index) end
+			end
 		end
 	end end end
 	return result
@@ -516,7 +524,7 @@ function Curve.SliceCrossSection(
 					if math.abs(centerDot - localOffset) > binThreshold then
 						continue
 					end
-					local bucket = geometry.bins[Key(Vector3.new(ix, iy, iz))]
+					local bucket = geometry.bins[BinKey(ix, iy, iz)]
 					if not bucket then
 						continue
 					end

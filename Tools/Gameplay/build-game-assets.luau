@@ -109,10 +109,11 @@ local function touchAttack()
 end
 touchAttack()
 gui.Parent=ui
-for _,name in {"PaintFaceGui","PaintCellFrame"} do local v=ui:FindFirstChild(name);if v then v:Destroy() end end
+for _,name in {"PaintFaceGui","PaintCellFrame","PaintRuneImage"} do local v=ui:FindFirstChild(name);if v then v:Destroy() end end
 local surface=Instance.new("SurfaceGui");surface.Name="PaintFaceGui";surface.CanvasSize=Vector2.new(256,256);surface.SizingMode=Enum.SurfaceGuiSizingMode.FixedSize;surface.AlwaysOnTop=false;surface.LightInfluence=0;surface.Brightness=2;surface.ZOffset=.015;surface.Parent=ui
 local cell=Instance.new("Frame");cell.Name="PaintCellFrame";cell.AnchorPoint=Vector2.new(.5,.5);cell.Size=UDim2.fromScale(.15,.15);cell.BackgroundColor3=Color3.fromRGB(176,63,255);cell.BorderSizePixel=0
 local corner=Instance.new("UICorner");corner.CornerRadius=UDim.new(1,0);corner.Parent=cell;cell.Parent=ui
+local rune=Instance.new("ImageLabel");rune.Name="PaintRuneImage";rune.AnchorPoint=Vector2.new(.5,.5);rune.Size=UDim2.fromOffset(36,36);rune.BackgroundTransparency=1;rune.BorderSizePixel=0;rune.ImageColor3=Color3.fromRGB(176,63,255);rune.ImageTransparency=0;rune.ScaleType=Enum.ScaleType.Stretch;rune.Parent=ui
 -- 清理已替换的旧业务资源；共享 Core、第三方与现有地图几何保持原样。
 local legacy={
  [RS.UI]={"GameFrame","GameScreenGui","FarmToolShopFrame","FarmWeaponEnhanceFrame","FarmCollectorShopFrame","FarmBasketShopFrame","FarmRestaurantFrame","FarmSpeciesFrame","FarmEquipmentFrame","FarmWeaponShopFrame","FarmHatchFrame","FarmConfirmationFrame","RoastChickenHUDFrame","FarmInteractionFrame","AnimalHealthGui","NestSignGui","RestaurantSignGui","WorkerSignGui","EggSignGui","FarmOwnerSignGui","CookedFoodSignGui","DamagePopGui","FarmTouchUseFrame","PackingDeliverySignGui","PackingEntranceSignGui","OriginalFoodDeliverySignGui","OriginalKitchenEntranceSignGui","OriginalFoodDirectionSignGui"},

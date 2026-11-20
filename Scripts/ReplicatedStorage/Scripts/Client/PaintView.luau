@@ -1,229 +1,648 @@
--- 统一视觉线段视图：本地逐帧生成、稳定 ID 增量和所有客户端同几何重建
+-- 统一符文印记视图：本地等距落印、稳定 ID 增量和所有客户端同几何重建
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local Types = require(ReplicatedStorage.Scripts.Shared.GameTypes)
 local Surface = require(ReplicatedStorage.Scripts.Shared.PaintSurface)
-local Path = require(ReplicatedStorage.Scripts.Shared.StrokePath)
 local Curve = require(ReplicatedStorage.Scripts.Shared.CurvedSurface)
+local RuneRules = require(ReplicatedStorage.Scripts.Shared.RuneStampRules)
 local CurvedView = require(script.Parent.CurvedPaintView)
 local UIManager = require(script.Parent.UIManager)
+
 local View = {}
 View.__index = View
+
+type CurvedTip = { part: string, point: Vector3, carry: number }
+type FlatTip = { part: string, face: number, point: Vector2, carry: number }
+type StampGrid = { [string]: { [number]: { Vector3 } } }
+type PulseSlot = {
+	attachment: Attachment,
+	gui: BillboardGui,
+	dot: Frame,
+	crossA: Frame,
+	crossB: Frame,
+	stroke: UIStroke,
+	part: BasePart?,
+	localPos: Vector3,
+	bornAt: number,
+	active: boolean,
+}
+
+local StampGridOffset = 64
+local StampGridBase = 128
+local PulsePoolSize = 8
+local PulseDuration = 0.18
+local PulseCooldown = 0.035
+
+local function StampCellKey(gx: number, gy: number, gz: number): number
+	return ((gx + StampGridOffset) * StampGridBase + (gy + StampGridOffset)) * StampGridBase + (gz + StampGridOffset)
+end
+
 export type View = typeof(setmetatable({} :: {
- faces: UIManager.PaintFaceManager, cells: UIManager.PaintCellManager,
- models: {[string]: Model},
- segments: {[string]: {[string]: Types.VisualSegment}},
- tips: {[string]: {path: Path.Tip,key: string}}, dirty: {[string]: {[string]: Types.VisualSegment}},
- counts: {[string]: number}, budgetReached: boolean,
- curved: CurvedView.View?, curvedTips: {[string]: {sample: Types.Sample, key: string}}?,
-},View))
+	faces: UIManager.PaintFaceManager,
+	cells: UIManager.PaintCellManager,
+	models: { [string]: Model },
+	segments: { [string]: { [string]: Types.VisualSegment } },
+	tips: { [string]: FlatTip },
+	dirty: { [string]: { [string]: Types.VisualSegment } },
+	counts: { [string]: number },
+	glyphs: { [string]: number },
+	budgetReached: boolean,
+	curved: CurvedView.View?,
+	curvedTips: { [string]: CurvedTip }?,
+	stampGrids: { [string]: StampGrid },
+	pulsePool: { PulseSlot }?,
+	pulseCursor: number,
+	lastPulse: number,
+}, View))
+
 function View.new(faces: UIManager.PaintFaceManager?, cells: UIManager.PaintCellManager?): View
- return setmetatable({faces=faces or UIManager.GetPaintFaceGuiManager(),cells=cells or UIManager.GetPaintCellFrameManager(),models={},segments={},tips={},dirty={},counts={},budgetReached=false},View)
+	return setmetatable({
+		faces = faces or UIManager.GetPaintFaceGuiManager(),
+		cells = cells or UIManager.GetPaintCellFrameManager(),
+		models = {},
+		segments = {},
+		tips = {},
+		dirty = {},
+		counts = {},
+		glyphs = {},
+		budgetReached = false,
+		stampGrids = {},
+		pulsePool = nil,
+		pulseCursor = 0,
+		lastPulse = 0,
+	}, View)
 end
-function View.Render(self: View,id: string,segment: Types.VisualSegment): ()
- local model=self.models[id]
- local part=model and model:FindFirstChild(segment.part)
- if not part or not part:IsA("BasePart") then return end
- if Curve.IsPart(part) then
-  local curved: CurvedView.View=self.curved or CurvedView.new()
-  self.curved=curved
-  curved:Bind(id,model :: Model,self.segments[id] or {})
-  curved:Apply(id,segment)
-  return
- end
- local dimensions=Surface.Dimensions(part.Size,segment.face)
- local faceKey=id..":"..segment.part..":"..tostring(segment.face)
- local gui=self.faces:Acquire(faceKey,id,part,Surface.Faces[segment.face],dimensions*Config.PaintSurfacePixels)
- local key=id..":"..segment.key
- local from=Vector2.new(segment.u0*dimensions.X,segment.v0*dimensions.Y)
- local point=Vector2.new(segment.u1*dimensions.X,segment.v1*dimensions.Y)
- local delta=point-from
- local width=Config.PaintVisualWidth*Config.PaintSurfacePixels
- self.cells:Update(key,id,{
-  key=segment.key,version=segment.version,
-  position=(point+from)*.5*Config.PaintSurfacePixels,
-  size=Vector2.new(delta.Magnitude*Config.PaintSurfacePixels+width,width),
-  rotation=math.deg(math.atan2(delta.Y,delta.X)),parent=gui,
- })
+
+local function EnsurePulsePool(self: View): { PulseSlot }?
+	if self.pulsePool then
+		return self.pulsePool
+	end
+	local okTerrain, terrain = pcall(function(): Instance?
+		return workspace.Terrain
+	end)
+	if not okTerrain or not terrain then
+		return nil
+	end
+	local pool: { PulseSlot } = {}
+	for i = 1, PulsePoolSize do
+		local okSlot, slot = pcall(function(): PulseSlot
+			local attachment = Instance.new("Attachment")
+			attachment.Name = "RuneAppearPulse_" .. tostring(i)
+			attachment.Parent = terrain
+			local gui = Instance.new("BillboardGui")
+			gui.Name = "RunePulseGui"
+			gui.AlwaysOnTop = false
+			gui.LightInfluence = 0
+			gui.MaxDistance = 40
+			gui.Size = UDim2.fromScale(0.22, 0.22)
+			gui.Enabled = false
+			gui.Adornee = attachment
+			gui.Parent = attachment
+			local crossA = Instance.new("Frame")
+			crossA.Name = "StarBeamH"
+			crossA.AnchorPoint = Vector2.new(0.5, 0.5)
+			crossA.Position = UDim2.fromScale(0.5, 0.5)
+			crossA.Size = UDim2.fromScale(1, 0.16)
+			crossA.BackgroundColor3 = Config.RuneAppearHighlightColor
+			crossA.BackgroundTransparency = 0.15
+			crossA.BorderSizePixel = 0
+			crossA.Parent = gui
+			local crossB = Instance.new("Frame")
+			crossB.Name = "StarBeamV"
+			crossB.AnchorPoint = Vector2.new(0.5, 0.5)
+			crossB.Position = UDim2.fromScale(0.5, 0.5)
+			crossB.Size = UDim2.fromScale(0.16, 1)
+			crossB.BackgroundColor3 = Config.RuneAppearHighlightColor
+			crossB.BackgroundTransparency = 0.15
+			crossB.BorderSizePixel = 0
+			crossB.Parent = gui
+			local dot = Instance.new("Frame")
+			dot.Name = "GlowDiamond"
+			dot.AnchorPoint = Vector2.new(0.5, 0.5)
+			dot.Position = UDim2.fromScale(0.5, 0.5)
+			dot.Size = UDim2.fromScale(0.56, 0.56)
+			dot.Rotation = 45
+			dot.BackgroundColor3 = Config.RuneAppearHighlightColor
+			dot.BackgroundTransparency = 0.1
+			dot.BorderSizePixel = 0
+			dot.Parent = gui
+			local stroke = Instance.new("UIStroke")
+			stroke.Color = Config.RuneBaseColor
+			stroke.Thickness = 1.5
+			stroke.Transparency = 0
+			stroke.Parent = dot
+			return {
+				attachment = attachment,
+				gui = gui,
+				dot = dot,
+				crossA = crossA,
+				crossB = crossB,
+				stroke = stroke,
+				part = nil,
+				localPos = Vector3.zero,
+				bornAt = 0,
+				active = false,
+			}
+		end)
+		if not okSlot then
+			for _, created in pool do
+				created.attachment:Destroy()
+			end
+			return nil
+		end
+		table.insert(pool, slot)
+	end
+	self.pulsePool = pool
+	return pool
 end
-function View.Apply(self: View,id: string,segments: {Types.VisualSegment}): ()
- local records=self.segments[id] or {}
- self.segments[id]=records
- for _,segment in segments do
-  local old=records[segment.key]
-  if segment.ink then
-   local merged,added=Curve.MergeInk(if old then old.ink else nil,segment.ink)
-   if not added then continue end
-   local stored=table.clone(segment)
-   stored.ink=merged
-   records[segment.key]=stored
-   if not old then self.counts[id]=(self.counts[id] or 0)+1 end
-   local delta=table.clone(stored)
-   delta.ink=added
-   self:Render(id,delta)
-   continue
-  end
-  if old and old.version>=segment.version then continue end
-  if not old then self.counts[id]=(self.counts[id] or 0)+1 end
-  records[segment.key]=table.clone(segment)
-  self:Render(id,segment)
- end
+
+local function SpawnPulse(self: View, part: BasePart, localPosition: Vector3): ()
+	local now = os.clock()
+	if now - self.lastPulse < PulseCooldown then
+		return
+	end
+	local pool = EnsurePulsePool(self)
+	if not pool or #pool == 0 then
+		return
+	end
+	self.lastPulse = now
+	self.pulseCursor = (self.pulseCursor % #pool) + 1
+	local slot = pool[self.pulseCursor]
+	slot.part = part
+	slot.localPos = localPosition
+	slot.attachment.WorldPosition = part.CFrame:PointToWorldSpace(localPosition)
+	slot.gui.Size = UDim2.fromScale(0.18, 0.18)
+	slot.dot.BackgroundTransparency = 0.1
+	slot.crossA.BackgroundTransparency = 0.15
+	slot.crossB.BackgroundTransparency = 0.15
+	slot.stroke.Transparency = 0
+	slot.gui.Enabled = true
+	slot.bornAt = now
+	slot.active = true
 end
-local function CanExtendCurved(part: BasePart, segment: Types.VisualSegment, from: Vector3, point: Vector3, triangle: number?): boolean
- if segment.triangle0~=triangle or segment.triangle1~=triangle then return false end
- local origin=Curve.Point(part,{part=segment.part,face=segment.face,u=segment.u0,v=segment.v0,triangle=triangle,surfaceVersion=segment.surfaceVersion})
- local old, extension=from-origin,point-from
- local combined=point-origin
- if combined.Magnitude>=Config.BrushRadius*3 or extension.Magnitude<.003 then return false end
- if old.Magnitude<.003 then return true end
- return old.Unit:Dot(extension.Unit)>.995 and old:Cross(combined).Magnitude/combined.Magnitude<Config.PaintVisualWidth*.1
+
+local function StepPulses(self: View): ()
+	local pool = self.pulsePool
+	if not pool then
+		return
+	end
+	local now = os.clock()
+	for _, slot in pool do
+		if not slot.active then
+			continue
+		end
+		local part = slot.part
+		local alpha = (now - slot.bornAt) / PulseDuration
+		if not part or not part.Parent or alpha >= 1 then
+			slot.active = false
+			slot.part = nil
+			slot.gui.Enabled = false
+		else
+			slot.attachment.WorldPosition = part.CFrame:PointToWorldSpace(slot.localPos)
+			local eased = 1 - (1 - alpha) * (1 - alpha)
+			local size = 0.18 + 0.30 * eased
+			slot.gui.Size = UDim2.fromScale(size, size)
+			slot.dot.BackgroundTransparency = 0.1 + 0.9 * eased
+			slot.crossA.BackgroundTransparency = 0.15 + 0.85 * eased
+			slot.crossB.BackgroundTransparency = 0.15 + 0.85 * eased
+			slot.stroke.Transparency = eased
+		end
+	end
 end
-function View.DrawLocal(self: View,id: string,session: string,gesture: number,samples: {Types.Sample}): ()
- local model=self.models[id]
- if not model then return end
- if model:GetAttribute("SurfaceVersion")==Curve.Version then
-  local pathKey=id..":"..session..":"..tostring(gesture)
-  local tips=self.curvedTips or {}
-  self.curvedTips=tips
-  local previous=tips[pathKey]
-  local changed=self.dirty[id] or {}
-  self.dirty[id]=changed
-  local records=self.segments[id] or {}
-  local updated: {[string]: Types.VisualSegment}={}
-  local keys: {string}={}
-  local count=self.counts[id] or 0
-  for _,sample in samples do
-   local part=model:FindFirstChild(sample.part)
-   if not part or not part:IsA("BasePart") or not Curve.Valid(part,sample) then previous=nil;continue end
-   local from, extended=sample,nil :: Types.VisualSegment?
-   if previous and not sample.breakBefore and previous.sample.part==sample.part then
-    local start,point=Curve.Point(part,previous.sample),Curve.Point(part,sample)
-    local distance=(point-start).Magnitude
-    if distance<.003 then continue end
-    if distance<Config.BrushRadius*3 then
-     from=previous.sample
-     local old=updated[previous.key] or records[previous.key]
-     if old and CanExtendCurved(part,old,start,point,sample.triangle) then extended=old end
-    end
-   end
-   if not extended and count>=Config.PaintLocalSegmentBudget then
-    sample.packedInk=true
-    local triangle=sample.triangle :: number
-    local key=Curve.InkKey(sample.part,triangle)
-    local patch=updated[key]
-    if not patch then
-     local old=records[key]
-     local ink=Curve.CopyInk(if old then old.ink else nil)
-     if Curve.MarkInk(ink,sample.u,sample.v) then
-      updated[key]={key=key,version=if old then old.version+1 else 1,gesture=1,part=sample.part,face=1,
-       u0=0,v0=0,u1=0,v1=0,triangle0=triangle,triangle1=triangle,surfaceVersion=Curve.Version,ink=ink}
-      table.insert(keys,key)
-     end
-    else
-     Curve.MarkInk(patch.ink :: buffer,sample.u,sample.v)
-    end
-    previous=nil
-    continue
-   end
-   if not extended then
-    count+=1
-   end
-   local key=if extended then extended.key else session..":"..tostring(gesture)..":"..tostring(count)
-   local segment: Types.VisualSegment={key=key,version=if extended then extended.version+1 else 1,gesture=gesture,part=sample.part,face=1,
-    u0=if extended then extended.u0 else from.u,v0=if extended then extended.v0 else from.v,u1=sample.u,v1=sample.v,
-    triangle0=if extended then extended.triangle0 else from.triangle,triangle1=sample.triangle,surfaceVersion=sample.surfaceVersion}
-   if not updated[key] then table.insert(keys,key) end
-   updated[key]=segment
-   previous={sample=sample,key=key}
-  end
-  local batch: {Types.VisualSegment}={}
-  for _,key in keys do
-   table.insert(batch,updated[key])
-   changed[key]=updated[key]
-  end
-  if #batch>0 then self:Apply(id,batch) end
-  tips[pathKey]=previous
-  return
- end
- local pathKey=id..":"..session..":"..tostring(gesture)
- local previous: {path: Path.Tip,key: string}?=self.tips[pathKey]
- local records=self.segments[id] or {}
- local changed=self.dirty[id] or {}
- self.segments[id],self.dirty[id]=records,changed
- for _,sample in samples do
-  local part=model:FindFirstChild(sample.part)
-  if not part or not part:IsA("BasePart") then previous=nil;continue end
-  local dimensions=Surface.Dimensions(part.Size,sample.face)
-  local nextSegment=Path.Next(if previous then previous.path else nil,sample,dimensions)
-  if nextSegment.skip then continue end
-  local key: string
-  if nextSegment.reuse and previous then key=previous.key else
-   if (self.counts[id] or 0)>=Config.PaintLocalSegmentBudget then self.budgetReached=true;break end
-   key=session..":"..tostring(gesture)..":"..tostring((self.counts[id] or 0)+1)
-  end
-  local old=records[key]
-  local segment: Types.VisualSegment={key=key,version=if old then old.version+1 else 1,gesture=gesture,part=sample.part,face=sample.face,
-   u0=math.clamp(nextSegment.tip.from.X/dimensions.X,0,1),v0=math.clamp(nextSegment.tip.from.Y/dimensions.Y,0,1),
-   u1=math.clamp(nextSegment.tip.point.X/dimensions.X,0,1),v1=math.clamp(nextSegment.tip.point.Y/dimensions.Y,0,1)}
-  self:Apply(id,{segment})
-  changed[key]=segment
-  previous={path=nextSegment.tip,key=key}
- end
- if previous then self.tips[pathKey]=previous else self.tips[pathKey]=nil end
+
+local function HasNearbyCurvedStamp(self: View, id: string, partName: string, point: Vector3, cellSize: number, minDist: number): boolean
+	local idGrid = self.stampGrids[id]
+	if not idGrid then
+		return false
+	end
+	local partGrid = idGrid[partName]
+	if not partGrid then
+		return false
+	end
+	local safeCell = math.max(cellSize, 0.05)
+	local gx = math.floor(point.X / safeCell)
+	local gy = math.floor(point.Y / safeCell)
+	local gz = math.floor(point.Z / safeCell)
+	local minDistSq = minDist * minDist
+	for dx = -1, 1 do
+		local baseX = (gx + dx + StampGridOffset) * StampGridBase
+		for dy = -1, 1 do
+			local baseXY = (baseX + gy + dy + StampGridOffset) * StampGridBase
+			for dz = -1, 1 do
+				local bucket = partGrid[baseXY + gz + dz + StampGridOffset]
+				if bucket then
+					for _, existing in bucket do
+						local diff = point - existing
+						if diff:Dot(diff) < minDistSq then
+							return true
+						end
+					end
+				end
+			end
+		end
+	end
+	return false
 end
-function View.Drain(self: View,id: string): {[string]: Types.VisualSegment}
- local changed=self.dirty[id] or {}
- self.dirty[id]=nil
- return changed
+
+local function RecordCurvedStamp(self: View, id: string, partName: string, point: Vector3, cellSize: number): ()
+	local idGrid = self.stampGrids[id]
+	if not idGrid then
+		idGrid = {}
+		self.stampGrids[id] = idGrid
+	end
+	local partGrid = idGrid[partName]
+	if not partGrid then
+		partGrid = {}
+		idGrid[partName] = partGrid
+	end
+	local safeCell = math.max(cellSize, 0.05)
+	local key = StampCellKey(math.floor(point.X / safeCell), math.floor(point.Y / safeCell), math.floor(point.Z / safeCell))
+	local bucket = partGrid[key]
+	if not bucket then
+		bucket = {}
+		partGrid[key] = bucket
+	end
+	table.insert(bucket, point)
 end
-function View.Bind(self: View,id: string,model: Model): ()
- if self.models[id]==model then return end
- self.models[id]=model
- if model:GetAttribute("SurfaceVersion")==Curve.Version then
-  local curved: CurvedView.View=self.curved or CurvedView.new()
-  self.curved=curved
-  curved:Bind(id,model,self.segments[id] or {})
-  return
- end
- for _,segment in pairs(self.segments[id] or {}) do self:Render(id,segment) end
+
+local function FlatGuiPoint(face: number, u: number, v: number, dimensions: Vector2): Vector2
+	local guiU = if face <= 4 then 1 - u else u
+	return Vector2.new(guiU * dimensions.X, v * dimensions.Y)
 end
--- 流出只释放展示绑定；按 id 保存的笔迹在下一次 Bind 时重建。
-function View.Detach(self: View,id: string): ()
- if self.curved then self.curved:Remove(id) end
- self.cells:Remove(id)
- self.faces:Remove(id)
- self.models[id]=nil
+
+local function NextGlyph(self: View, id: string): number
+	local current = self.glyphs[id] or 1
+	self.glyphs[id] = (current % Config.RuneGlyphCount) + 1
+	return current
 end
-function View.Remove(self: View,id: string): ()
- if self.curved then self.curved:Remove(id) end
- local prefix=id..":"
- self.cells:Remove(id)
- self.faces:Remove(id)
- for key in self.tips do if string.sub(key,1,#prefix)==prefix then self.tips[key]=nil end end
- self.models[id],self.segments[id],self.dirty[id],self.counts[id]=nil,nil,nil,nil
- local curvedTips=self.curvedTips
- if curvedTips then
-  for key in curvedTips do if string.sub(key,1,#prefix)==prefix then curvedTips[key]=nil end end
- end
+
+function View.Render(self: View, id: string, segment: Types.VisualSegment): ()
+	local model = self.models[id]
+	local part = model and model:FindFirstChild(segment.part)
+	if not part or not part:IsA("BasePart") then
+		return
+	end
+	if Curve.IsPart(part) then
+		local curved: CurvedView.View = self.curved or CurvedView.new()
+		self.curved = curved
+		curved:Bind(id, model :: Model, self.segments[id] or {})
+		curved:Apply(id, segment)
+		return
+	end
+	local dimensions = Surface.Dimensions(part.Size, segment.face)
+	local faceKey = id .. ":" .. segment.part .. ":" .. tostring(segment.face)
+	local gui = self.faces:Acquire(faceKey, id, part, Surface.Faces[segment.face], dimensions * Config.PaintSurfacePixels)
+	local key = id .. ":" .. segment.key
+	local center = FlatGuiPoint(segment.face, segment.u, segment.v, dimensions) * Config.PaintSurfacePixels
+	local pixels = Config.RuneStampSize * segment.scale * Config.PaintSurfacePixels
+	self.cells:Update(key, id, {
+		key = segment.key,
+		version = segment.version,
+		glyph = segment.glyph,
+		position = center,
+		size = Vector2.new(pixels, pixels),
+		rotation = math.deg(segment.angle),
+		parent = gui,
+	})
 end
-function View.Update(self: View,active: string?): () if self.curved then self.curved:Update(active) end end
-function View.SetSacrifice(self: View,id: string,brightness: number,transparency: number): ()
-	self.cells:SetSacrifice(id,brightness,transparency)
-	if self.curved then self.curved:SetSacrifice(id,brightness) end
+
+function View.Apply(self: View, id: string, segments: { Types.VisualSegment }): ()
+	local records = self.segments[id] or {}
+	self.segments[id] = records
+	local model = self.models[id]
+	local dedupeDist = Config.RuneStampSpacing * 0.72
+	for _, segment in segments do
+		local old = records[segment.key]
+		if old and old.version >= segment.version then
+			continue
+		end
+		if not old then
+			self.counts[id] = (self.counts[id] or 0) + 1
+			if model and segment.surfaceVersion == Curve.Version and segment.triangle then
+				local part = model:FindFirstChild(segment.part)
+				if part and part:IsA("BasePart") and Curve.IsPart(part) then
+					local tri = Curve.Geometry(part).triangles[segment.triangle]
+					if tri then
+						local center = tri.a + (tri.b - tri.a) * segment.u + (tri.c - tri.a) * segment.v
+						if not HasNearbyCurvedStamp(self, id, segment.part, center, dedupeDist, 1e-4) then
+							RecordCurvedStamp(self, id, segment.part, center, dedupeDist)
+						end
+					end
+				end
+			end
+		end
+		records[segment.key] = table.clone(segment)
+		self:Render(id, segment)
+	end
 end
-function View.ClearSacrifice(self: View,id: string): ()
-	self:SetSacrifice(id,0,0)
+
+function View.DrawLocal(self: View, id: string, session: string, gesture: number, samples: { Types.Sample }): ()
+	local model = self.models[id]
+	if not model then
+		return
+	end
+	local pathKey = id .. ":" .. session .. ":" .. tostring(gesture)
+	local changed = self.dirty[id] or {}
+	self.dirty[id] = changed
+	local spacing = Config.RuneStampSpacing
+	local count = self.counts[id] or 0
+
+	if model:GetAttribute("SurfaceVersion") == Curve.Version then
+		local tips = self.curvedTips or {}
+		self.curvedTips = tips
+		local tip: CurvedTip? = tips[pathKey]
+		local batch: { Types.VisualSegment } = {}
+		local dedupeDist = spacing * 0.72
+
+		local function EmitCurved(part: BasePart, sample: Types.Sample, angle: number): boolean
+			if count >= Config.PaintLocalSegmentBudget then
+				self.budgetReached = true
+				return false
+			end
+			local triIndex = sample.triangle
+			if not triIndex then
+				return false
+			end
+			local geometry = Curve.Geometry(part)
+			local triangle = geometry.triangles[triIndex]
+			if not triangle or not triangle.allowed then
+				return false
+			end
+			local center = Curve.Point(part, sample)
+			-- 部件级 3D 空间去重：旋转切片及连续滑动避开已有符文，防止重复调用 FitCurvedScale 与塞爆光栅化队列；主动首笔点击始终放行。
+			if (sample.slice or tip ~= nil) and HasNearbyCurvedStamp(self, id, sample.part, center, dedupeDist, dedupeDist) then
+				return false
+			end
+			local scale = RuneRules.FitCurvedScale(part, center, triangle.normal, angle)
+			if not scale then
+				return false
+			end
+			RecordCurvedStamp(self, id, sample.part, center, dedupeDist)
+			SpawnPulse(self, part, center + triangle.normal * 0.03)
+			count += 1
+			local key = session .. ":" .. tostring(gesture) .. ":" .. tostring(count)
+			local segment: Types.VisualSegment = {
+				key = key,
+				version = 1,
+				gesture = gesture,
+				part = sample.part,
+				face = 1,
+				u = sample.u,
+				v = sample.v,
+				glyph = NextGlyph(self, id),
+				angle = angle,
+				scale = scale,
+				triangle = triIndex,
+				surfaceVersion = Curve.Version,
+			}
+			table.insert(batch, segment)
+			changed[key] = segment
+			return true
+		end
+
+		for _, sample in samples do
+			local part = model:FindFirstChild(sample.part)
+			if not part or not part:IsA("BasePart") or not Curve.Valid(part, sample) then
+				tip = nil
+				continue
+			end
+			local geometry = Curve.Geometry(part)
+			local triIndex = sample.triangle :: number
+			local triangle = geometry.triangles[triIndex]
+			if not triangle or not triangle.allowed then
+				tip = nil
+				continue
+			end
+			local point = Curve.Point(part, sample)
+			local jump = if tip and tip.part == sample.part then (point - tip.point).Magnitude else 0
+			if not tip or sample.breakBefore or tip.part ~= sample.part or jump > spacing * 3 then
+				EmitCurved(part, sample, 0)
+				tip = { part = sample.part, point = point, carry = 0 }
+				continue
+			end
+			if jump < 1e-4 then
+				continue
+			end
+			local delta = point - tip.point
+			local remaining = tip.carry + jump
+			local cursor = 0
+			local carry = tip.carry
+			while remaining >= spacing - 1e-5 do
+				local advance = spacing - carry
+				cursor += advance
+				local alpha = math.clamp(cursor / jump, 0, 1)
+				local projected = Curve.ProjectLocal(part, tip.point:Lerp(point, alpha))
+				local projTri = geometry.triangles[projected.triangle :: number]
+				if projTri and projTri.allowed then
+					local right, up = RuneRules.Basis(projTri.normal)
+					local angle = RuneRules.AngleFromDirection(delta, right, up)
+					EmitCurved(part, projected, angle)
+				end
+				remaining = math.max(0, remaining - spacing)
+				carry = 0
+			end
+			tip = { part = sample.part, point = point, carry = remaining }
+		end
+
+		if #batch > 0 then
+			self:Apply(id, batch)
+		end
+		if tip then
+			tips[pathKey] = tip
+		else
+			tips[pathKey] = nil
+		end
+		return
+	end
+
+	local tip: FlatTip? = self.tips[pathKey]
+	local batch: { Types.VisualSegment } = {}
+
+	local function EmitFlat(part: BasePart, face: number, u: number, v: number, dimensions: Vector2, angle: number): boolean
+		if count >= Config.PaintLocalSegmentBudget then
+			self.budgetReached = true
+			return false
+		end
+		local scale = RuneRules.FitFlatScale(part, face, u, v, dimensions)
+		if not scale then
+			return false
+		end
+		count += 1
+		local key = session .. ":" .. tostring(gesture) .. ":" .. tostring(count)
+		local segment: Types.VisualSegment = {
+			key = key,
+			version = 1,
+			gesture = gesture,
+			part = part.Name,
+			face = face,
+			u = math.clamp(u, 0, 1),
+			v = math.clamp(v, 0, 1),
+			glyph = NextGlyph(self, id),
+			angle = angle,
+			scale = scale,
+		}
+		table.insert(batch, segment)
+		changed[key] = segment
+		return true
+	end
+
+	for _, sample in samples do
+		local part = model:FindFirstChild(sample.part)
+		if not part or not part:IsA("BasePart") or not Surface.Allowed(part, sample.face) then
+			tip = nil
+			continue
+		end
+		local dimensions = Surface.Dimensions(part.Size, sample.face)
+		local guiPoint = FlatGuiPoint(sample.face, sample.u, sample.v, dimensions)
+		local sameFace = tip ~= nil and tip.part == sample.part and tip.face == sample.face
+		local jump = if sameFace then (guiPoint - (tip :: FlatTip).point).Magnitude else 0
+		if not sameFace or sample.breakBefore or jump > spacing * 3 then
+			EmitFlat(part, sample.face, sample.u, sample.v, dimensions, 0)
+			tip = { part = sample.part, face = sample.face, point = guiPoint, carry = 0 }
+			continue
+		end
+		if jump < 1e-4 then
+			continue
+		end
+		local prevPoint = (tip :: FlatTip).point
+		local delta = guiPoint - prevPoint
+		local angle = math.atan2(delta.X, -delta.Y)
+		local remaining = (tip :: FlatTip).carry + jump
+		local cursor = 0
+		local carry = (tip :: FlatTip).carry
+		while remaining >= spacing - 1e-5 do
+			local advance = spacing - carry
+			cursor += advance
+			local alpha = math.clamp(cursor / jump, 0, 1)
+			local interp = prevPoint:Lerp(guiPoint, alpha)
+			local rawU = math.clamp(interp.X / dimensions.X, 0, 1)
+			local u = if sample.face <= 4 then 1 - rawU else rawU
+			local v = math.clamp(interp.Y / dimensions.Y, 0, 1)
+			EmitFlat(part, sample.face, u, v, dimensions, angle)
+			remaining = math.max(0, remaining - spacing)
+			carry = 0
+		end
+		tip = { part = sample.part, face = sample.face, point = guiPoint, carry = remaining }
+	end
+
+	if #batch > 0 then
+		self:Apply(id, batch)
+	end
+	if tip then
+		self.tips[pathKey] = tip
+	else
+		self.tips[pathKey] = nil
+	end
 end
-function View.IsReady(self: View,id: string): boolean
- local model: Model?=self.models[id]
- return not self.curved or not model or model:GetAttribute("SurfaceVersion")~=Curve.Version or self.curved:IsReady(id)
+
+function View.Drain(self: View, id: string): { [string]: Types.VisualSegment }
+	local changed = self.dirty[id] or {}
+	self.dirty[id] = nil
+	return changed
 end
+
+function View.Bind(self: View, id: string, model: Model): ()
+	if self.models[id] == model then
+		return
+	end
+	self.models[id] = model
+	if model:GetAttribute("SurfaceVersion") == Curve.Version then
+		local curved: CurvedView.View = self.curved or CurvedView.new()
+		self.curved = curved
+		curved:Bind(id, model, self.segments[id] or {})
+		return
+	end
+	for _, segment in pairs(self.segments[id] or {}) do
+		self:Render(id, segment)
+	end
+end
+
+-- 流出只释放展示绑定；按 id 保存的符文记录在下一次 Bind 时重建。
+function View.Detach(self: View, id: string): ()
+	if self.curved then
+		self.curved:Remove(id)
+	end
+	self.cells:Remove(id)
+	self.faces:Remove(id)
+	self.models[id] = nil
+end
+
+function View.Remove(self: View, id: string): ()
+	if self.curved then
+		self.curved:Remove(id)
+	end
+	local prefix = id .. ":"
+	self.cells:Remove(id)
+	self.faces:Remove(id)
+	for key in self.tips do
+		if string.sub(key, 1, #prefix) == prefix then
+			self.tips[key] = nil
+		end
+	end
+	self.models[id], self.segments[id], self.dirty[id], self.counts[id], self.glyphs[id], self.stampGrids[id] = nil, nil, nil, nil, nil, nil
+	local curvedTips = self.curvedTips
+	if curvedTips then
+		for key in curvedTips do
+			if string.sub(key, 1, #prefix) == prefix then
+				curvedTips[key] = nil
+			end
+		end
+	end
+end
+
+function View.Update(self: View, active: string?): ()
+	StepPulses(self)
+	if self.curved then
+		self.curved:Update(active)
+	end
+end
+
+function View.Warmup(self: View, id: string): ()
+	local model = self.models[id]
+	if not model or model:GetAttribute("SurfaceVersion") ~= Curve.Version then
+		return
+	end
+	local curved: CurvedView.View = self.curved or CurvedView.new()
+	self.curved = curved
+	curved:Bind(id, model, self.segments[id] or {})
+	curved:Warmup(id)
+end
+
+function View.SetSacrifice(self: View, id: string, brightness: number, transparency: number): ()
+	self.cells:SetSacrifice(id, brightness, transparency)
+	if self.curved then
+		self.curved:SetSacrifice(id, brightness)
+	end
+end
+
+function View.ClearSacrifice(self: View, id: string): ()
+	self:SetSacrifice(id, 0, 0)
+end
+
+function View.IsReady(self: View, id: string): boolean
+	local model: Model? = self.models[id]
+	return not self.curved or not model or model:GetAttribute("SurfaceVersion") ~= Curve.Version or self.curved:IsReady(id)
+end
+
 function View.Destroy(self: View): ()
- if self.curved then self.curved:Destroy() end
- for id in self.models do self:Remove(id) end
- for id in self.segments do self:Remove(id) end
- self.cells:Destroy()
- self.faces:Destroy()
+	if self.pulsePool then
+		for _, slot in self.pulsePool do
+			slot.attachment:Destroy()
+		end
+		self.pulsePool = nil
+	end
+	if self.curved then
+		self.curved:Destroy()
+	end
+	for id in self.models do
+		self:Remove(id)
+	end
+	for id in self.segments do
+		self:Remove(id)
+	end
+	self.cells:Destroy()
+	self.faces:Destroy()
 end
+
 return View

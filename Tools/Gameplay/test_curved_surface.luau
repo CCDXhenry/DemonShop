@@ -61,15 +61,15 @@ hand.CFrame=Roblox.CFrame.new(0,0,-2)
 local hit=Curve.FirstHit(Curve.BodyMesh(body),Vector3.new(0,0,-5),Vector3.zAxis,10)
 check(hit and hit.part=='LeftHand','frontmost visible limb wins')
 body:Destroy()
-local segment={key='s:1',version=1,gesture=1,part='Head',face=1,u0=.1,v0=.2,u1=.3,v1=.4,triangle0=100,triangle1=101,surfaceVersion=Curve.Version}
+local segment={key='s:1',version=1,gesture=1,part='Head',face=1,u=.1,v=.2,glyph=1,angle=0,scale=1,triangle=100,surfaceVersion=Curve.Version}
 check(Rules.Validate(segment),'valid curved visual')
 local state=Rules.New()
 local accepted=Rules.Apply(state,{segment},'s')
-check(accepted and accepted[1].triangle1==101,'preserve surface coordinate on server')
+check(accepted and accepted[1].triangle==100,'preserve surface coordinate on server')
 local invalid=table.clone(segment);invalid.surfaceVersion=999
 check(not Rules.Validate(invalid),'reject incompatible version')
-invalid=table.clone(segment);invalid.triangle0=0/0
+invalid=table.clone(segment);invalid.triangle=0/0
 check(not Rules.Validate(invalid),'reject NaN triangle')
-invalid=table.clone(segment);invalid.u1=.9;invalid.v1=.9
+invalid=table.clone(segment);invalid.u=.9;invalid.v=.9
 check(not Rules.Validate(invalid),'reject barycentric outside triangle')
 print('PASS: '..count..' curved surface assertions (production geometry and protocol)')

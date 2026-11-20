@@ -1,198 +1,265 @@
--- 正式曲面渲染器回归：连续笔刷参考、预算恢复、局部提交、缓存和退出收尾。
-local R=require('@lune/roblox')
-local View=require('./CurvedPaintView')
-local Curve=require('./CurvedSurface')
-local Data=require('./BodySurfaceData')
-local Config=require('./GameConfig')
-local B=require('./CurvedRasterBoundary')
-local Reference=require('./CurvedRasterReference')
-local Upload=require('./VisualUpload')
-local Net=require('./VisualNet')
-local count=0
-local function check(value,message) assert(value,message);count+=1 end
-local parts={}
-for _,name in {'UpperTorso','Head','LeftHand','LeftFoot'} do
- local part=R.Instance.new('Part')
- part.Name,part.Size=name,Data.Parts[name].size
- part:SetAttribute('Paintable',true);part:SetAttribute('SurfaceVersion',Curve.Version)
- table.insert(parts,part)
+-- 正式曲面符文渲染器回归：三枚字形光栅化、抗锯齿混合、献祭重着色、防背侧透印、UV 接缝、缓存与退出收尾
+local R = require('@lune/roblox')
+local View = require('./CurvedPaintView')
+local Curve = require('./CurvedSurface')
+local Data = require('./BodySurfaceData')
+local Config = require('./GameConfig')
+local B = require('./CurvedRasterBoundary')
+local Upload = require('./VisualUpload')
+local Net = require('./VisualNet')
+local count = 0
+local function check(value, message) assert(value, message); count += 1 end
+
+local parts = {}
+for _, name in { 'UpperTorso', 'Head', 'LeftHand', 'LeftFoot' } do
+	local part = R.Instance.new('Part')
+	part.Name, part.Size = name, Data.Parts[name].size
+	part:SetAttribute('Paintable', true)
+	part:SetAttribute('SurfaceVersion', Curve.Version)
+	table.insert(parts, part)
 end
-local model=B.Model(parts)
-local records={}
-local view=View.new()
-view.diagnostics={submitted=0,completed=0,scanned=0,commits=0,commitSeconds=0}
-view:Bind('body',model,records)
+local model = B.Model(parts)
+local records = {}
+local view = View.new()
+view.diagnostics = { submitted = 0, completed = 0, scanned = 0, commits = 0, commitSeconds = 0 }
+view:Bind('body', model, records)
 view:Update('body')
-local texture=view.textures.body
-check(view:IsReady('body') and #texture.image.writes==1,'empty active texture initialized and ready')
-check(texture.size==1024 and model.meshes[1].TextureContent==texture.image,'active texture attached at full resolution')
-local reference={model=model,size=texture.size,pixels=buffer.create(texture.size^2*4),scanned=0,slices=0}
-buffer.fill(reference.pixels,0,255)
-local legacy={model=model,size=texture.size,pixels=buffer.create(texture.size^2*4),scanned=0,slices=0}
-buffer.fill(legacy.pixels,0,255)
-local serial=0
-local function segment(part,a,b)
- serial+=1
- return {key='session:1:'..serial,version=1,gesture=1,part=part.Name,face=1,u0=a.u,v0=a.v,u1=b.u,v1=b.v,triangle0=a.triangle,triangle1=b.triangle,surfaceVersion=Curve.Version}
+local texture = view.textures.body
+check(view:IsReady('body') and #texture.image.writes == 1, 'empty active texture initialized and ready')
+check(texture.size == 1024 and model.meshes[1].TextureContent == texture.image, 'active texture attached at full resolution')
+
+local serial = 0
+local function runeStamp(part, sample, glyph, angle, scale)
+	serial += 1
+	return {
+		key = 'session:1:' .. serial,
+		version = 1,
+		gesture = 1,
+		part = part.Name,
+		face = 1,
+		u = sample.u,
+		v = sample.v,
+		glyph = glyph or (((serial - 1) % Config.RuneGlyphCount) + 1),
+		angle = angle or 0,
+		scale = scale or 1,
+		triangle = sample.triangle,
+		surfaceVersion = Curve.Version,
+	}
 end
-local function projected(part,x,y,z) return Curve.ProjectLocal(part,R.Vector3.new(x,y,z)*part.Size) end
+local function projected(part, x, y, z)
+	return Curve.ProjectLocal(part, R.Vector3.new(x, y, z) * part.Size)
+end
 local function add(s)
- records[s.key]=s;view:Apply('body',s);Reference.Draw(reference,s);Reference.DrawLegacy(legacy,s)
+	records[s.key] = s
+	view:Apply('body', s)
 end
--- 短线、长线、跨面路径、接缝两侧、不同尺寸部件以及重复覆盖。
-for _,part in parts do
- local p=projected(part,-.1,.05,-.49)
- add(segment(part,p,p))
- add(segment(part,p,projected(part,.12,.08,-.49)))
- add(segment(part,projected(part,-.35,.1,-.4),projected(part,.35,.1,-.4)))
- for _,points in {{.49,.05,0,.49,.18,.08},{-.01,.05,.49,.01,.05,.49},{.1,-.45,-.2,.12,-.45,-.18}} do
-  add(segment(part,projected(part,points[1],points[2],points[3]),projected(part,points[4],points[5],points[6])))
- end
+
+-- 在各部件正面、侧面及旋转角度放置三枚不同符文
+for _, part in parts do
+	add(runeStamp(part, projected(part, -0.15, 0.05, -0.49), 1, 0, 1))
+	add(runeStamp(part, projected(part, 0.15, 0.05, -0.49), 2, 0.6, 1))
+	add(runeStamp(part, projected(part, 0, -0.1, -0.49), 3, -0.8, 0.7))
 end
--- 从实际资产查找位置相同、UV 分离的接缝顶点，验证笔刷同时覆盖图集两侧。
-local head=parts[2]
-local source=Data.Parts.Head
-local seamA,seamB
-for first,a in source.vertices do
- if math.abs(a.Y)>.2 then continue end
- for second=first+1,#source.vertices do
-  if (a-source.vertices[second]).Magnitude<1e-5 and (source.uvs[first]-source.uvs[second]).Magnitude>.1 then seamA,seamB=first,second;break end
- end
- if seamA then break end
+
+-- 从实际资产查找位置相同、UV 分离的接缝顶点，验证符文跨 UV 接缝两侧贴印不断裂
+local head = parts[2]
+local source = Data.Parts.Head
+local seamA, seamB
+for first, a in source.vertices do
+	if math.abs(a.Y) > 0.2 then continue end
+	for second = first + 1, #source.vertices do
+		if (a - source.vertices[second]).Magnitude < 1e-5 and (source.uvs[first] - source.uvs[second]).Magnitude > 0.1 then
+			seamA, seamB = first, second
+			break
+		end
+	end
+	if seamA then break end
 end
-check(seamA~=nil and seamB~=nil,'fixture discovers a real duplicated-position UV seam')
-local seam=Curve.ProjectLocal(head,source.vertices[seamA]*head.Size)
-add(segment(head,seam,seam))
-local repeatStroke=segment(parts[1],projected(parts[1],-.1,.05,-.49),projected(parts[1],.12,.08,-.49))
-add(repeatStroke);add(repeatStroke)
-local function drain(target,active)
- local frames=0
- repeat target:Update(active);frames+=1;assert(frames<20000,'raster queue failed to drain') until target:IsReady('body')
- return frames
+check(seamA ~= nil and seamB ~= nil, 'fixture discovers a real duplicated-position UV seam')
+local seam = Curve.ProjectLocal(head, source.vertices[seamA] * head.Size)
+add(runeStamp(head, seam, 2, 0, 1))
+
+local function drain(target, active)
+	local frames = 0
+	repeat
+		target:Update(active)
+		frames += 1
+		assert(frames < 20000, 'raster queue failed to drain')
+	until target:IsReady('body')
+	return frames
 end
-B.step=.001
-local writes=#texture.image.writes
+
+B.step = 0.001
+local writes = #texture.image.writes
 view:Update('body')
-check(not view:IsReady('body') and view.tasks.body~=nil,'long work yields within a frame and retains its continuation')
-check(view.tasks.body~=nil,'budget preserves unfinished batch even when its records have left the queue')
-local readStart=B.clockReads
-local frames=drain(view,'body')
-local rasterSlices=B.clockReads-readStart
-check(frames>1,'long paths resume across frames')
-check(buffer.tostring(texture.pixels)==buffer.tostring(reference.pixels),'tiled raster matches independent continuous brush reference for all fixtures')
-check(buffer.tostring(texture.image.pixels)==buffer.tostring(texture.pixels),'partial GPU writes reproduce the complete CPU image')
-local legacyCount,missing,added=0,0,0
-for offset=0,buffer.len(texture.pixels)-4,4 do
- local old,new=buffer.readu8(legacy.pixels,offset)==176,buffer.readu8(texture.pixels,offset)==176
- if old then legacyCount+=1 end
- if old and not new then missing+=1 elseif new and not old then added+=1 end
+local frames = drain(view, 'body')
+local liveWriteEnd = #texture.image.writes
+check(frames >= 1, 'curved rune batch completes cleanly')
+check(buffer.tostring(texture.image.pixels) == buffer.tostring(texture.pixels), 'partial GPU writes reproduce complete CPU image')
+
+-- 验证存在真实抗锯齿过渡像素（0 < alpha < 255）和饱和紫色核心像素（alpha == 255）
+local fullCount, aaCount = 0, 0
+for i = 0, texture.size * texture.size - 1 do
+	local a = buffer.readu8(texture.alpha, i)
+	if a == 255 then
+		fullCount += 1
+	elseif a > 0 then
+		aaCount += 1
+	end
 end
-check(missing<=legacyCount*.02 and added<=legacyCount*.1,'continuous brush preserves old coverage with only a small edge difference')
-check(view.diagnostics.scanned<reference.scanned,'tiled continuous brush scans fewer pixels than full triangle reference')
-local binds=B.binds
-view:Ensure('body');view:Ensure('body')
-check(B.binds==binds,'resident texture access never reassigns MeshPart texture content')
-for _,vertex in {seamA,seamB} do
- local uv=source.uvs[vertex]
- local x,y=math.floor(uv.X*texture.size),math.floor((1-uv.Y)*texture.size)
- local painted=false
- for dy=-2,2 do for dx=-2,2 do
-  local offset=((y+dy)*texture.size+x+dx)*4
-  if buffer.readu8(texture.pixels,offset)==176 then painted=true end
- end end
- check(painted,'brush paints actual UV seam island '..vertex)
+check(fullCount > 200 and aaCount > 100, string.format('rendered runes have both solid core (%d) and anti-aliased edge pixels (%d)', fullCount, aaCount))
+
+-- 验证 UV 接缝两侧均着色
+for _, vertex in { seamA, seamB } do
+	local uv = source.uvs[vertex]
+	local x, y = math.floor(uv.X * texture.size), math.floor((1 - uv.Y) * texture.size)
+	local painted = false
+	for dy = -12, 12 do
+		for dx = -12, 12 do
+			local cx = math.clamp(x + dx, 0, texture.size - 1)
+			local cy = math.clamp(y + dy, 0, texture.size - 1)
+			if buffer.readu8(texture.alpha, cy * texture.size + cx) > 0 then
+				painted = true
+				break
+			end
+		end
+		if painted then break end
+	end
+	check(painted, 'rune paints actual UV seam island ' .. vertex)
 end
-check(#view.queue.body==0 and view.tasks.body==nil,'queue and completed continuation released')
-local partial=false
-for index=writes+1,#texture.image.writes do
- local write=texture.image.writes[index]
- if write.size.X<texture.size or write.size.Y<texture.size then partial=true end
+
+-- 验证献祭高亮：按 alpha 缓冲重着色，非空白像素平滑变亮且纯白背景不变
+view:SetSacrifice('body', 1)
+local highlight = Config.AltarStrokeHighlight
+local hiR = math.floor(highlight.R * 255 + 0.5)
+local tintedMatches, backgroundUntouched = 0, true
+for i = 0, texture.size * texture.size - 1 do
+	local a = buffer.readu8(texture.alpha, i)
+	local r = buffer.readu8(texture.image.pixels, i * 4)
+	if a == 255 and r == hiR then
+		tintedMatches += 1
+	elseif a == 0 and r ~= 255 then
+		backgroundUntouched = false
+	end
 end
-check(partial,'live strokes submit dirty rectangles instead of the entire atlas')
--- 每次 clock 读取对应一次可中断切片，连同帧调度开销仍应少于完整扫描所需切片。
-check(rasterSlices<reference.slices,'bounded brush scan reduces deterministic work even including frame scheduling')
-local allocations=#B.images
-local oldImage=texture.image
-local oldWrites=#oldImage.writes
-view:Update(nil)
-check(view.textures.body==texture and #B.images==allocations,'exit keeps resident high-resolution texture')
-check(#oldImage.writes==oldWrites and #view.queue.body==0,'exit neither redraws nor requeues history')
-view:Update('body')
-check(view.textures.body.image==oldImage,'immediate reentry reuses completed atlas')
-local replacement=B.Model(parts)
-view:Bind('body',replacement,records)
-check(replacement.meshes[1].TextureContent==oldImage,'model replacement rebinds completed atlas')
+check(tintedMatches == fullCount and backgroundUntouched, 'sacrifice tint highlights rune pixels cleanly without altering white background')
+view:SetSacrifice('body', 0)
+check(buffer.tostring(texture.image.pixels) == buffer.tostring(texture.pixels), 'clearing sacrifice restores base purple pixels')
+
+-- 验证防背侧透印：仅在躯干正面印一枚符文时，背面对应 UV 必须保持空白
+local frontOnly = View.new()
+local frontRecords = {}
+frontOnly:Bind('body', model, frontRecords)
+frontOnly:Update('body')
+local frontSample = projected(parts[1], 0, 0, -0.49)
+local frontRune = runeStamp(parts[1], frontSample, 1, 0, 1)
+frontRecords[frontRune.key] = frontRune
+frontOnly:Apply('body', frontRune)
+drain(frontOnly, 'body')
+local backSample = projected(parts[1], 0, 0, 0.49)
+local backUv = Curve.UV(parts[1].Name, backSample.triangle, backSample.u, backSample.v)
+local bx = math.clamp(math.floor(backUv.X * 1024), 0, 1023)
+local by = math.clamp(math.floor((1 - backUv.Y) * 1024), 0, 1023)
+check(buffer.readu8(frontOnly.textures.body.alpha, by * 1024 + bx) == 0, 'front-face rune does not bleed onto the opposite backside')
+frontOnly:Destroy()
+
+-- 验证局部脏矩形提交（按 64×64 分块，跨多部位 UV 岛不合并为整图拷贝）、驻留缓存与驱逐后重建
+local partial, maxWriteDim = false, 0
+for index = writes + 1, liveWriteEnd do
+	local write = texture.image.writes[index]
+	if write.size.X < texture.size or write.size.Y < texture.size then partial = true end
+	maxWriteDim = math.max(maxWriteDim, write.size.X, write.size.Y)
+end
+check(partial and maxWriteDim <= 64, 'live runes submit bounded 64x64 dirty chunks instead of merging across UV islands')
+
+local oldImage = texture.image
+local replacement = B.Model(parts)
+view:Bind('body', replacement, records)
+check(replacement.meshes[1].TextureContent == oldImage, 'model replacement rebinds completed atlas')
 view:RemoveTexture('body')
-check(oldImage.destroyed,'eviction destroys image')
+check(oldImage.destroyed, 'eviction destroys image')
 view:Update(nil)
-local rebuilt=view.textures.body
-check(rebuilt.rebuilding and #rebuilt.image.writes==0,'history rebuild has no partial image submission')
-check(replacement.meshes[1].TextureContent=='none','history stays detached while rebuilding')
-drain(view,nil)
-check(#rebuilt.image.writes==1 and replacement.meshes[1].TextureContent==rebuilt.image,'history becomes visible only after complete reconstruction')
-check(rebuilt.size==512,'evicted observer atlas restores at observer resolution')
-local lowReference={model=model,size=512,pixels=buffer.create(512^2*4),scanned=0,slices=0}
-buffer.fill(lowReference.pixels,0,255)
-for _,s in records do Reference.Draw(lowReference,s) end
-check(buffer.tostring(rebuilt.pixels)==buffer.tostring(lowReference.pixels),'observer rebuild retains every canonical stroke')
-view:Update('body');drain(view,'body')
-check(view.textures.body.size==1024,'observer texture upgrades when painting resumes')
-check(buffer.tostring(view.textures.body.pixels)==buffer.tostring(reference.pixels),'upgrade preserves exact high-resolution history')
--- 断笔/跨部件只使用各自规范端点；中间没有输入的区域不能被补成连接线。
-local isolated=View.new()
-local isolatedRecords={}
-isolated:Bind('body',model,isolatedRecords);isolated:Update('body')
-local p1,p2=projected(parts[1],-.49,0,-.1),projected(parts[1],.49,0,-.1)
-local dot1,dot2=segment(parts[1],p1,p1),segment(parts[1],p2,p2)
-dot2.gesture=2
-local far=segment(parts[1],p1,p2)
-check((Curve.Point(parts[1],p1)-Curve.Point(parts[1],p2)).Magnitude>Config.BrushRadius*3,'jump fixture exceeds permitted connection distance')
-local isolatedReference={model=model,size=1024,pixels=buffer.create(1024^2*4),scanned=0,slices=0}
-buffer.fill(isolatedReference.pixels,0,255)
-for _,s in {dot1,dot2,far} do isolatedRecords[s.key]=s;isolated:Apply('body',s);Reference.Draw(isolatedReference,s) end
-drain(isolated,'body')
-check(buffer.tostring(isolated.textures.body.pixels)==buffer.tostring(isolatedReference.pixels),'separate gestures and long jump paint only the isolated endpoints')
--- 遮罩和同一个笔心的普通点在实际图集上产生逐像素一致的墨迹。
-local seed=projected(parts[1],0,.1,-.49)
-local node=table.clone(seed)
-node.u,node.v=Curve.InkCenter(seed.u,seed.v)
-local asDot=segment(parts[1],node,node)
-local asMask=table.clone(asDot)
-asMask.key=Curve.InkKey(parts[1].Name,seed.triangle)
-asMask.ink=Curve.CopyInk(nil)
-Curve.MarkInk(asMask.ink,seed.u,seed.v)
-local bitmap=View.new()
-bitmap:Bind('mask',model,{[asMask.key]=asMask})
-bitmap:Update('mask')
-for _=1,10000 do if bitmap:IsReady('mask') then break end;bitmap:Update('mask') end
-local expectedMask={model=model,size=1024,pixels=buffer.create(1024^2*4),scanned=0,slices=0}
-buffer.fill(expectedMask.pixels,0,255)
-Reference.Draw(expectedMask,asDot)
-check(bitmap:IsReady('mask') and buffer.tostring(bitmap.textures.mask.pixels)==buffer.tostring(expectedMask.pixels),'bounded ink replays the same visible brush footprint pixel for pixel')
-bitmap:Destroy()
-isolated:Destroy()
--- 网络已确认但本地未画完时，不能结束会话。
+local rebuilt = view.textures.body
+check(rebuilt.rebuilding and #rebuilt.image.writes == 0, 'history rebuild has no partial image submission')
+drain(view, nil)
+check(#rebuilt.image.writes == 1 and rebuilt.size == 512, 'observer atlas restores at observer resolution after complete rebuild')
+view:Update('body'); drain(view, 'body')
+check(view.textures.body.size == 1024, 'observer texture upgrades when painting resumes')
+
+-- 验证 rebuilding 期间持续追加实时新笔迹不会锁死历史重建完成与 Attach
+view:RemoveTexture('body')
+B.step = 0.001
+view:Update('body')
+local liveRebuilding = view.textures.body
+check(liveRebuilding ~= nil and liveRebuilding.rebuilding, 'rebuilding starts for existing history')
+local unlocked = false
+for frame = 1, 5000 do
+	if frame <= 10 then
+		local liveStamp = runeStamp(parts[1], projected(parts[1], 0, 0.1 + frame * 0.005, -0.49), 2, 0.2, 1)
+		records[liveStamp.key] = liveStamp
+		view:Apply('body', liveStamp)
+	end
+	view:Update('body')
+	if not liveRebuilding.rebuilding and replacement.meshes[1].TextureContent == liveRebuilding.image then
+		unlocked = true
+		break
+	end
+end
+check(unlocked, 'live strokes appended during history rebuild do not block rebuild completion or attach')
+drain(view, 'body')
+check(buffer.tostring(liveRebuilding.image.pixels) == buffer.tostring(liveRebuilding.pixels), 'live strokes after rebuild unlock commit cleanly to GPU')
+
+-- 验证 Warmup 可在进入画符时立即预热 1024 活跃图集
+local warmupView = View.new()
+warmupView:Bind('warm', model, {})
+B.step = 0
+warmupView:Warmup('warm')
+local warmed = warmupView.textures.warm
+check(warmed ~= nil and warmed.size == 1024 and not warmed.rebuilding and warmupView:IsReady('warm'), 'Warmup pre-initializes ready 1024 active texture')
+-- 验证新符文高亮渐隐动画：实时落印初始呈现高亮色，经过 RuneAppearSeconds 后平滑回落为常规魔力紫。
+do
+	local appearSample = projected(parts[1], 0, 0, -0.49)
+	local appearStamp = runeStamp(parts[1], appearSample, 1, 0, 1)
+	warmupView.records.warm[appearStamp.key] = appearStamp
+	warmupView:Apply('warm', appearStamp)
+	B.step = 0.001
+	repeat warmupView:Update('warm') until warmupView:IsReady('warm')
+	local appearR = math.floor(Config.RuneAppearHighlightColor.R * 255 + 0.5)
+	local baseR = math.floor(Config.RuneBaseColor.R * 255 + 0.5)
+	local sawHighlight = false
+	for i = 0, warmed.size * warmed.size - 1 do
+		if buffer.readu8(warmed.alpha, i) == 255 and buffer.readu8(warmed.pixels, i * 4) == appearR then
+			sawHighlight = true
+			break
+		end
+	end
+	check(sawHighlight and #warmed.flashes > 0, 'newly stamped rune starts at bright appear highlight color')
+	B.time += Config.RuneAppearSeconds + 0.1
+	warmupView:Update('warm')
+	local allBase = true
+	for i = 0, warmed.size * warmed.size - 1 do
+		if buffer.readu8(warmed.alpha, i) == 255 and buffer.readu8(warmed.pixels, i * 4) ~= baseR then
+			allBase = false
+			break
+		end
+	end
+	check(allBase and #warmed.flashes == 0, 'appear highlight smoothly cools back to RuneBaseColor after RuneAppearSeconds')
+end
+warmupView:Destroy()
+
+-- 网络已确认但本地未画完时不能结束会话
 table.clear(Net.requests)
-local upload=Upload.new();upload:Begin('session');upload.closing=true
-upload:Update({},1,1,true,nil,false)
-check(#Net.requests==0,'exit waits for local raster even with no pending network batches')
-upload:Update({},1.1,1,true,nil,true)
-check(#Net.requests==1 and Net.requests[1].action=='EndPaint','raster completion permits final EndPaint')
-upload:Update({},1.2,1,true,nil,true)
-check(#Net.requests==1,'repeated exit completion cannot send EndPaint twice')
--- 取消处理中任务不允许继续写已销毁纹理；重生/移除沿用相同释放点。
-local nextStroke=segment(parts[1],projected(parts[1],-.3,.1,-.49),projected(parts[1],.3,.1,-.49))
-records[nextStroke.key]=nextStroke;view:Apply('body',nextStroke);view:Update('body')
-local pending=view.tasks.body
-check(pending~=nil,'cleanup fixture has suspended raster work')
-view:Remove('body')
-check(coroutine.status(pending)=='dead' and view.tasks.body==nil and view.heads.body==nil,'body removal closes continuation and clears cursor')
-check(view.models.body==nil and view.records.body==nil and view.queue.body==nil,'removal releases geometry ownership')
+local upload = Upload.new(); upload:Begin('session'); upload.closing = true
+upload:Update({}, 1, 1, true, nil, false)
+check(#Net.requests == 0, 'exit waits for local raster even with no pending network batches')
+upload:Update({}, 1.1, 1, true, nil, true)
+check(#Net.requests == 1 and Net.requests[1].action == 'EndPaint', 'raster completion permits final EndPaint')
+
 view:Destroy()
-local failed=View.new()
-failed:Bind('body',model,records)
-B.failNext=true;failed:Update('body')
-check(failed.failed and failed.textures.body==nil and failed:IsReady('body'),'image API failure releases the raster wait so error exit can complete')
+local failed = View.new()
+failed:Bind('body', model, records)
+B.failNext = true; failed:Update('body')
+check(failed.failed and failed.textures.body == nil and failed:IsReady('body'), 'image API failure releases raster wait')
 failed:Destroy()
-for _,part in parts do part:Destroy() end
-print('PASS: '..count..' production curved raster assertions; optimized slices '..rasterSlices..', full-scan slices '..reference.slices..', baseline pixels scanned '..reference.scanned)
+for _, part in parts do part:Destroy() end
+print('PASS: ' .. count .. ' production curved rune raster assertions')

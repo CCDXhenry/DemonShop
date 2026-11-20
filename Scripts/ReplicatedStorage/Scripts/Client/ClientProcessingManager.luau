@@ -79,6 +79,9 @@ export type Client = typeof(setmetatable(
 		pendingCoverage: Types.Request?,
 		paintSamples: {Types.Sample},
 		localCovered: {[string]: boolean}?,
+		localProgress: number,
+		localArea: number,
+		localTotalArea: number,
 		visualGesture: number,
 		orientation: CFrame,
 		sentOrientation: CFrame,
@@ -92,6 +95,9 @@ export type Client = typeof(setmetatable(
 		lastHint: number,
 		messageEnds: number,
 		touchGuiEnabled: boolean?,
+		hiddenPlayerParts: { [Instance]: boolean }?,
+		hidePlayersScope: Lifecycle.Lifecycle?,
+		completeFlash: { id: string, started: number }?,
 		initialized: boolean,
 	},
 	Client
@@ -166,6 +172,9 @@ function Client.new(): Client
 			rotationAnchor = nil,
 			paintSamples = {},
 			localCovered = {},
+			localProgress = 0,
+			localArea = 0,
+			localTotalArea = 0,
 			visualGesture = 0,
 			orientation = CFrame.identity,
 			sentOrientation = CFrame.identity,
@@ -179,6 +188,9 @@ function Client.new(): Client
 			lastHint = 0,
 			messageEnds = 0,
 			touchGuiEnabled = nil,
+			hiddenPlayerParts = {},
+			hidePlayersScope = nil,
+			completeFlash = nil,
 			initialized = false,
 		},
 		Client
@@ -233,10 +245,75 @@ function Client.Potions(self: Client): Hints.Potions
 	end
 	return { stored = stored, equipped = equipped }
 end
+local function RestoreHiddenPlayers(self: Client): ()
+	if self.hidePlayersScope then
+		self.hidePlayersScope:Destroy()
+		self.hidePlayersScope = nil
+	end
+	local hidden = self.hiddenPlayerParts
+	if hidden then
+		for instance in hidden do
+			if instance:IsA("BasePart") then
+				instance.LocalTransparencyModifier = 0
+			elseif instance:IsA("Decal") then
+				instance.LocalTransparencyModifier = 0
+			end
+		end
+		table.clear(hidden)
+	end
+end
+
+local function HidePlayerCharactersForPaint(self: Client): ()
+	if not Players or not Players.GetPlayers then
+		return
+	end
+	local hidden: { [Instance]: boolean } = self.hiddenPlayerParts or {}
+	self.hiddenPlayerParts = hidden
+	for _, targetPlayer in Players:GetPlayers() do
+		local character = targetPlayer.Character
+		if not character then
+			continue
+		end
+		for _, descendant in character:GetDescendants() do
+			if descendant:IsA("BasePart") then
+				if descendant.LocalTransparencyModifier ~= 1 then
+					descendant.LocalTransparencyModifier = 1
+				end
+				hidden[descendant] = true
+			elseif descendant:IsA("Decal") then
+				if descendant.LocalTransparencyModifier ~= 1 then
+					descendant.LocalTransparencyModifier = 1
+				end
+				hidden[descendant] = true
+			end
+		end
+	end
+end
+
+local function HidePlayersForPaint(self: Client): ()
+	RestoreHiddenPlayers(self)
+	HidePlayerCharactersForPaint(self)
+end
+
 function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	local id = self.paintId
 	if not id then
 		return
+	end
+	if self.hidePlayersScope then
+		self.hidePlayersScope:Destroy()
+		self.hidePlayersScope = nil
+	end
+	local hidden = self.hiddenPlayerParts
+	if hidden then
+		for instance in hidden do
+			if instance:IsA("BasePart") then
+				instance.LocalTransparencyModifier = 0
+			elseif instance:IsA("Decal") then
+				instance.LocalTransparencyModifier = 0
+			end
+		end
+		table.clear(hidden)
 	end
 	self.paintId = nil
 	self.visualUpload:Clear()
@@ -248,6 +325,7 @@ function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	self.pointerOrigin, self.hardwareOrigin = nil, nil
 	table.clear(self.paintSamples)
 	if self.localCovered then table.clear(self.localCovered) end
+	self.localProgress, self.localArea, self.localTotalArea = 0, 0, 0
 	self.pendingCoverage = nil
 	self.touch = nil
 	self.rotationAnchor = nil
@@ -283,6 +361,22 @@ function Client.EnterView(self: Client, id: string, session: string, frames: Typ
 	self.paintSequence = 0
 	self.lastPaint = os.clock()
 	if self.localCovered then table.clear(self.localCovered) else self.localCovered = {} end
+	local item = self.items[id]
+	local initialProgress = if item then math.clamp(item.progress, 0, 1) else 0
+	local paintModel = self.bodies:GetPaintModel(id)
+	local totalArea = 0
+	if paintModel and typeof(paintModel) == "Instance" then
+		totalArea = Surface.Total(paintModel)
+		if paintModel:GetAttribute("SurfaceVersion") == Curve.Version then
+			totalArea = math.max(0.001, totalArea - Curve.ExcludeInterior(paintModel, self.localCovered :: { [string]: boolean }))
+		end
+	end
+	self.localTotalArea = totalArea
+	self.localProgress = initialProgress
+	self.localArea = initialProgress * math.max(totalArea * Config.PaintTarget, 0.001)
+	if self.view and self.view.Warmup then
+		self.view:Warmup(id)
+	end
 	self.orientation, self.sentOrientation = CFrame.identity, CFrame.identity
 	if UserInputService.MouseEnabled then
 		local inset = GuiService:GetGuiInset()
@@ -297,6 +391,7 @@ function Client.EnterView(self: Client, id: string, session: string, frames: Typ
 		touchGui.Enabled = false
 	end
 	self.paintCamera:Enter(CameraPose())
+	HidePlayersForPaint(self)
 	self.ui:SetPainting(true)
 end
 function Client.CancelHitFeedback(self: Client): ()
@@ -496,16 +591,37 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		local isCurrentTable = snapshot and notice.id == snapshot.tableId and notice.session == snapshot.session
 		if not isOperator and not isCurrentTable then return end
 		local item = self.items[notice.id]
-		if item then item.progress = notice.progress or item.progress end
+		if item then
+			item.progress = notice.progress or item.progress
+			if isOperator then
+				local targetArea = math.max((self.localTotalArea or 0) * Config.PaintTarget, 0.001)
+				if item.progress >= 1 then
+					self.localProgress = 1
+					self.localArea = math.max(self.localArea or 0, targetArea)
+				elseif item.progress > (self.localProgress or 0) then
+					self.localProgress = item.progress
+					self.localArea = math.max(self.localArea or 0, item.progress * targetArea)
+				end
+			end
+		end
 		if isOperator and self.pendingCoverage and notice.sequence == self.pendingCoverage.sequence then self.pendingCoverage=nil end
 		if not isOperator then
 			self.presentation.targetOrientation = notice.orientation or CFrame.identity
+			if notice.bodyPose then
+				self.presentation.targetBodyPose = notice.bodyPose
+			end
 		end
 	elseif notice.kind == "VisualDelta" and notice.id and notice.segments then
 		local item = self.items[notice.id]
 		if not item then return end
 		self.view:Apply(notice.id,notice.segments)
 		if notice.session == self.session and notice.sequence then self.visualUpload:Ack(notice.sequence) end
+		local snapshot = self.snapshot
+		local isOperator = notice.id == self.paintId and notice.session == self.session
+		local isCurrentTable = snapshot and notice.id == snapshot.tableId and notice.session == snapshot.session
+		if not isOperator and isCurrentTable and notice.bodyPose then
+			self.presentation.targetBodyPose = notice.bodyPose
+		end
 	elseif notice.kind == "VisualSnapshot" and notice.id and notice.segments then
 		local item = self.items[notice.id]
 		if not item then return end
@@ -522,6 +638,12 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		self:Notice(if notice.textId or notice.text then notice else {kind = "Message", textId = "PaintSyncFailed"})
 		self.messageEnds=os.clock()+10
 	elseif notice.kind == "FinishPaint" and notice.session == self.session then
+		if self.paintId and Config.RuneCompleteFlashSeconds > 0 then
+			self.completeFlash = { id = self.paintId, started = os.clock() }
+			if self.view and self.view.SetSacrifice then
+				self.view:SetSacrifice(self.paintId, 1, 0)
+			end
+		end
 		self.pendingCoverage=nil
 		table.clear(self.paintSamples)
 		self.sentOrientation=self.orientation
@@ -698,16 +820,33 @@ local function WarpMouseToTip(tip: Vector2): boolean
 	return false
 end
 
--- 在入队上报前按客户端本地已覆盖集合去重，避免重复转圈导致数千重复点堵死进度队列。
-local function FilterNewCoverageSamples(self: Client, model: Model, samples: { Types.Sample }): { Types.Sample }
+-- 在入队上报前按客户端本地已覆盖集合去重，并返回本帧新增覆盖面积供客户端即时推进进度条。
+local function FilterNewCoverageSamples(
+	self: Client,
+	model: Model,
+	samples: { Types.Sample },
+	basePose: CFrame?,
+	geometry: Rotation.Geometry?,
+	displayedOrientation: CFrame?,
+	cameraOrigin: Vector3?
+): ({ Types.Sample }, number)
 	if typeof(model) ~= "Instance" then
-		return samples
+		return samples, 0
 	end
 	local covered: { [string]: boolean } = self.localCovered or {}
 	self.localCovered = covered
 	local filtered: { Types.Sample } = {}
+	local totalAdded = 0
 	local previous: Types.Sample? = nil
 	local lastQueued: Types.Sample? = nil
+	local displayedFrame = if basePose and geometry and displayedOrientation
+		then Rotation.Pose(basePose, geometry, displayedOrientation)
+		else nil
+	local pivotAtDisplayed = if displayedFrame
+		then displayedFrame:PointToWorldSpace(if geometry and geometry.center then geometry.center else Vector3.zero)
+		else nil
+	local cachedSliceOrientation: CFrame? = nil
+	local cachedToCamera: Vector3? = nil
 	for _, sample in samples do
 		if sample.breakBefore then
 			previous = nil
@@ -720,6 +859,21 @@ local function FilterNewCoverageSamples(self: Client, model: Model, samples: { T
 			continue
 		end
 		local curved = Curve.IsPart(part)
+		if curved and sample.slice and displayedFrame and pivotAtDisplayed and basePose and geometry and cameraOrigin then
+			local sampledOrientation = (sample.orientation or displayedOrientation or CFrame.identity).Rotation
+			if sampledOrientation ~= cachedSliceOrientation or not cachedToCamera then
+				local sampledFrame = Rotation.Pose(basePose, geometry, sampledOrientation)
+				local rayOrigin = displayedFrame:PointToWorldSpace(sampledFrame:PointToObjectSpace(cameraOrigin))
+				local toCameraVec = rayOrigin - pivotAtDisplayed
+				cachedToCamera = if toCameraVec.Magnitude > 0.001 then toCameraVec.Unit else Vector3.yAxis
+				cachedSliceOrientation = sampledOrientation
+			end
+			local worldPoint = part.CFrame:PointToWorldSpace(Curve.Point(part, sample))
+			if (worldPoint - pivotAtDisplayed):Dot(cachedToCamera :: Vector3) < Config.PaintSliceHemisphereMinDot then
+				previous = nil
+				continue
+			end
+		end
 		local ink = sample
 		if curved and sample.packedInk then
 			ink = table.clone(sample)
@@ -758,6 +912,7 @@ local function FilterNewCoverageSamples(self: Client, model: Model, samples: { T
 			end
 		end
 		if added > 0 then
+			totalAdded += added
 			if previous and not sample.breakBefore and previous.part == sample.part and previous.face == sample.face and previous ~= lastQueued then
 				local anchor = table.clone(previous)
 				anchor.breakBefore = true
@@ -768,7 +923,7 @@ local function FilterNewCoverageSamples(self: Client, model: Model, samples: { T
 		end
 		previous = sample
 	end
-	return filtered
+	return filtered, totalAdded
 end
 
 function Client.SamplePaint(self: Client, now: number): Vector2?
@@ -803,7 +958,28 @@ function Client.SamplePaint(self: Client, now: number): Vector2?
 	self.brushFrame = frame
 	if #samples > 0 then
 		self.view:DrawLocal(id,session,self.visualGesture,samples)
-		local queued = FilterNewCoverageSamples(self, model, samples)
+		local cameraFrame = camera.CFrame
+		local cameraOrigin: Vector3? = if typeof(cameraFrame) == "CFrame" then cameraFrame.Position else nil
+		local queued, addedArea = FilterNewCoverageSamples(self, model, samples, basePose, geometry, display.orientation, cameraOrigin)
+		if addedArea > 0 then
+			if (self.localTotalArea or 0) <= 0 and typeof(model) == "Instance" then
+				local total = Surface.Total(model)
+				if model:GetAttribute("SurfaceVersion") == Curve.Version then
+					total = math.max(0.001, total - Curve.ExcludeInterior(model, self.localCovered :: { [string]: boolean }))
+				end
+				self.localTotalArea = total
+				local item = self.items[id]
+				local baseProgress = if item then math.clamp(item.progress, 0, 1) else 0
+				self.localProgress = math.max(self.localProgress or 0, baseProgress)
+				self.localArea = math.max(self.localArea or 0, self.localProgress * math.max(total * Config.PaintTarget, 0.001))
+			end
+			if (self.localTotalArea or 0) > 0 then
+				self.localArea = (self.localArea or 0) + addedArea
+				local targetArea = math.max(self.localTotalArea * Config.PaintTarget, 0.001)
+				local predicted = math.min(self.localArea / targetArea, 0.99)
+				self.localProgress = math.max(self.localProgress or 0, predicted)
+			end
+		end
 		for _, sample in queued do table.insert(self.paintSamples,sample) end
 		if now - self.lastPaintSound >= 0.12 then
 			self.lastPaintSound = now
@@ -824,6 +1000,8 @@ function Client.Paint(self: Client, now: number): Vector2?
 		-- 有间隔限制的服务端可能因包挤在一起而拒收；保留原序号并按较短重试间隔快速恢复。
 		if now-self.lastPaint >= Config.PaintCoverageRetrySeconds then
 			pending.orientation = self.orientation
+			local pose = self.presentation:CapturePose()
+			if pose then pending.bodyPose = pose end
 			Net.FireRequest(pending)
 			self.lastPaint = now
 		end
@@ -833,7 +1011,7 @@ function Client.Paint(self: Client, now: number): Vector2?
 		self.paintSamples = table.move(self.paintSamples,count+1,#self.paintSamples,1,{})
 		self.lastPaint = now
 		self.paintSequence += 1
-		local request: Types.Request = {action="Paint",session=session,sequence=self.paintSequence,samples=samples,orientation=self.orientation}
+		local request: Types.Request = {action="Paint",session=session,sequence=self.paintSequence,samples=samples,orientation=self.orientation,bodyPose=self.presentation:CapturePose()}
 		self.pendingCoverage = request
 		self.sentOrientation = self.orientation
 		Net.FireRequest(request)
@@ -876,7 +1054,7 @@ function Client.Update(self: Client, dt: number): ()
 	local snapshot = self.snapshot
 	if self.paintId then
 		local item = self.items[self.paintId]
-		if item and item.model then self.ui:SetProgress(item.progress) end
+		if item and item.model then self.ui:SetProgress(math.max(item.progress, self.localProgress or 0)) end
 		local point = self:Paint(now)
 		self.ui:UpdatePointer(point, self.drawing)
 		ignoreMouseMove = false
@@ -887,8 +1065,25 @@ function Client.Update(self: Client, dt: number): ()
 	end
 	-- 姿态和当前帧采样完成后再绘制，每帧统一消耗一次栅格化预算。
 	self.view:Update(self.paintId)
+	local completeFlash = self.completeFlash
+	if completeFlash then
+		local elapsed = now - completeFlash.started
+		local duration = math.max(Config.RuneCompleteFlashSeconds, 0.05)
+		if elapsed >= duration then
+			if self.view and self.view.ClearSacrifice then
+				self.view:ClearSacrifice(completeFlash.id)
+			end
+			self.completeFlash = nil
+		else
+			local hold = duration * 0.3
+			local brightness = if elapsed <= hold then 1 else math.clamp(1 - (elapsed - hold) / (duration - hold), 0, 1)
+			if self.view and self.view.SetSacrifice then
+				self.view:SetSacrifice(completeFlash.id, brightness, 0)
+			end
+		end
+	end
 	if self.paintId then
-		self.visualUpload:Update(self.view:Drain(self.paintId),now,workspace:GetServerTimeNow(),self.visualClosing or not self.drawing,nil,not self.finishPaint and self.view:IsReady(self.paintId))
+		self.visualUpload:Update(self.view:Drain(self.paintId),now,workspace:GetServerTimeNow(),self.visualClosing or not self.drawing,self.presentation:CapturePose(),not self.finishPaint and self.view:IsReady(self.paintId))
 		if self.view.budgetReached then
 			self:Text("NoticeText", {textId = "PaintSegmentLimit"})
 			self.messageEnds=now+3
@@ -935,6 +1130,29 @@ function Client.Update(self: Client, dt: number): ()
 	end
 	self.ui:Refresh({painting=self.paintId~=nil,hasTarget=false,windowOpen=UIManager.HasShowingWindow()})
 	if self.paintId then
+		if Players and Players.GetPlayers then
+			local hidden: { [Instance]: boolean } = self.hiddenPlayerParts or {}
+			self.hiddenPlayerParts = hidden
+			for _, targetPlayer in Players:GetPlayers() do
+				local character = targetPlayer.Character
+				if not character then
+					continue
+				end
+				for _, descendant in character:GetDescendants() do
+					if descendant:IsA("BasePart") then
+						if descendant.LocalTransparencyModifier ~= 1 then
+							descendant.LocalTransparencyModifier = 1
+						end
+						hidden[descendant] = true
+					elseif descendant:IsA("Decal") then
+						if descendant.LocalTransparencyModifier ~= 1 then
+							descendant.LocalTransparencyModifier = 1
+						end
+						hidden[descendant] = true
+					end
+				end
+			end
+		end
 		self:Text("HintText", {textId = "Painting"})
 		return
 	end
@@ -1229,6 +1447,11 @@ function Client.Destroy(self: Client): ()
 	self.hitView:Clear()
 	self.hitState=HitRules.New()
 	self:ExitView()
+	RestoreHiddenPlayers(self)
+	if self.completeFlash then
+		self.view:ClearSacrifice(self.completeFlash.id)
+		self.completeFlash = nil
+	end
 	self.paintCamera:Destroy()
 	self.ui:UnbindActions()
 	UIManager.GetTargetGuiManager():Destroy()

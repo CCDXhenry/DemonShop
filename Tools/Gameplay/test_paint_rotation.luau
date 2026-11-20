@@ -313,4 +313,196 @@ check(spiralParts.Head and spiralParts.UpperTorso and (spiralParts.LeftUpperLeg 
 	'sliding brush along the rotation axis inside the ellipsoid paints continuously from head through torso to legs')
 
 bodyModel:Destroy()
-print('PASS: ' .. checks .. ' paint rotation, 3D ellipsoid region, concave cross-section and server sync assertions')
+
+-- 6. 工作台零重力物理生命周期与服务端动态姿态重建校验。
+do
+	local fs = require('@lune/fs')
+	local Pose = require('./PaintBodyPose')
+	local source = R.deserializeModel(fs.readFile('Assets/Models/GameModels.rbxm'))[1].WhiteR15
+	local motors = {}
+	local rootDrive = nil
+	for _, node in source:GetDescendants() do
+		if node:IsA('Motor6D') then
+			table.insert(motors, node)
+			if node.Name == 'Root' or node.Name == 'RootJoint' then
+				rootDrive = node
+			else
+				local a, b = R.Instance.new('Attachment'), R.Instance.new('Attachment')
+				a.CFrame, a.Parent = node.C0, node.Part0
+				b.CFrame, b.Parent = node.C1, node.Part1
+				local socket = R.Instance.new('BallSocketConstraint')
+				socket.Name, socket.Attachment0, socket.Attachment1, socket.UpperAngle, socket.MaxFrictionTorque, socket.Parent = node.Name, a, b, 75, 20, source
+			end
+		end
+	end
+	for _ = 1, 8 do
+		for _, motor in motors do
+			motor.Part1.CFrame = motor.Part0.CFrame * motor.C0 * motor.C1:Inverse()
+		end
+	end
+	source.UpperTorso:SetAttribute('RestPose', C.new(0, 0.2, 0))
+	local clone = source:Clone()
+	local cloneRootDrive = nil
+	for _, node in clone:GetDescendants() do
+		if node:IsA('Motor6D') and (node.Name == 'Root' or node.Name == 'RootJoint') then
+			cloneRootDrive = node
+		elseif node:IsA('BasePart') then
+			node.Massless = true
+			node.AssemblyMass = node.Size.X * node.Size.Y * node.Size.Z
+		end
+	end
+	assert(rootDrive and cloneRootDrive, 'R15 template requires Root Motor6D')
+	local Physics = require('./PhysicsConfig')
+	local tableView = Presentation.new()
+	tableView:Attach(source, clone, cloneRootDrive, nil)
+	check(#tableView.sockets == 14, 'Attach caches all 14 BallSocketConstraints')
+	local forceCount = 0
+	local alignCount = 0
+	for part, force in tableView.antiGravity do
+		forceCount += 1
+		check(force:IsA('VectorForce') and force.ApplyAtCenterOfMass and force.RelativeTo == R.Enum.ActuatorRelativeTo.World and not force.Enabled,
+			'each dynamic limb gets a disabled world center-of-mass VectorForce before activation')
+		check(not part.Massless and part.Anchored, 'limb restores real mass and starts anchored')
+		local align = tableView.aligners[part]
+		if align then
+			alignCount += 1
+			check(align:IsA('AlignOrientation') and align.Mode == R.Enum.OrientationAlignmentMode.OneAttachment and not align.RigidityEnabled and not align.Enabled,
+				'each dynamic limb gets a soft OneAttachment AlignOrientation before activation')
+		end
+	end
+	check(forceCount == 14 and alignCount == 14, 'all 14 non-torso limbs receive anti-gravity forces and pose aligners')
+	check(tableView.parts.HumanoidRootPart.Massless and tableView.parts.UpperTorso.Anchored, 'HumanoidRootPart stays massless and UpperTorso stays anchored')
+
+	-- 静止切入动态模式：仅 UpperTorso 锚定，纯零重力，处于恢复态。
+	tableView.targetOrientation = C.identity
+	tableView:Update(flatBase, 0.016, true)
+	check(tableView.dynamic and not tableView.spinning, 'stationary operator update enters non-spinning dynamic mode')
+	check(tableView.parts.UpperTorso.Anchored, 'UpperTorso remains anchored as rotation pivot')
+	for name, part in tableView.parts do
+		if name ~= 'UpperTorso' then
+			check(not part.Anchored, 'dynamic limb is unanchored: ' .. name)
+		end
+	end
+	for _, socket in tableView.sockets do
+		check(socket.Enabled and math.abs(socket.MaxFrictionTorque - 20 * Physics.TableRecoverFrictionScale) < 1e-4,
+			'BallSocketConstraint enabled with recover friction when stationary')
+	end
+	for part, force in tableView.antiGravity do
+		check(force.Enabled, 'VectorForce enabled in dynamic mode')
+		local expectedY = part.AssemblyMass * 196.2
+		check(math.abs(force.Force.X) < 1e-5 and math.abs(force.Force.Z) < 1e-5 and math.abs(force.Force.Y - expectedY) < 1e-3,
+			'VectorForce exactly cancels world gravity when stationary for ' .. part.Name)
+	end
+	local captured = tableView:CapturePose()
+	check(captured ~= nil and Pose.Validate(source, captured), 'CapturePose produces a valid dynamic BodyPose')
+
+	-- 连续旋转步进：切入甩动态（极低摩擦 + 径向离心外甩力 + 柔顺回中）。
+	local spinOrientation = C.Angles(0, 0.14, 0)
+	tableView.targetOrientation = spinOrientation
+	tableView:Update(flatBase, 0.016, true)
+	check(tableView.spinning, 'active rotation enters spinning fling state')
+	for _, socket in tableView.sockets do
+		check(math.abs(socket.MaxFrictionTorque - 20 * Physics.TableSpinFrictionScale) < 1e-4,
+			'spinning lowers joint friction so limbs fling freely')
+	end
+	local centrifugalCount = 0
+	for part, force in tableView.antiGravity do
+		local expectedY = part.AssemblyMass * 196.2
+		local extra = force.Force - V3.new(0, expectedY, 0)
+		if extra.Magnitude > 1e-3 then
+			centrifugalCount += 1
+		end
+		local align = tableView.aligners[part]
+		check(align.Enabled and align.Responsiveness == Physics.TableSpinAlignResponsiveness,
+			'spinning relaxes AlignOrientation responsiveness')
+	end
+	check(centrifugalCount >= 8, 'spinning applies radial centrifugal fling force to off-axis limbs')
+
+	-- 停止旋转：立即切回恢复态（撤除离心力、恢复纯零重力、提高回中刚度并指向当前朝向的端正姿态）。
+	tableView:Update(flatBase, 0.016, true)
+	check(not tableView.spinning, 'stopping rotation leaves spinning state immediately')
+	for _, socket in tableView.sockets do
+		check(math.abs(socket.MaxFrictionTorque - 20 * Physics.TableRecoverFrictionScale) < 1e-4,
+			'stopping rotation restores recover damping friction')
+	end
+	local supportAtStop = Rotation.Pose(flatBase, tableView.geometry, spinOrientation) * tableView.geometry.rest
+	for part, force in tableView.antiGravity do
+		local expectedY = part.AssemblyMass * 196.2
+		check((force.Force - V3.new(0, expectedY, 0)).Magnitude < 1e-3,
+			'stopping rotation removes centrifugal force and restores pure zero gravity')
+		local align = tableView.aligners[part]
+		local expectedRot = (supportAtStop * tableView.restBodyPose[part.Name]).Rotation
+		check(align.Enabled and align.Responsiveness == Physics.TableRecoverResponsiveness
+			and Rotation.Distance(align.CFrame, expectedRot) < 1e-4,
+			'stopping rotation drives AlignOrientation toward rest pose at current orientation')
+	end
+
+	-- 单帧大角度重置跳变不触发甩动。
+	tableView.targetOrientation = C.Angles(0, math.pi, 0)
+	tableView:Update(flatBase, 0.016, true)
+	check(not tableView.spinning, 'large single-frame reset jump does not trigger centrifugal fling')
+
+	-- 切回旁观/静态模式与 Clear 后：零重力、回中约束与球窝全部关闭/清理。
+	tableView:Update(flatBase, 0.016, false)
+	check(not tableView.dynamic and not tableView.spinning, 'observer update returns to anchored static mode')
+	for _, socket in tableView.sockets do
+		check(not socket.Enabled, 'BallSocketConstraint disabled when leaving dynamic mode')
+	end
+	for _, force in tableView.antiGravity do
+		check(not force.Enabled and force.Force == V3.zero, 'VectorForce disabled when leaving dynamic mode')
+	end
+	for _, align in tableView.aligners do
+		check(not align.Enabled and align.MaxTorque == 0, 'AlignOrientation disabled when leaving dynamic mode')
+	end
+	for _, part in tableView.parts do
+		check(part.Anchored, 'all parts re-anchored when leaving dynamic mode')
+	end
+	tableView:Clear()
+	check(clone:FindFirstChild('TableZeroGravityForce', true) == nil
+		and clone:FindFirstChild('TableZeroGravityAttachment', true) == nil
+		and clone:FindFirstChild('TablePoseAlign', true) == nil,
+		'Clear destroys temporary anti-gravity and pose align instances cleanly')
+
+	-- 服务端 Painting.Apply 校验并重建动态 bodyPose，拒绝非法拆解姿态。
+	local neck = nil
+	for _, motor in motors do
+		if motor.Name == 'Neck' then neck = motor end
+	end
+	local initialFrames = Pose.Capture(source)
+	local bentFrames = table.clone(initialFrames)
+	local tiltedHead = neck.Part0.CFrame * neck.C0 * C.Angles(0.25, 0, 0) * neck.C1:Inverse()
+	bentFrames.Head = source.UpperTorso.CFrame:ToObjectSpace(tiltedHead)
+	check(Pose.Validate(source, bentFrames), 'tilted head pose passes validation')
+	local physSession = {
+		player = {}, id = 'phys-body', token = 'phys', last = 0, sequence = 0,
+		orientation = C.identity, walkSpeed = 16, jumpPower = 50, jumpHeight = 7.2,
+		geometry = Rotation.Create(source, initialFrames),
+	}
+	local physItem = {
+		id = 'phys-body', kind = 'Body', stage = 'Painting', location = 'Table', version = 1,
+		model = source, covered = {}, area = 0, totalArea = 100, paintSeconds = 0,
+		progress = 0, strokes = {}, strokePoints = 0, poseBody = initialFrames,
+	}
+	local applied = Painting.Apply(physSession, physItem, {
+		action = 'Paint', session = 'phys', sequence = 1, samples = {},
+		orientation = C.identity, bodyPose = bentFrames,
+	}, flatBase, camPos, 1)
+	check(applied ~= nil and physItem.poseBody ~= nil and (physItem.poseBody.Head.Position - bentFrames.Head.Position).Magnitude < 1e-5,
+		'Painting.Apply accepts and stores valid dynamic bodyPose')
+	local expectedHead = Rotation.Pose(flatBase, physSession.geometry, C.identity) * physSession.geometry.rest * bentFrames.Head
+	check((source.Head.CFrame.Position - expectedHead.Position).Magnitude < 1e-4,
+		'Painting.Apply reconstructs authoritative server limb CFrame from dynamic bodyPose')
+	local badFrames = table.clone(bentFrames)
+	badFrames.Head = badFrames.Head + V3.new(3, 0, 0)
+	Painting.Apply(physSession, physItem, {
+		action = 'Paint', session = 'phys', sequence = 2, samples = {},
+		orientation = C.identity, bodyPose = badFrames,
+	}, flatBase, camPos, 2)
+	check((physItem.poseBody.Head.Position - bentFrames.Head.Position).Magnitude < 1e-5,
+		'Painting.Apply rejects detached invalid bodyPose and keeps previous valid pose')
+
+	clone:Destroy()
+	source:Destroy()
+end
+
+print('PASS: ' .. checks .. ' paint rotation, 3D ellipsoid region, concave cross-section, zero-gravity table physics and server sync assertions')

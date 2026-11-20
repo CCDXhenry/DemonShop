@@ -7,17 +7,25 @@ local Types = require(Shared.GameTypes)
 local Surface = require(Shared.PaintSurface)
 local Curve = require(Shared.CurvedSurface)
 local Rotation = require(Shared.PaintRotation)
+local BodyPose = require(Shared.PaintBodyPose)
 local Painting = {}
 export type Session = {
 	player: Player, id: string, token: string, last: number, sequence: number,
 	orientation: CFrame, walkSpeed: number, jumpPower: number, jumpHeight: number,
 	geometry: Rotation.Geometry?,
 	visualSequence: number?, visualWindow: number?, visualPackets: number?, finishing: boolean?,
+	coverageWindow: number?, coveragePackets: number?,
 }
 export type Result = { stroke: Types.Stroke?, complete: boolean }
-function Painting.SetPose(session: Session, item: Types.Item, base: CFrame, orientation: CFrame): ()
-	if orientation ~= session.orientation then
-		item.model:PivotTo(Rotation.Pose(base, session.geometry, orientation))
+local CoveragePacketsPerSecond = 30
+function Painting.SetPose(session: Session, item: Types.Item, base: CFrame, orientation: CFrame, forceApply: boolean?): ()
+	if orientation ~= session.orientation or forceApply then
+		local rotated = Rotation.Pose(base, session.geometry, orientation)
+		if item.poseBody then
+			BodyPose.Apply(item.model, rotated, item.poseBody)
+		else
+			item.model:PivotTo(rotated)
+		end
 	end
 	session.orientation = orientation
 	item.paintOrientation = orientation
@@ -27,11 +35,27 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 	local sequence = request.sequence
 	if not sequence or sequence <= session.sequence then return nil end
 	local elapsed = now - session.last
-	if elapsed < Config.PaintBatchInterval * 0.45 then return nil end
+	if elapsed < Config.PaintBatchInterval * 0.2 then return nil end
+	if now - (session.coverageWindow or 0) >= 1 then
+		session.coverageWindow = now
+		session.coveragePackets = 0
+	end
+	if (session.coveragePackets or 0) >= CoveragePacketsPerSecond then
+		return nil
+	end
+	session.coveragePackets = (session.coveragePackets or 0) + 1
 	session.sequence = sequence
 	session.last = now
+	local poseChanged = false
+	if request.bodyPose and BodyPose.Validate(item.model, request.bodyPose) then
+		item.poseBody = table.clone(request.bodyPose)
+		poseChanged = true
+	end
 	local orientation = (request.orientation or session.orientation).Rotation
 	local current = Rotation.Pose(pose, session.geometry, session.orientation)
+	if poseChanged and item.poseBody then
+		BodyPose.Apply(item.model, current, item.poseBody)
+	end
 	local pivotAtCurrent = current:PointToWorldSpace(if session.geometry then session.geometry.center else Vector3.zero)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
@@ -62,7 +86,7 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 				-- 旋转横截面采样允许肢体凹处与内侧落墨，仅校验采样点位于旋转姿态的镜头侧有效半球，防止不旋转直涂背面。
 				local toCameraVec = rayOrigin - pivotAtCurrent
 				local toCamera = if toCameraVec.Magnitude > 0.001 then toCameraVec.Unit else Vector3.yAxis
-				if (point - pivotAtCurrent):Dot(toCamera) < -0.45 then
+				if (point - pivotAtCurrent):Dot(toCamera) < Config.PaintSliceHemisphereMinDot then
 					previous = nil
 					continue
 				end

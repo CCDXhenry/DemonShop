@@ -204,6 +204,12 @@ assert(hitSample,'real curved hit fixture')
 painter.bodies.GetPaintModel=function() return realModel end
 painter.presentation.model=realModel
 painter.localCovered={}
+painter.localProgress,painter.localArea,painter.localTotalArea=0,0,0
+painter.lastSync=B.time
+painter.lastHint=B.time
+painter.items.body={id='body',model=realModel,progress=0}
+local reportedProgress=0
+painter.ui.SetProgress=function(_,value) reportedProgress=value end
 table.clear(painter.paintSamples)
 B.resolve={
 	ellipsoidPoint=function(_ori,pt) return pt,R.Vector3.new(0,0,-0.5),false end,
@@ -216,6 +222,11 @@ mouse.Position=R.Vector3.new(10,10,0)
 painter:OnInput(mouse,false)
 local firstQueued=#painter.paintSamples
 check(firstQueued==1,'first hit on uncovered cell queues into paintSamples')
+check(painter.localProgress>0 and painter.localProgress<=0.99,'client predicts coverage progress immediately on local stroke before server reply')
+painter:Update(1/60)
+check(reportedProgress==painter.localProgress and painter.items.body.progress==0,'UI displays immediate local progress while server item.progress is still 0')
+painter:OnNotice({kind='PaintPose',id='body',session='session',orientation=C.identity,progress=math.min(0.95,painter.localProgress+0.2)})
+check(painter.localProgress>=painter.items.body.progress,'server PaintPose monotonically raises local progress without rollback')
 painter:OnRelease(mouse)
 -- 再次在同一已涂过的位置反复点击 10 次，本地去重直接过滤，不再膨胀上传队列。
 for k=1,10 do
@@ -224,6 +235,47 @@ for k=1,10 do
 	painter:OnRelease(mouse)
 end
 check(#painter.paintSamples==firstQueued,'local coverage deduplication prevents duplicate samples from clogging upload queue')
+-- 背面旋转切片点不会被客户端提前写入 localCovered，翻到正面后仍可正常上报服务端。
+do
+	local backHit = Curve.Intersect(realTorso, R.Vector3.new(0, 0, 4), -R.Vector3.zAxis, 10)
+	assert(backHit, 'back curved hit fixture')
+	local sliceBack = table.clone(backHit)
+	sliceBack.slice = true
+	sliceBack.orientation = C.identity
+	local beforeBackCount = #painter.paintSamples
+	B.workspace.CurrentCamera.CFrame = C.lookAt(R.Vector3.new(0, 0, -12), R.Vector3.zero)
+	painter.presentation.geometry = { center = R.Vector3.zero, rest = C.identity, radius = 2, halfExtents = R.Vector3.new(1, 1, 1) }
+	B.resolve = {
+		ellipsoidPoint = function(_ori, pt) return pt, R.Vector3.new(0, 0, -0.5), false end,
+		cast = function(_ori, pt)
+			return { point = pt, localPoint = Curve.Point(realTorso, sliceBack), sample = table.clone(sliceBack) }
+		end,
+	}
+	mouse.Position = R.Vector3.new(15, 15, 0)
+	painter:OnInput(mouse, false)
+	painter:OnRelease(mouse)
+	check(#painter.paintSamples == beforeBackCount, 'back-hemisphere slice sample is not queued or poisoned into localCovered')
+	-- 旋转 180° 将该背面转至面向镜头后，客户端应正常记录并上报。
+	local flipped = C.Angles(0, math.pi, 0)
+	local frontSlice = table.clone(backHit)
+	frontSlice.slice = true
+	frontSlice.orientation = flipped
+	painter.orientation = flipped
+	painter.presentation.orientation = flipped
+	realTorso.CFrame = flipped
+	B.resolve = {
+		ellipsoidPoint = function(_ori, pt) return pt, R.Vector3.new(0, 0, -0.5), false end,
+		cast = function(_ori, pt)
+			return { point = pt, localPoint = Curve.Point(realTorso, frontSlice), sample = table.clone(frontSlice) }
+		end,
+	}
+	mouse.Position = R.Vector3.new(16, 16, 0)
+	painter:OnInput(mouse, false)
+	painter:OnRelease(mouse)
+	check(#painter.paintSamples == beforeBackCount + 1, 'previously rejected back-hemisphere cell queues normally once rotated to camera side')
+	painter.orientation, painter.presentation.orientation = C.identity, C.identity
+	B.workspace.CurrentCamera.CFrame = C.identity
+end
 realModel:Destroy()
 painter.bodies.GetPaintModel=function() return model end
 painter.presentation.model=model

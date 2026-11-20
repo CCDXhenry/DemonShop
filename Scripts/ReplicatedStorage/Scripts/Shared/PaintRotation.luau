@@ -84,7 +84,7 @@ function Rotation.EllipsoidRadii(geometry: Geometry): Vector3
 end
 
 function Rotation.Pose(base: CFrame, geometry: Geometry?, orientation: CFrame): CFrame
-	local center = if geometry then geometry.center else Vector3.zero
+	local center = if geometry and geometry.center then geometry.center else Vector3.zero
 	return base * CFrame.new(center) * orientation * CFrame.new(-center)
 end
 

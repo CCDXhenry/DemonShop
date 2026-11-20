@@ -8,16 +8,16 @@ OUT.mkdir(parents=True,exist_ok=True)
 shared=ROOT/"Scripts/ReplicatedStorage/Scripts/Shared"
 server=ROOT/"Scripts/ServerStorage/Scripts"
 (OUT/"FoundationDateBoundary.luau").write_text((ROOT/"Tools/Gameplay/FoundationDateBoundary.luau").read_text(encoding="utf-8"),encoding="utf-8")
-for name in ("GameConfig","GameTexts","GameTypes","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation"):
+for name in ("GameConfig","GameTexts","GameTypes","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneGlyphData","RuneStampRules"):
     text=(shared/(name+".luau")).read_text(encoding="utf-8")
-    for dep in ("GameConfig","GameTexts","GameTypes","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose"):
+    for dep in ("GameConfig","GameTexts","GameTypes","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","RuneGlyphData","RuneStampRules"):
         text=text.replace("require(script.Parent."+dep+")", "require('./"+dep+"')")
     if name == "GameConfig":
         start=text.index('local replicatedStorage:')
         end=text.index('--游戏版本')
         text=text[:start]+"local D=require('./FoundationDateBoundary')\nlocal DateTimeExtension,DateTime=D.DateTimeExtension,D.DateTime\n"+text[end:]
         text="local Color3=require('@lune/roblox').Color3\nlocal game={GameId=0}\n"+text
-    if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation"):
+    if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneStampRules"):
         text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame,Enum=roblox.Vector2,roblox.Vector3,roblox.CFrame,roblox.Enum\n"+text
     (OUT/(name+".luau")).write_text(text,encoding="utf-8")
 def run_hit_feedback_tests():
@@ -66,13 +66,13 @@ text=text[:start]+"local Mock=require('./Mock')\nlocal HttpService=Mock.HttpServ
 text=(server/"Painting.luau").read_text(encoding="utf-8")
 start=text.index('local ReplicatedStorage =')
 end=text.index('local Painting =')
-text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame=roblox.Vector2,roblox.Vector3,roblox.CFrame\nlocal Enum=roblox.Enum\nlocal RaycastParams={new=function() return {} end}\nlocal workspace=require('./PaintingWorld')\nlocal Config=require('./GameConfig')\nlocal Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal Curve=require('./CurvedSurface')\nlocal Rotation=require('./PaintRotation')\n"+text[end:]
+text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame=roblox.Vector2,roblox.Vector3,roblox.CFrame\nlocal Enum=roblox.Enum\nlocal RaycastParams={new=function() return {} end}\nlocal workspace=require('./PaintingWorld')\nlocal Config=require('./GameConfig')\nlocal Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal Curve=require('./CurvedSurface')\nlocal Rotation=require('./PaintRotation')\nlocal BodyPose=require('./PaintBodyPose')\n"+text[end:]
 (OUT/"Painting.luau").write_text(text,encoding="utf-8")
 for name in ("PaintingWorld","test_painting","test_paint_rotation"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
 client=ROOT/"Scripts/ReplicatedStorage/Scripts/Client"
 text=(client/"BodyPresentation.luau").read_text(encoding="utf-8")
-prefix="local CFrame=require('@lune/roblox').CFrame\nlocal Config=require('./PhysicsConfig')\nlocal Rotation=require('./PaintRotation')\nlocal Pose=require('./PaintBodyPose')\n"
+prefix="local R=require('@lune/roblox')\nlocal CFrame,Vector3,Instance,Enum=R.CFrame,R.Vector3,R.Instance,R.Enum\nlocal workspace={Gravity=196.2}\nlocal Config=require('./PhysicsConfig')\nlocal Rotation=require('./PaintRotation')\nlocal Pose=require('./PaintBodyPose')\n"
 (OUT/"BodyPresentation.luau").write_text(prefix+text[text.index("local Presentation={}"):],encoding="utf-8")
 text=(client/"PaintBrushContact.luau").read_text(encoding="utf-8")
 prefix="local R=require('@lune/roblox')\nlocal Vector2,Vector3,Enum,CFrame=R.Vector2,R.Vector3,R.Enum,R.CFrame\nlocal Config=require('./GameConfig')\nlocal Surface=require('./PaintSurface')\nlocal Curve=require('./CurvedSurface')\nlocal Rotation=require('./PaintRotation')\nlocal workspace=require('./PaintingWorld')\nlocal RaycastParams={new=function() return {} end}\n"
@@ -135,12 +135,12 @@ subprocess.run(["lune","run",str(OUT/"test_stroke_path.luau")],cwd=ROOT,check=Tr
 # Execute extracted UI managers with real Lune GUI instances; each simulated client owns a pair.
 for name in ("PaintFaceGuiManager", "PaintCellFrameManager"):
     source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/UIManager"/(name+".luau")).read_text(encoding="utf-8")
-    prefix="local R=require('@lune/roblox')\nlocal Vector2,UDim2=R.Vector2,R.UDim2\nlocal B=require('./StrokeViewBoundary')\nlocal Players,ReplicatedStorage=B.Players,B.ReplicatedStorage\nlocal Config=require('./GameConfig')\n"
+    prefix="local R=require('@lune/roblox')\nlocal Vector2,UDim2,Color3=R.Vector2,R.UDim2,R.Color3\nlocal B=require('./StrokeViewBoundary')\nlocal Players,ReplicatedStorage,AssetService,Content=B.Players,B.ReplicatedStorage,B.AssetService,B.Content\nlocal Config=require('./GameConfig')\nlocal RuneGlyphs=require('./RuneGlyphData')\n"
     (OUT/(name+".luau")).write_text(prefix+source[source.index('local Manager ='):],encoding="utf-8")
 (OUT/"PaintUIBoundary.luau").write_text("local F=require('./PaintFaceGuiManager')\nlocal C=require('./PaintCellFrameManager')\nreturn {GetPaintFaceGuiManager=function() return F.new() end,GetPaintCellFrameManager=function() return C.new() end}\n",encoding="utf-8")
 text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/PaintView.luau").read_text(encoding="utf-8")
 start=text.index('local View =')
-text="local Roblox=require('@lune/roblox')\nlocal Vector2,UDim2=Roblox.Vector2,Roblox.UDim2\nlocal Boundary=require('./StrokeViewBoundary')\nlocal Players,ReplicatedStorage=Boundary.Players,Boundary.ReplicatedStorage\nlocal Config=require('./GameConfig')\nlocal Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal Path=require('./StrokePath')\nlocal Curve=require('./CurvedSurface')\nlocal CurvedView={}\nlocal UIManager=require('./PaintUIBoundary')\n"+text[start:]
+text="local Roblox=require('@lune/roblox')\nlocal Vector2,UDim2=Roblox.Vector2,Roblox.UDim2\nlocal Boundary=require('./StrokeViewBoundary')\nlocal Players,ReplicatedStorage=Boundary.Players,Boundary.ReplicatedStorage\nlocal Config=require('./GameConfig')\nlocal Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal Curve=require('./CurvedSurface')\nlocal RuneRules=require('./RuneStampRules')\nlocal CurvedView={}\nlocal UIManager=require('./PaintUIBoundary')\n"+text[start:]
 (OUT/"PaintView.luau").write_text(text,encoding="utf-8")
 for name in ("StrokeViewBoundary","test_stroke_view"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -166,8 +166,8 @@ subprocess.run(["lune","run",str(OUT/"test_visual_scale.luau")],cwd=ROOT,check=T
 
 # Execute the actual curved rasterizer. Only engine image binding and clock are mocked.
 text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/CurvedPaintView.luau").read_text(encoding="utf-8")
-start=text.index('local View=')
-text="local R=require('@lune/roblox')\nlocal Vector2,Vector3=R.Vector2,R.Vector3\nlocal B=require('./CurvedRasterBoundary')\nlocal AssetService,Content,workspace,os=B.AssetService,B.Content,B.workspace,B.os\nlocal Curve=require('./CurvedSurface')\nlocal Data=require('./BodySurfaceData')\nlocal Config=require('./GameConfig')\nlocal Types=require('./GameTypes')\n"+text[start:]
+start=text.index('local View =')
+text="local R=require('@lune/roblox')\nlocal Vector2,Vector3=R.Vector2,R.Vector3\nlocal B=require('./CurvedRasterBoundary')\nlocal AssetService,Content,workspace,os=B.AssetService,B.Content,B.workspace,B.os\nlocal Curve=require('./CurvedSurface')\nlocal Data=require('./BodySurfaceData')\nlocal Config=require('./GameConfig')\nlocal Types=require('./GameTypes')\nlocal RuneGlyphs=require('./RuneGlyphData')\nlocal RuneRules=require('./RuneStampRules')\n"+text[start:]
 (OUT/"CurvedPaintView.luau").write_text(text,encoding="utf-8")
 for name in ("CurvedRasterBoundary","CurvedRasterReference","test_curved_raster"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
