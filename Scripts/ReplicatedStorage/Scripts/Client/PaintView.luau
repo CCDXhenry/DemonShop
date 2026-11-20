@@ -16,7 +16,7 @@ export type View = typeof(setmetatable({} :: {
  segments: {[string]: {[string]: Types.VisualSegment}},
  tips: {[string]: {path: Path.Tip,key: string}}, dirty: {[string]: {[string]: Types.VisualSegment}},
  counts: {[string]: number}, budgetReached: boolean,
- curved: CurvedView.View?, curvedTips: {[string]: Types.Sample}?,
+ curved: CurvedView.View?, curvedTips: {[string]: {sample: Types.Sample, key: string}}?,
 },View))
 function View.new(faces: UIManager.PaintFaceManager?, cells: UIManager.PaintCellManager?): View
  return setmetatable({faces=faces or UIManager.GetPaintFaceGuiManager(),cells=cells or UIManager.GetPaintCellFrameManager(),models={},segments={},tips={},dirty={},counts={},budgetReached=false},View)
@@ -52,11 +52,32 @@ function View.Apply(self: View,id: string,segments: {Types.VisualSegment}): ()
  self.segments[id]=records
  for _,segment in segments do
   local old=records[segment.key]
+  if segment.ink then
+   local merged,added=Curve.MergeInk(if old then old.ink else nil,segment.ink)
+   if not added then continue end
+   local stored=table.clone(segment)
+   stored.ink=merged
+   records[segment.key]=stored
+   if not old then self.counts[id]=(self.counts[id] or 0)+1 end
+   local delta=table.clone(stored)
+   delta.ink=added
+   self:Render(id,delta)
+   continue
+  end
   if old and old.version>=segment.version then continue end
   if not old then self.counts[id]=(self.counts[id] or 0)+1 end
   records[segment.key]=table.clone(segment)
   self:Render(id,segment)
  end
+end
+local function CanExtendCurved(part: BasePart, segment: Types.VisualSegment, from: Vector3, point: Vector3, triangle: number?): boolean
+ if segment.triangle0~=triangle or segment.triangle1~=triangle then return false end
+ local origin=Curve.Point(part,{part=segment.part,face=segment.face,u=segment.u0,v=segment.v0,triangle=triangle,surfaceVersion=segment.surfaceVersion})
+ local old, extension=from-origin,point-from
+ local combined=point-origin
+ if combined.Magnitude>=Config.BrushRadius*3 or extension.Magnitude<.003 then return false end
+ if old.Magnitude<.003 then return true end
+ return old.Unit:Dot(extension.Unit)>.995 and old:Cross(combined).Magnitude/combined.Magnitude<Config.PaintVisualWidth*.1
 end
 function View.DrawLocal(self: View,id: string,session: string,gesture: number,samples: {Types.Sample}): ()
  local model=self.models[id]
@@ -68,20 +89,60 @@ function View.DrawLocal(self: View,id: string,session: string,gesture: number,sa
   local previous=tips[pathKey]
   local changed=self.dirty[id] or {}
   self.dirty[id]=changed
+  local records=self.segments[id] or {}
+  local updated: {[string]: Types.VisualSegment}={}
+  local keys: {string}={}
+  local count=self.counts[id] or 0
   for _,sample in samples do
    local part=model:FindFirstChild(sample.part)
    if not part or not part:IsA("BasePart") or not Curve.Valid(part,sample) then previous=nil;continue end
-   if (self.counts[id] or 0)>=Config.PaintLocalSegmentBudget then self.budgetReached=true;break end
-   local from=sample
-   if previous and previous.part==sample.part and not sample.breakBefore and (Curve.Point(part,previous)-Curve.Point(part,sample)).Magnitude<Config.BrushRadius*3 then from=previous end
-   if previous and previous.part==sample.part and (Curve.Point(part,previous)-Curve.Point(part,sample)).Magnitude<.003 then continue end
-   -- 路径缓存按身体隔离；上传标识必须沿用服务端的会话前缀契约。
-   local key=session..":"..tostring(gesture)..":"..tostring((self.counts[id] or 0)+1)
-   local segment: Types.VisualSegment={key=key,version=1,gesture=gesture,part=sample.part,face=1,u0=from.u,v0=from.v,u1=sample.u,v1=sample.v,triangle0=from.triangle,triangle1=sample.triangle,surfaceVersion=sample.surfaceVersion}
-   self:Apply(id,{segment})
-   changed[key]=segment
-   previous=sample
+   local from, extended=sample,nil :: Types.VisualSegment?
+   if previous and not sample.breakBefore and previous.sample.part==sample.part then
+    local start,point=Curve.Point(part,previous.sample),Curve.Point(part,sample)
+    local distance=(point-start).Magnitude
+    if distance<.003 then continue end
+    if distance<Config.BrushRadius*3 then
+     from=previous.sample
+     local old=updated[previous.key] or records[previous.key]
+     if old and CanExtendCurved(part,old,start,point,sample.triangle) then extended=old end
+    end
+   end
+   if not extended and count>=Config.PaintLocalSegmentBudget then
+    sample.packedInk=true
+    local triangle=sample.triangle :: number
+    local key=Curve.InkKey(sample.part,triangle)
+    local patch=updated[key]
+    if not patch then
+     local old=records[key]
+     local ink=Curve.CopyInk(if old then old.ink else nil)
+     if Curve.MarkInk(ink,sample.u,sample.v) then
+      updated[key]={key=key,version=if old then old.version+1 else 1,gesture=1,part=sample.part,face=1,
+       u0=0,v0=0,u1=0,v1=0,triangle0=triangle,triangle1=triangle,surfaceVersion=Curve.Version,ink=ink}
+      table.insert(keys,key)
+     end
+    else
+     Curve.MarkInk(patch.ink :: buffer,sample.u,sample.v)
+    end
+    previous=nil
+    continue
+   end
+   if not extended then
+    count+=1
+   end
+   local key=if extended then extended.key else session..":"..tostring(gesture)..":"..tostring(count)
+   local segment: Types.VisualSegment={key=key,version=if extended then extended.version+1 else 1,gesture=gesture,part=sample.part,face=1,
+    u0=if extended then extended.u0 else from.u,v0=if extended then extended.v0 else from.v,u1=sample.u,v1=sample.v,
+    triangle0=if extended then extended.triangle0 else from.triangle,triangle1=sample.triangle,surfaceVersion=sample.surfaceVersion}
+   if not updated[key] then table.insert(keys,key) end
+   updated[key]=segment
+   previous={sample=sample,key=key}
   end
+  local batch: {Types.VisualSegment}={}
+  for _,key in keys do
+   table.insert(batch,updated[key])
+   changed[key]=updated[key]
+  end
+  if #batch>0 then self:Apply(id,batch) end
   tips[pathKey]=previous
   return
  end
@@ -141,7 +202,10 @@ function View.Remove(self: View,id: string): ()
  self.faces:Remove(id)
  for key in self.tips do if string.sub(key,1,#prefix)==prefix then self.tips[key]=nil end end
  self.models[id],self.segments[id],self.dirty[id],self.counts[id]=nil,nil,nil,nil
- for key in pairs(self.curvedTips or {}) do if string.sub(key,1,#prefix)==prefix then (self.curvedTips :: {[string]: Types.Sample})[key]=nil end end
+ local curvedTips=self.curvedTips
+ if curvedTips then
+  for key in curvedTips do if string.sub(key,1,#prefix)==prefix then curvedTips[key]=nil end end
+ end
 end
 function View.Update(self: View,active: string?): () if self.curved then self.curved:Update(active) end end
 function View.SetSacrifice(self: View,id: string,brightness: number,transparency: number): ()

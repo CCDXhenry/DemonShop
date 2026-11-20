@@ -124,6 +124,6 @@ U.TranslationTool={
  CustomAutoLocalizeTextLabel=function(label,source,key,args) label.Text=source;label.translationKey=key;label.translationArgs=args end,
  RemoveCustomAutoLocalizeGui=function(label) label.translationKey=nil end,
 }
-U.PaintPointer={Update=function(root) U.pointerRoot=root end,PlaceBrush=function() end}
+U.PaintPointer={HideLegacyCursor=function(root) U.pointerRoot=root end,PlaceBrush=function() end}
 U.GameFrameWrapper={new=function()return {Init=function()end,OnDestroy=function()end}end}
 return U

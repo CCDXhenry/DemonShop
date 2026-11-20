@@ -22,6 +22,8 @@ local Painting = require(script.Parent.Painting)
 local Replication = require(script.Parent.Replication)
 local VisualRules = require(Shared.VisualRules)
 local BodyPose = require(Shared.PaintBodyPose)
+local PaintRotation = require(Shared.PaintRotation)
+local CurvedSurface = require(Shared.CurvedSurface)
 type PlayerData = { IsActive: (Player) -> boolean, CanAddCoins: (Player, number) -> boolean, AddCoins: (Player, number) -> boolean }
 type PaintSession = Painting.Session
 type PlayerRecord = {
@@ -143,8 +145,7 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 	self.altarId, self.altarEnds = altarId, altarEnds
 	return {
 		revision = self.revision,
-		poseYaw = if body then body.poseYaw or 0 else 0,
-		posePitch = if body then body.posePitch or 0 else 0,
+		paintOrientation = if body then body.paintOrientation else nil,
 		bodyPose = if body then body.poseBody else nil,
 		stationVersions = table.clone(self.stationVersions),
 		items = list,
@@ -343,6 +344,7 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 		self:LaunchToAltar(item)
 		altarTossStarted = if item.altarToss then item.altarToss.started else nil
 	elseif item then
+		Painting.SetPose(session, item, Scene.TablePose(), CFrame.identity)
 		item.stage = "Painting"
 		item.version += 1
 	end
@@ -385,14 +387,13 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
 		token = HttpService:GenerateGUID(false),
 		last = workspace:GetServerTimeNow(),
 		sequence = 0,
-		yaw = 0,
-		pitch = 0,
+		orientation = CFrame.identity,
 		walkSpeed = hum.WalkSpeed,
 		jumpPower = hum.JumpPower,
 		jumpHeight = hum.JumpHeight,
 	}
 	self.paint = session
-	item.poseYaw, item.posePitch = 0, 0
+	item.paintOrientation = CFrame.identity
 	item.poseBody=nil
 	item.stage = "Painting"
 	item.version += 1
@@ -404,10 +405,17 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
 	root.Anchored = true
 	player:SetAttribute("Painting", true)
 	Carry.Static(item, Scene.TablePose(), not keep)
+	local frames = BodyPose.Capture(item.model)
+	item.poseBody = frames
+	if not item.exteriorMeasured then
+		item.totalArea -= CurvedSurface.ExcludeInterior(item.model,item.covered)
+		item.exteriorMeasured = true
+	end
+	session.geometry = PaintRotation.Create(item.model, frames)
 	if keep then
 		self:Restack(player)
 	end
-	Net.FireNotify(player, { kind = "BeginPaint", id = item.id, session = session.token })
+	Net.FireNotify(player, { kind = "BeginPaint", id = item.id, session = session.token, bodyPose = frames })
 end
 function Manager.Pool(self: Manager, player: Player): ()
 	local stack = self:Carried(player)
@@ -755,14 +763,7 @@ function Manager.Attack(self: Manager, player: Player, request: Types.Request): 
 	end
 	record.lastAttack = now
 	Net.Broadcast({ kind = "Swing", actor = player.UserId, started = now })
-	-- 只在服务端接受挥击后播放一次；复用武器内的官方空间音效。
-	local handle = weapon:FindFirstChild("Handle")
-	local slash = handle and handle:FindFirstChild("SwordSlash")
-	if slash and slash:IsA("Sound") then
-		slash:Stop()
-		slash.TimePosition = 0
-		slash:Play()
-	end
+	-- 客户端本地已即时预测播放挥击音效，广播通知同步至远端；服务端不直接 Play，避免广播回声与网络延迟。
 	self.scope:Spawn(function(): ()
 		task.wait(Config.AttackWindup)
 		local item = if request.target then self.items[request.target] else nil
@@ -812,7 +813,7 @@ function Manager.Paint(self: Manager, player: Player, request: Types.Request): (
 	if not result then
 		return
 	end
-	Net.Broadcast({ kind = "PaintPose", id = item.id, session = session.token, sequence = request.sequence, yaw = session.yaw, pitch = session.pitch, progress = item.progress, bodyPose=item.poseBody, started=workspace:GetServerTimeNow() })
+	Net.Broadcast({ kind = "PaintPose", id = item.id, session = session.token, sequence = request.sequence, orientation = session.orientation, progress = item.progress, started=workspace:GetServerTimeNow() })
 	if result.complete then
 		session.finishing=true
 		Net.FireNotify(player,{kind="FinishPaint",session=session.token,id=item.id})
@@ -849,12 +850,7 @@ function Manager.PaintVisual(self: Manager,player: Player,request: Types.Request
 	item.visualState=state
 	session.visualSequence=sequence
 	session.visualPackets=(session.visualPackets or 0)+1
-	session.yaw = 0
-	session.pitch = 0
-	item.poseYaw, item.posePitch = 0, 0
-	if request.bodyPose and BodyPose.Validate(item.model, request.bodyPose) then item.poseBody = table.clone(request.bodyPose) end
-	BodyPose.Apply(item.model, Scene.TablePose(), item.poseBody)
-	Net.Broadcast({kind="VisualDelta",id=item.id,session=session.token,sequence=sequence,segments=accepted,visualRevision=state.revision,yaw=session.yaw,pitch=session.pitch,bodyPose=item.poseBody,started=math.min(request.started or now,now)})
+	Net.Broadcast({kind="VisualDelta",id=item.id,session=session.token,sequence=sequence,segments=accepted,visualRevision=state.revision})
 end
 function Manager.OnRequest(self: Manager, player: Player, request: Types.Request): ()
 	local record = self.players[player]
@@ -901,6 +897,16 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 		return
 	end
 	if request.action=="PaintVisual" then self:PaintVisual(player,request);return end
+	if request.action == "ResetView" then
+		local session = self.paint
+		local item = session and self.items[session.id]
+		if session and item and session.player == player and request.session == session.token and not session.finishing
+			and session.orientation ~= CFrame.identity then
+			Painting.SetPose(session, item, Scene.TablePose(), CFrame.identity)
+			Net.Broadcast({ kind = "PaintPose", id = item.id, session = session.token, orientation = CFrame.identity, progress = item.progress, started = now })
+		end
+		return
+	end
 	if request.action=="EndPaint" then
 		local session=self.paint
 		if session and session.player==player and session.token==request.session and (request.sequence or 0)==(session.visualSequence or 0) then
@@ -923,16 +929,6 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 	if self.paint and self.paint.player == player then
 		if request.session ~= self.paint.token then
 			return
-		end
-		if request.action == "ResetView" then
-			self.paint.yaw = 0
-			self.paint.pitch = 0
-			local i = self.items[self.paint.id]
-			if i then
-				i.poseYaw, i.posePitch = 0, 0
-				i.model:PivotTo(Scene.TablePose())
-				Net.Broadcast({ kind = "PaintPose", id = i.id, session = self.paint.token, yaw = 0, pitch = 0, progress = i.progress,started=now })
-			end
 		end
 		return
 	end

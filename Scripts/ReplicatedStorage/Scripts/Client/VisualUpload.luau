@@ -9,15 +9,15 @@ local Upload={}
 Upload.__index=Upload
 export type Upload=typeof(setmetatable({} :: {
  session: string?,sequence: number,acked: number,pending: {[string]: Types.VisualSegment},
- flight: {[number]: {request: Types.Request,sent: number}},lastSend: number,yaw: number,pitch: number,
+ flight: {[number]: {request: Types.Request,sent: number}},lastSend: number,
  closing: boolean,finished: boolean,blocked: boolean,wasForced: boolean,
  bodyPose: Types.BodyPose?,
 },Upload))
 function Upload.new(): Upload
- return setmetatable({session=nil,sequence=0,acked=0,pending={},flight={},lastSend=0,yaw=0,pitch=0,closing=false,finished=false,blocked=false,wasForced=false},Upload)
+ return setmetatable({session=nil,sequence=0,acked=0,pending={},flight={},lastSend=0,closing=false,finished=false,blocked=false,wasForced=false},Upload)
 end
 function Upload.Begin(self: Upload,session: string): ()
- self.session=session;self.sequence=0;self.acked=0;self.lastSend=0;self.yaw=0;self.pitch=0
+ self.session=session;self.sequence=0;self.acked=0;self.lastSend=0
  self.closing=false;self.finished=false;self.blocked=false;self.wasForced=false;table.clear(self.pending);table.clear(self.flight)
  self.bodyPose=nil
 end
@@ -29,7 +29,7 @@ function Upload.Ack(self: Upload,sequence: number): ()
  self.acked=math.max(self.acked,sequence)
  for seq in self.flight do if seq<=self.acked then self.flight[seq]=nil end end
 end
-function Upload.Update(self: Upload,changed: {[string]: Types.VisualSegment},now: number,started: number,yaw: number,pitch: number,force: boolean,bodyPose: Types.BodyPose?,rasterReady: boolean?): ()
+function Upload.Update(self: Upload,changed: {[string]: Types.VisualSegment},now: number,started: number,force: boolean,bodyPose: Types.BodyPose?,rasterReady: boolean?): ()
  for key,segment in changed do self.pending[key]=segment end
  if not self.session or self.blocked then return end
  for _,batch in self.flight do
@@ -38,7 +38,7 @@ function Upload.Update(self: Upload,changed: {[string]: Types.VisualSegment},now
  local immediate=force and not self.wasForced
  self.wasForced=force
  if not immediate and now-self.lastSend<Config.PaintBatchInterval then return end
- local moved=math.abs(yaw-self.yaw)+math.abs(pitch-self.pitch)>.001 or (not self.closing and BodyPose.Changed(self.bodyPose,bodyPose))
+ local moved=not self.closing and BodyPose.Changed(self.bodyPose,bodyPose)
  for packet=1,Config.PaintVisualPacketsPerTick do
   if not next(self.pending) and (not moved or packet>1) then break end
   local segments: {Types.VisualSegment}={}
@@ -49,11 +49,11 @@ function Upload.Update(self: Upload,changed: {[string]: Types.VisualSegment},now
    local key=keys[index];table.insert(segments,self.pending[key]);self.pending[key]=nil
   end
   self.sequence+=1
-  local request: Types.Request={action="PaintVisual",session=self.session,sequence=self.sequence,segments=segments,yaw=yaw,pitch=pitch,started=started}
+  local request: Types.Request={action="PaintVisual",session=self.session,sequence=self.sequence,segments=segments,started=started}
   request.bodyPose=if bodyPose then table.clone(bodyPose) else nil
   self.flight[self.sequence]={request=request,sent=now}
   Net.FireRequest(request)
-  self.lastSend=now;self.yaw=yaw;self.pitch=pitch
+  self.lastSend=now
   self.bodyPose=request.bodyPose
  end
  if self.closing and rasterReady~=false and not self.finished and not next(self.pending) and self.acked==self.sequence then

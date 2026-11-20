@@ -1,6 +1,7 @@
 -- 加工客户端：共享状态展示、键鼠触屏交互、工作台俯视镜头及拖画
 --!strict
 local Players = game:GetService("Players")
+local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -12,7 +13,9 @@ local Sound = require(Shared:WaitForChild("GameSoundTool"))
 local UIManager = require(script.Parent.UIManager)
 local GameScreenGuiManager = require(script.Parent.UIManager.GameScreenGuiManager)
 local Hints = require(Shared:WaitForChild("Hints"))
-local Surface = require(Shared:WaitForChild("PaintSurface"))
+local Rotation = require(Shared.PaintRotation)
+local Surface = require(Shared.PaintSurface)
+local Curve = require(Shared.CurvedSurface)
 local Net = require(Shared:WaitForChild("ProcessingNet"))
 local Lifecycle = require(Shared:WaitForChild("LifecycleTool"))
 local PaintView = require(script.Parent:WaitForChild("PaintView"))
@@ -24,6 +27,7 @@ local HitPresentation = require(script.Parent.HitPresentation)
 local HitRules = require(Shared.HitFeedbackRules)
 local Physics = require(Shared.PhysicsConfig)
 local PaintCamera = require(script.Parent.PaintCamera)
+local PaintBrush = require(script.Parent.PaintBrushContact)
 local VisualUpload = require(script.Parent.VisualUpload)
 local WorldInteractionManager = require(script.Parent.WorldInteractionManager)
 local AltarSacrifice = require(script.Parent.AltarSacrificeView)
@@ -42,7 +46,6 @@ export type Client = typeof(setmetatable(
 		paintCamera: PaintCamera.Controller,
 		visualUpload: VisualUpload.Upload,
 		visualClosing: boolean,
-		poseStarted: number,
 		hitView: HitPresentation.Presentation,
 		hitState: HitRules.State,
 		waitingHits: {Types.Notice},
@@ -61,7 +64,6 @@ export type Client = typeof(setmetatable(
 		lastPoolCount: number?,
 		lastPotionCount: number?,
 		lastPaintSound: number,
-		lastFrame: number,
 		snapshot: Types.Snapshot?,
 		items: { [string]: Types.ItemView },
 		paintId: string?,
@@ -69,24 +71,24 @@ export type Client = typeof(setmetatable(
 		drawing: boolean,
 		finishPaint: boolean,
 		touch: InputObject?,
-		pointer: Vector2,
-		lastPointer: Vector2?,
-		visualPointer: Vector2?,
+		pointer: Vector2?,
+		pointerOrigin: Vector2?,
+		hardwareOrigin: Vector2?,
+		rotationAnchor: Vector2?,
+		brushFrame: PaintBrush.Frame?,
+		pendingCoverage: Types.Request?,
+		paintSamples: {Types.Sample},
+		localCovered: {[string]: boolean}?,
 		visualGesture: number,
-		visualGap: boolean,
-		yaw: number,
-		pitch: number,
-		sentYaw: number,
-		sentPitch: number,
+		orientation: CFrame,
+		sentOrientation: CFrame,
 		lastPaint: number,
 		paintSequence: number,
-		rotationInput: Vector2,
-		angularVelocity: Vector2,
+		angularSpeed: number,
 		target: string?,
 		nearTable: boolean,
 		lastSync: number,
 		synced: boolean,
-		paintPrevious: Types.Sample?,
 		lastHint: number,
 		messageEnds: number,
 		touchGuiEnabled: boolean?,
@@ -96,7 +98,7 @@ export type Client = typeof(setmetatable(
 ))
 local district = workspace:WaitForChild("NeonContractDistrict")
 local tableModel = district:WaitForChild("RuneBodyTable")
-local tableSlab = tableModel:WaitForChild("FullBodySlab") :: BasePart
+local tablePlacement = tableModel:WaitForChild("BodyPlacementAnchor") :: BasePart
 local tableInteract = tableModel:WaitForChild("TransferStartAnchor") :: BasePart
 local function Anchor(station: string, name: string): BasePart
 	return district:WaitForChild(station):WaitForChild(name) :: BasePart
@@ -117,13 +119,10 @@ local positions: { [string]: Vector3 } = {
 	Sigil = submitAnchor.Position,
 }
 local function TablePose(): CFrame
-	local top = tableSlab.CFrame * CFrame.new(0, tableSlab.Size.Y / 2 + Config.PaintLieClearance, 0)
-	-- 与服务端 Scene.TablePose 相同：头朝画面左，身体横放，面朝上。
-	return CFrame.fromMatrix(top.Position, Vector3.zAxis, -Vector3.xAxis)
+	return Rotation.TablePose(tablePlacement.Position)
 end
 local function CameraPose(): CFrame
-	local center = TablePose().Position
-	return CFrame.lookAt(center + Vector3.new(0, Config.PaintCameraHeight, 0), center, -Vector3.zAxis)
+	return Rotation.CameraPose(tablePlacement.Position)
 end
 function Client.new(): Client
 	local tableView, hitView, paint = Presentation.new(), HitPresentation.new(), PaintView.new()
@@ -140,7 +139,6 @@ function Client.new(): Client
 			paintCamera = PaintCamera.new(),
 			visualUpload = VisualUpload.new(),
 			visualClosing = false,
-			poseStarted = 0,
 			hitView = hitView,
 			hitState = HitRules.New(), waitingHits={},
 			attackSequence = 0,
@@ -158,7 +156,6 @@ function Client.new(): Client
 			lastPoolCount = nil,
 			lastPotionCount = nil,
 			lastPaintSound = 0,
-			lastFrame = os.clock(),
 			snapshot = nil,
 			items = {},
 			paintId = nil,
@@ -166,24 +163,19 @@ function Client.new(): Client
 			drawing = false,
 			finishPaint = false,
 			touch = nil,
-			pointer = Vector2.zero,
-			lastPointer = nil,
-			visualPointer = nil,
+			rotationAnchor = nil,
+			paintSamples = {},
+			localCovered = {},
 			visualGesture = 0,
-			visualGap = true,
-			yaw = 0,
-			pitch = 0,
-			sentYaw = 0,
-			sentPitch = 0,
+			orientation = CFrame.identity,
+			sentOrientation = CFrame.identity,
 			lastPaint = 0,
 			paintSequence = 0,
-			rotationInput = Vector2.zero,
-			angularVelocity = Vector2.zero,
+			angularSpeed = 0,
 			target = nil,
 			nearTable = false,
 			lastSync = 0,
 			synced = false,
-			paintPrevious = nil,
 			lastHint = 0,
 			messageEnds = 0,
 			touchGuiEnabled = nil,
@@ -252,12 +244,14 @@ function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	self.session = nil
 	self.drawing = false
 	self.finishPaint = false
-	self.lastPointer = nil
-	self.visualPointer = nil
-	self.visualGap = true
-	self.paintPrevious = nil
+	self.pointer, self.brushFrame = nil, nil
+	self.pointerOrigin, self.hardwareOrigin = nil, nil
+	table.clear(self.paintSamples)
+	if self.localCovered then table.clear(self.localCovered) end
+	self.pendingCoverage = nil
 	self.touch = nil
-	self.rotationInput, self.angularVelocity = Vector2.zero, Vector2.zero
+	self.rotationAnchor = nil
+	self.angularSpeed = 0
 	if altarTossStarted then
 		local ends = altarTossStarted + Physics.AltarToss.LiftSeconds + Physics.AltarToss.CameraFollowSeconds
 		self.paintCamera:FollowToss(ends, function(): Vector3?
@@ -274,7 +268,7 @@ function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	self.touchGuiEnabled = nil
 	self.ui:SetPainting(false)
 end
-function Client.EnterView(self: Client, id: string, session: string): ()
+function Client.EnterView(self: Client, id: string, session: string, frames: Types.BodyPose?): ()
 	if self.paintId then
 		self:ExitView()
 	end
@@ -288,7 +282,15 @@ function Client.EnterView(self: Client, id: string, session: string): ()
 	self.visualClosing = false
 	self.paintSequence = 0
 	self.lastPaint = os.clock()
-	self.yaw, self.pitch, self.sentYaw, self.sentPitch = 0, 0, 0, 0
+	if self.localCovered then table.clear(self.localCovered) else self.localCovered = {} end
+	self.orientation, self.sentOrientation = CFrame.identity, CFrame.identity
+	if UserInputService.MouseEnabled then
+		local inset = GuiService:GetGuiInset()
+		self.pointer = UserInputService:GetMouseLocation() - inset
+	end
+	if frames and self.presentation.model == self.bodies:GetPaintModel(id) then
+		self.presentation.targetBodyPose = frames
+	end
 	local touchGui = player:WaitForChild("PlayerGui"):FindFirstChild("TouchGui")
 	if touchGui and touchGui:IsA("ScreenGui") then
 		self.touchGuiEnabled = touchGui.Enabled
@@ -409,8 +411,9 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		self.snapshot = snapshot
 		self.potionShelf:Apply(snapshot.shelfItems, notice.kind == "Delta" and self.synced, os.clock())
 		if snapshot.painter ~= player.UserId then
-			self.presentation.targetYaw = snapshot.poseYaw or 0
-			self.presentation.targetPitch = snapshot.posePitch or 0
+			self.presentation.targetOrientation = snapshot.paintOrientation or CFrame.identity
+		end
+		if snapshot.bodyPose and (self.paintId == nil or self.paintId == snapshot.tableId) then
 			self.presentation.targetBodyPose = snapshot.bodyPose
 		end
 		local nextItems: { [string]: Types.ItemView } = {}
@@ -475,34 +478,42 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			self:ExitView(if body then body.altarTossStarted else nil)
 		end
 	elseif notice.kind == "Swing" and notice.actor and notice.started then
-		-- 本地已预测；其他角色由 Animator 复制，确认通知不重复播放。
+		-- 本地已即时预测；远端其他角色在对应空间位置播放挥舞音效，避免服务端广播延迟与回声
+		if notice.actor ~= player.UserId then
+			local otherPlayer = Players:GetPlayerByUserId(notice.actor)
+			local otherChar = otherPlayer and otherPlayer.Character
+			local otherRoot = otherChar and otherChar:FindFirstChild("HumanoidRootPart")
+			if Sound and otherRoot and otherRoot:IsA("BasePart") then
+				Sound.Play("AttackSwing", otherRoot.Position)
+			end
+		end
 	elseif notice.kind == "SyncComplete" then
 		self.synced = true
 	elseif notice.kind == "PaintPose" and notice.id then
 		-- 本地笔迹逐帧保留，确认不擦除；操作者的角度始终由本地输入驱动。
+		local snapshot = self.snapshot
+		local isOperator = notice.id == self.paintId and notice.session == self.session
+		local isCurrentTable = snapshot and notice.id == snapshot.tableId and notice.session == snapshot.session
+		if not isOperator and not isCurrentTable then return end
 		local item = self.items[notice.id]
 		if item then item.progress = notice.progress or item.progress end
-		if notice.id ~= self.paintId and (notice.started or 0) >= self.poseStarted then
-			self.poseStarted = notice.started or 0
-			self.presentation.targetYaw = notice.yaw or 0
-			self.presentation.targetPitch = notice.pitch or 0
-			self.presentation.targetBodyPose = notice.bodyPose
+		if isOperator and self.pendingCoverage and notice.sequence == self.pendingCoverage.sequence then self.pendingCoverage=nil end
+		if not isOperator then
+			self.presentation.targetOrientation = notice.orientation or CFrame.identity
 		end
 	elseif notice.kind == "VisualDelta" and notice.id and notice.segments then
-		if not self.items[notice.id] then return end
+		local item = self.items[notice.id]
+		if not item then return end
 		self.view:Apply(notice.id,notice.segments)
 		if notice.session == self.session and notice.sequence then self.visualUpload:Ack(notice.sequence) end
-		if notice.id ~= self.paintId and (notice.started or 0)>=self.poseStarted then
-			self.poseStarted=notice.started or 0
-			self.presentation.targetYaw,self.presentation.targetPitch=notice.yaw or 0,notice.pitch or 0
-			self.presentation.targetBodyPose=notice.bodyPose
-		end
 	elseif notice.kind == "VisualSnapshot" and notice.id and notice.segments then
-		if not self.items[notice.id] then return end
+		local item = self.items[notice.id]
+		if not item then return end
 		self.view:Apply(notice.id,notice.segments)
 	elseif notice.kind == "VisualRejected" and notice.session == self.session then
 		self.visualUpload.blocked=true
 		self.drawing=false
+		self.brushFrame = nil
 		self.visualClosing=true
 		if notice.id then self.view:Remove(notice.id) end
 		Net.FireRequest({action="EndPaint",session=self.session,sequence=notice.sequence or self.visualUpload.acked})
@@ -511,9 +522,12 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		self:Notice(if notice.textId or notice.text then notice else {kind = "Message", textId = "PaintSyncFailed"})
 		self.messageEnds=os.clock()+10
 	elseif notice.kind == "FinishPaint" and notice.session == self.session then
+		self.pendingCoverage=nil
+		table.clear(self.paintSamples)
+		self.sentOrientation=self.orientation
 		self:RequestPaintEnd()
 	elseif notice.kind == "BeginPaint" and notice.id and notice.session then
-		self:EnterView(notice.id, notice.session)
+		self:EnterView(notice.id, notice.session, notice.bodyPose)
 	elseif notice.kind == "EndPaint" and notice.session == self.session then
 		self:ExitView(notice.started)
 	elseif notice.kind == "Message" and (notice.textId or notice.text) then
@@ -530,12 +544,13 @@ function Client.RequestPaintEnd(self: Client): ()
 	if not self.paintId or self.visualClosing then return end
 	self.visualClosing=true
 	self.visualUpload.closing=true
-	-- 退出按钮位置不是落笔位置；只收尾已有手势，并冻结最后的画布端点。
+	-- 退出按钮只触发收尾，待发覆盖点已记录各自的落笔姿态。
 	self.finishPaint=self.drawing or self.finishPaint
-	if self.finishPaint then self.pointer=self.visualPointer or self.lastPointer or self.pointer end
 	self.drawing=false
+	self.brushFrame = nil
 	self.touch=nil
-	self.rotationInput,self.angularVelocity=Vector2.zero,Vector2.zero
+	self.rotationAnchor=nil
+	self.angularSpeed=0
 end
 function Client.Drop(self: Client): ()
 	if self.paintId then
@@ -561,6 +576,9 @@ function Client.Attack(self: Client, inputTime: number?): ()
 	end
 	self.lastAttack = now
 	self.characterView:Swing(player.UserId, now)
+	if Sound and root then
+		Sound.Play("AttackSwing", root.Position)
+	end
 	local best: Types.ItemView? = nil
 	local distance = Config.AttackRange
 	for _, item in self.items do
@@ -585,70 +603,259 @@ function Client.Attack(self: Client, inputTime: number?): ()
 	if best then self.bodies:TrackPrediction(best.id,self.attackSequence,self.hitState.pending[self.attackSequence]) end
 	Net.FireRequest({ action = "Attack", target = if best then best.id else nil, version = if best then best.version else nil, attackSequence=self.attackSequence })
 end
-local function SamplePaintPath(model: Model, camera: Camera, from: Vector2, pointer: Vector2, spacing: number, maximum: number, gap: boolean): ({ Types.Sample }, boolean)
-	local params = RaycastParams.new()
-	params.FilterType = Enum.RaycastFilterType.Include
-	params.FilterDescendantsInstances = { model }
-	local steps = math.clamp(math.ceil((pointer - from).Magnitude / spacing), 1, maximum - 1)
-	local samples: { Types.Sample } = {}
-	for index = 0, steps do
-		local point = from:Lerp(pointer, index / steps)
-		local ray = camera:ScreenPointToRay(point.X, point.Y)
-		local hit = workspace:Raycast(ray.Origin, ray.Direction * 100, params)
-		if hit and hit.Instance:IsA("BasePart") and Surface.IsBody(hit.Instance) then
-			local sample = Surface.Project(hit.Instance, hit.Position, hit.Normal)
-			if Surface.Allowed(hit.Instance, sample.face) then
-				sample.breakBefore = if gap then true else nil
-				table.insert(samples, sample)
-				gap = false
-			else gap = true end
-		else gap = true end
-	end
-	return samples, gap
+local function PaintControl(anchor: Vector2, pointer: Vector2, viewport: Vector2): Vector2
+	return Rotation.Velocity(pointer - anchor, viewport)
 end
-function Client.Paint(self: Client, now: number): ()
-	local id, session = self.paintId, self.session
-	if not id or not session or not (self.drawing or self.finishPaint) then return end
+-- 松手后笔尖是指针原点。系统光标不能搬到喷口，之后只累加硬件鼠标位移。
+local function PointerFromHardware(self: Client, hardware: Vector2): Vector2
+	local origin, hardwareOrigin = self.pointerOrigin, self.hardwareOrigin
+	if origin and hardwareOrigin then
+		return origin + (hardware - hardwareOrigin)
+	end
+	return hardware
+end
+local function HardwareFromPointer(self: Client): Vector2?
+	local pointer = self.pointer
+	if not pointer then
+		return nil
+	end
+	local origin, hardwareOrigin = self.pointerOrigin, self.hardwareOrigin
+	if origin and hardwareOrigin then
+		return hardwareOrigin + (pointer - origin)
+	end
+	return pointer
+end
+local function SnapPointerToBrush(self: Client, hardware: Vector2): ()
+	local frame = self.brushFrame
+	local tip = if frame then frame.tip else self.pointer
+	if not tip then
+		return
+	end
+	self.pointer = tip
+	self.pointerOrigin = tip
+	self.hardwareOrigin = hardware
+end
+-- 输入事件里的坐标比 GetMouseLocation 少一个顶栏高度。喷口使用前者。
+local ignoreMouseMove = false
+local catchHardwareOrigin = false
+local function ReadMouse(): Vector2?
+	local ok, value = pcall(function(): Vector2
+		return UserInputService:GetMouseLocation()
+	end)
+	if ok and typeof(value) == "Vector2" then
+		return value
+	end
+	return nil
+end
+local function ReadInset(): Vector2
+	local ok, value = pcall(function(): Vector2
+		return GuiService:GetGuiInset()
+	end)
+	if ok and typeof(value) == "Vector2" then
+		return value
+	end
+	return Vector2.zero
+end
+local function HardwareNow(fallback: Vector2): Vector2
+	local mouse = ReadMouse()
+	if not mouse then
+		return fallback
+	end
+	return mouse - ReadInset()
+end
+local function FormatPoint(point: Vector2?): string
+	if not point then
+		return "nil"
+	end
+	return string.format("(%.1f,%.1f)", point.X, point.Y)
+end
+-- 把系统光标移到喷口。成功时后续输入会从笔尖发出，不再保留拖拽偏移。
+local function WarpMouseToTip(tip: Vector2): boolean
+	local target = tip + ReadInset()
+	local before = ReadMouse()
+	ignoreMouseMove = true
+	local sent = pcall(function()
+		local virtual = UserInputService:CreateVirtualInput()
+		if virtual == nil then
+			error("VirtualInput unavailable")
+		end
+		(virtual :: any):SendMousePosition(target)
+	end)
+	local after = ReadMouse()
+	local arrived = sent and after ~= nil and (after - target).Magnitude <= 8
+	--print(string.format(
+	--	"[画笔重置] 喷口=%s 目标鼠标=%s 移动前=%s 移动后=%s 落到喷口=%s",
+	--	FormatPoint(tip),
+	--	FormatPoint(target),
+	--	FormatPoint(before),
+	--	FormatPoint(after),
+	--	tostring(arrived)
+	--))
+	if arrived then
+		return true
+	end
+	ignoreMouseMove = false
+	return false
+end
+
+-- 在入队上报前按客户端本地已覆盖集合去重，避免重复转圈导致数千重复点堵死进度队列。
+local function FilterNewCoverageSamples(self: Client, model: Model, samples: { Types.Sample }): { Types.Sample }
+	if typeof(model) ~= "Instance" then
+		return samples
+	end
+	local covered: { [string]: boolean } = self.localCovered or {}
+	self.localCovered = covered
+	local filtered: { Types.Sample } = {}
+	local previous: Types.Sample? = nil
+	local lastQueued: Types.Sample? = nil
+	for _, sample in samples do
+		if sample.breakBefore then
+			previous = nil
+		end
+		local part = model:FindFirstChild(sample.part)
+		if not part or not part:IsA("BasePart") or not Surface.IsBody(part) or not Surface.IsPaintSample(part, sample) then
+			table.insert(filtered, sample)
+			previous = nil
+			lastQueued = sample
+			continue
+		end
+		local curved = Curve.IsPart(part)
+		local ink = sample
+		if curved and sample.packedInk then
+			ink = table.clone(sample)
+			ink.u, ink.v = Curve.InkCenter(sample.u, sample.v)
+		end
+		local _, added = Surface.Stamp(part, ink, covered)
+		if previous and not previous.packedInk and not sample.packedInk and previous.part == sample.part and previous.face == sample.face then
+			if curved then
+				local start = Curve.Point(part, previous)
+				local finish = Curve.Point(part, sample)
+				local distance = (finish - start).Magnitude
+				if distance < Config.BrushRadius * 3 then
+					local steps = math.ceil(distance / (Config.BrushRadius * 0.5))
+					for index = 1, steps - 1 do
+						local intermediate = Curve.ProjectLocal(part, start:Lerp(finish, index / steps))
+						local _, segArea = Surface.Stamp(part, intermediate, covered)
+						added += segArea
+					end
+				end
+			else
+				local dimensions = Surface.Dimensions(part.Size, sample.face)
+				local distance = Vector2.new((sample.u - previous.u) * dimensions.X, (sample.v - previous.v) * dimensions.Y).Magnitude
+				if distance < Config.BrushRadius * 3 then
+					local steps = math.ceil(distance / (Config.BrushRadius * 0.5))
+					for index = 1, steps - 1 do
+						local alpha = index / steps
+						local _, segArea = Surface.Stamp(part, {
+							part = sample.part,
+							face = sample.face,
+							u = previous.u + (sample.u - previous.u) * alpha,
+							v = previous.v + (sample.v - previous.v) * alpha,
+						}, covered)
+						added += segArea
+					end
+				end
+			end
+		end
+		if added > 0 then
+			if previous and not sample.breakBefore and previous.part == sample.part and previous.face == sample.face and previous ~= lastQueued then
+				local anchor = table.clone(previous)
+				anchor.breakBefore = true
+				table.insert(filtered, anchor)
+			end
+			table.insert(filtered, sample)
+			lastQueued = sample
+		end
+		previous = sample
+	end
+	return filtered
+end
+
+function Client.SamplePaint(self: Client, now: number): Vector2?
+	local id, session, pointer = self.paintId, self.session, self.pointer
 	local camera = workspace.CurrentCamera
-	local model = self.bodies:GetPaintModel(id)
-	if not model or not camera then return end
-	-- 每个显示帧立即补齐屏幕路径；跨帧同面追加，确认回包不替换本地笔迹。
-	local visual, gap = SamplePaintPath(model, camera, self.visualPointer or self.pointer, self.pointer, Config.PaintVisualSamplePixels, Config.PaintVisualSamplesPerFrame, self.visualGap)
-	self.visualPointer, self.visualGap = self.pointer, gap
-	if #visual > 0 then
-		self.view:DrawLocal(id,session,self.visualGesture,visual)
+	local display = self.presentation
+	local model, geometry = display.model, display.geometry
+	if not id or not session or not pointer or not camera or not self.paintCamera.ready
+		or not model or not geometry or self.bodies:GetPaintModel(id) ~= model then
+		self.brushFrame = nil
+		return nil
+	end
+
+	local previous = self.brushFrame
+	local basePose = TablePose()
+	local rotationAxis: Vector3? = nil
+	if self.rotationAnchor then
+		local target = PaintControl(self.rotationAnchor, pointer, camera.ViewportSize)
+		if target.Magnitude > 1e-6 then
+			local localAxis = Vector3.new(target.Y, target.X, 0) / target.Magnitude
+			local worldAxis = basePose:VectorToWorldSpace(localAxis)
+			if worldAxis.Magnitude > 1e-6 then
+				rotationAxis = worldAxis.Unit
+			end
+		end
+	end
+	if previous and previous.orientation == display.orientation and (previous.pointer - pointer).Magnitude < 1e-4 then
+		return previous.tip
+	end
+	local resolver = PaintBrush.Resolver(model, camera, basePose, geometry, display.orientation)
+	local samples, frame = PaintBrush.SamplePath(previous, pointer, display.orientation, geometry.radius, resolver, camera.ViewportSize, rotationAxis)
+	self.brushFrame = frame
+	if #samples > 0 then
+		self.view:DrawLocal(id,session,self.visualGesture,samples)
+		local queued = FilterNewCoverageSamples(self, model, samples)
+		for _, sample in queued do table.insert(self.paintSamples,sample) end
 		if now - self.lastPaintSound >= 0.12 then
 			self.lastPaintSound = now
 			Sound.Play("PaintStroke")
 		end
 	end
-	-- 覆盖率上报保持限频，单独采样当前姿态，不能用网络频率控制可见颜料。
-	if now - self.lastPaint >= Config.PaintBatchInterval or self.finishPaint then
-		self.lastPaint = now
-		local samples = SamplePaintPath(model, camera, self.lastPointer or self.pointer, self.pointer, 8, 12, false)
-		self.lastPointer = self.pointer
-		local previous, last = self.paintPrevious, samples[#samples]
-		local unchanged = #samples <= 2 and previous and last and last.part == previous.part and last.face == previous.face and last.triangle==previous.triangle and math.abs(last.u - previous.u) + math.abs(last.v - previous.v) < 0.001 and math.abs(self.yaw - self.sentYaw) + math.abs(self.pitch - self.sentPitch) < 0.001
-		if #samples > 0 and not unchanged then
-			self.paintPrevious = samples[#samples]
-			if previous and #samples < 12 and not samples[1].breakBefore and previous.part == samples[1].part and previous.face == samples[1].face then table.insert(samples, 1, previous) end
-			self.paintSequence += 1
-			Net.FireRequest({action="Paint",session=session,sequence=self.paintSequence,samples=samples,yaw=self.yaw,pitch=self.pitch,bodyPose=self.presentation:CapturePose()})
-			self.sentYaw, self.sentPitch = self.yaw, self.pitch
-		elseif #samples == 0 then self.paintPrevious = nil end
-	end
-	if self.finishPaint then
-		self.finishPaint = false
-		self.lastPointer, self.visualPointer, self.paintPrevious = nil, nil, nil
-		self.visualGap = true
-		self.angularVelocity = Vector2.zero
-	end
+	return frame.tip
 end
-function Client.Update(self: Client): ()
+
+function Client.Paint(self: Client, now: number): Vector2?
+	local session = self.session
+	if not self.paintId or not session then return nil end
+	local tip = if self.drawing then self:SamplePaint(now) else self.pointer
+	local moved = Rotation.Distance(self.sentOrientation, self.orientation) > 0.001
+
+	local pending = self.pendingCoverage
+	if pending then
+		-- 有间隔限制的服务端可能因包挤在一起而拒收；保留原序号并按较短重试间隔快速恢复。
+		if now-self.lastPaint >= Config.PaintCoverageRetrySeconds then
+			pending.orientation = self.orientation
+			Net.FireRequest(pending)
+			self.lastPaint = now
+		end
+	elseif now-self.lastPaint >= Config.PaintBatchInterval and (#self.paintSamples>0 or moved) then
+		local count = math.min(#self.paintSamples,Config.PaintCoverageBatchSize)
+		local samples = table.move(self.paintSamples,1,count,1,{})
+		self.paintSamples = table.move(self.paintSamples,count+1,#self.paintSamples,1,{})
+		self.lastPaint = now
+		self.paintSequence += 1
+		local request: Types.Request = {action="Paint",session=session,sequence=self.paintSequence,samples=samples,orientation=self.orientation}
+		self.pendingCoverage = request
+		self.sentOrientation = self.orientation
+		Net.FireRequest(request)
+	end
+	self.finishPaint = not self.drawing and (#self.paintSamples>0 or self.pendingCoverage~=nil or moved)
+	return tip
+end
+
+function Client.StepPaintRotation(self: Client, dt: number): ()
+	local camera = workspace.CurrentCamera
+	local anchor, pointer = self.rotationAnchor, self.pointer
+	if not self.drawing or not self.paintCamera.ready or not camera or not anchor or not pointer then
+		self.angularSpeed = 0
+		return
+	end
+	local target = PaintControl(anchor, pointer, camera.ViewportSize)
+	self.orientation, self.angularSpeed = Rotation.Step(self.orientation, self.angularSpeed, target, dt)
+end
+
+function Client.Update(self: Client, dt: number): ()
 	local now = os.clock()
 	if self.worldInteraction then self.worldInteraction:Refresh() end
-	local camera = workspace.CurrentCamera
-	self.lastFrame = now
 	local missingModel = false
 	for _, item in self.items do
 		if not item.model or not item.model.Parent then missingModel = true; break end
@@ -666,23 +873,22 @@ function Client.Update(self: Client): ()
 		self:Text("NoticeText", {textId = "PaintSurfaceUnavailable"})
 		self.messageEnds=now+5
 	end
-	if self.paintId then
-		self.yaw, self.pitch = 0, 0
-		self.angularVelocity = Vector2.zero
-		self.rotationInput = Vector2.zero
-	end
 	local snapshot = self.snapshot
-	if camera then self.ui:UpdatePointer(if self.paintId then self.bodies:GetPaintModel(self.paintId) else nil, camera, self.pointer, self.paintId ~= nil and (not UserInputService.TouchEnabled or self.drawing), self.drawing) end
 	if self.paintId then
 		local item = self.items[self.paintId]
 		if item and item.model then self.ui:SetProgress(item.progress) end
-
-		if self.paintCamera.ready then self:Paint(now) end
+		local point = self:Paint(now)
+		self.ui:UpdatePointer(point, self.drawing)
+		ignoreMouseMove = false
+		if catchHardwareOrigin and not self.drawing and self.hardwareOrigin then
+			catchHardwareOrigin = false
+			self.hardwareOrigin = HardwareNow(self.hardwareOrigin)
+		end
 	end
 	-- 姿态和当前帧采样完成后再绘制，每帧统一消耗一次栅格化预算。
 	self.view:Update(self.paintId)
 	if self.paintId then
-		self.visualUpload:Update(self.view:Drain(self.paintId),now,workspace:GetServerTimeNow(),self.yaw,self.pitch,self.visualClosing or not self.drawing,self.presentation:CapturePose(),not self.finishPaint and self.view:IsReady(self.paintId))
+		self.visualUpload:Update(self.view:Drain(self.paintId),now,workspace:GetServerTimeNow(),self.visualClosing or not self.drawing,nil,not self.finishPaint and self.view:IsReady(self.paintId))
 		if self.view.budgetReached then
 			self:Text("NoticeText", {textId = "PaintSegmentLimit"})
 			self.messageEnds=now+3
@@ -781,17 +987,20 @@ function Client.OnInput(self: Client, input: InputObject, processed: boolean): (
 		return
 	end
 	if self.paintId and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+		if self.drawing then return end
 		self.drawing = true
-		self.pointer = Vector2.new(input.Position.X, input.Position.Y)
-		self.lastPointer = self.pointer
-		self.visualPointer = self.pointer
-		self.visualGesture += 1
-		self.visualGap = true
-		self.paintPrevious = nil
-		self.finishPaint = false
+		local hardware = Vector2.new(input.Position.X, input.Position.Y)
 		if input.UserInputType == Enum.UserInputType.Touch then
+			self.pointer = hardware
 			self.touch = input
+		else
+			self.pointer = PointerFromHardware(self, hardware)
 		end
+		self.rotationAnchor = self.pointer
+		self.brushFrame = nil
+		self.visualGesture += 1
+		self.finishPaint = false
+		self:SamplePaint(os.clock())
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		self:Drop()
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
@@ -805,27 +1014,54 @@ function Client.OnInput(self: Client, input: InputObject, processed: boolean): (
 end
 function Client.OnMove(self: Client, input: InputObject): ()
 	if self.visualClosing then return end
-	if input.UserInputType ~= Enum.UserInputType.MouseMovement and input ~= self.touch then
+	if input ~= self.touch and (self.touch ~= nil or input.UserInputType ~= Enum.UserInputType.MouseMovement) then
 		return
 	end
-	local point = Vector2.new(input.Position.X, input.Position.Y)
-	self.pointer = point
+	if ignoreMouseMove and input ~= self.touch then
+		return
+	end
+	local hardware = Vector2.new(input.Position.X, input.Position.Y)
+	self.pointer = if input == self.touch then hardware else PointerFromHardware(self, hardware)
 end
 function Client.OnRelease(self: Client, input: InputObject): ()
 	if self.visualClosing then return end
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input == self.touch then
+	if input == self.touch or (not self.touch and input.UserInputType == Enum.UserInputType.MouseButton1) then
+		local hardware = Vector2.new(input.Position.X, input.Position.Y)
+		local mouseRelease = input ~= self.touch
 		if self.drawing then
-			self.pointer = Vector2.new(input.Position.X, input.Position.Y)
+			local sampled = if mouseRelease then PointerFromHardware(self, hardware) else hardware
+			self.pointer = sampled
+			self:SamplePaint(os.clock())
 			self.finishPaint = true
+			if mouseRelease then
+				SnapPointerToBrush(self, hardware)
+				local tip = self.pointer
+				if tip and WarpMouseToTip(tip) then
+					self.pointer = tip
+					self.pointerOrigin = tip
+					self.hardwareOrigin = tip
+				elseif tip then
+					self.hardwareOrigin = HardwareNow(hardware)
+					catchHardwareOrigin = true
+				end
+			end
 		end
 		self.drawing = false
-		self.angularVelocity = Vector2.zero
+		self.angularSpeed = 0
+		self.rotationAnchor = nil
+		self.brushFrame = nil
+		if self.touch then self.pointer = nil end
 		self.touch = nil
 	end
 end
 function Client.ResetPaintView(self: Client): ()
 	if self.visualClosing or not self.paintId then return end
-	self.yaw,self.pitch,self.sentYaw,self.sentPitch=0,0,0,0
+	self.drawing = false
+	self.finishPaint = #self.paintSamples > 0
+	self.brushFrame, self.touch = nil, nil
+	self.rotationAnchor = nil
+	self.angularSpeed = 0
+	self.orientation,self.sentOrientation=CFrame.identity,CFrame.identity
 	Net.FireRequest({action="ResetView",session=self.session})
 end
 function Client.UpdateAltar(self: Client, now: number): ()
@@ -924,6 +1160,23 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 	self.scope:Connect(UserInputService.InputEnded:Connect(function(input: InputObject): ()
 		self:OnRelease(input)
 	end))
+	local function OnPaintInputInterrupted(): ()
+		if not self.drawing then return end
+		if self.touch then
+			self.pointer = nil
+		else
+			local hardware = HardwareFromPointer(self)
+			if hardware then
+				SnapPointerToBrush(self, hardware)
+			end
+		end
+		self.drawing, self.finishPaint, self.touch = false, true, nil
+		self.brushFrame = nil
+		self.rotationAnchor = nil
+		self.angularSpeed = 0
+	end
+	self.scope:Connect(UserInputService.WindowFocusReleased:Connect(OnPaintInputInterrupted))
+	self.scope:Connect(GuiService.MenuOpened:Connect(OnPaintInputInterrupted))
 	self.scope:Connect(player.CharacterAdded:Connect(function(): ()
 		self:CancelHitFeedback()
 		self:ExitView()
@@ -943,7 +1196,10 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		self.bodies:Step(now,dt,self.paintId~=nil)
 		self:UpdateAltar(now)
 		if self.presentation.model then
-			if self.paintId then self.presentation.targetYaw,self.presentation.targetPitch=self.yaw,self.pitch end
+			if self.paintId then
+				self:StepPaintRotation(dt)
+				self.presentation.targetOrientation=self.orientation
+			end
 			self.presentation:Update(TablePose(),math.min(dt,0.1),self.paintId ~= nil)
 		end
 	end)
@@ -964,7 +1220,7 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 	self.scope:Connect(RunService.RenderStepped:Connect(function(dt): ()
 		self.paintCamera:StepToss(workspace:GetServerTimeNow(), dt)
 		self.potionShelf:Step(os.clock())
-		self:Update()
+		self:Update(dt)
 	end))
 end
 function Client.Destroy(self: Client): ()

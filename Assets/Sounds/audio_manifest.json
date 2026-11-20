@@ -99,6 +99,17 @@
       "assetId": "129374188512676",
       "sha256": "cf40f65e922beb7bba3b755a094b11ce0730e1ac09a3b2c120d229ffe279608e",
       "size": 9613
+    },
+    "AttackSwing": {
+      "name": "AttackSwing",
+      "assetId": "91452841866894",
+      "rbxassetid": "rbxassetid://91452841866894",
+      "file": "AttackSwing.mp3",
+      "fileSize": 3343,
+      "sha256": "132275295cd64e86d8941b0b4bce651633b0912dc29e7cb1b54eb6546adebd95",
+      "uploadedAt": "2026-11-19T09:03:11.604765+00:00",
+      "history": []
     }
-  }
+  },
+  "updatedAt": "2026-11-19T09:03:11.604894+00:00"
 }

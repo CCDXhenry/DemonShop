@@ -63,7 +63,7 @@ local GameTexts = {
 		CarryingBody = { source = "CARRYING BODY", key = "" }, -- 用途：状态栏显示正在携带未完成布娃娃；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
 		CarryingBodies = { source = "CARRYING {1} BODIES", key = "Processing.CarryingBodies" }, -- 用途：状态栏显示同时肩扛的白膜数量；{1} 为具数；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
 		HandsEmpty = { source = "HANDS EMPTY", key = "" }, -- 用途：状态栏显示双手空闲；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
-		Painting = { source = "DRAG ON THE BODY TO PAINT", key = "" }, -- 用途：绘制模式下提示拖动画符；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
+		Painting = { source = "HOLD AND DRAG TO PAINT AND ROTATE", key = "" }, -- 用途：绘制模式下提示按住拖动旋转白膜并自动连续涂画；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
 		TakeTableBody = { source = "TAKE TABLE BODY", key = "" }, -- 用途：空手靠近已占用工作台时，Q 键取回台上的身体；没有对应屏幕按钮
 		Drop = { source = "DROP", key = "" }, -- 用途：Q 键放下当前携带物；没有对应屏幕按钮
 	},

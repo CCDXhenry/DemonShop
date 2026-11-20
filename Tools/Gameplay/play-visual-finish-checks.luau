@@ -26,12 +26,12 @@ local ok,err=xpcall(function()
  local item={id="visual-finish-fixture",kind="Body",stage="Painting",location="Table",version=1,model=model,hits=3,covered={},strokes={},strokePoints=0,area=0,totalArea=.001,progress=0,paintSeconds=0,streetSlot=false,nextWalk=0}
  manager.items[item.id]=item;manager.tableId=item.id
  local now=workspace:GetServerTimeNow()
- local session={player=player,id=item.id,token="fixture-session",sequence=0,last=now-1,yaw=0,pitch=0,walkSpeed=backup.walk,jumpPower=backup.jump,jumpHeight=backup.height}
+ local session={player=player,id=item.id,token="fixture-session",sequence=0,last=now-1,orientation=CFrame.identity,walkSpeed=backup.walk,jumpPower=backup.jump,jumpHeight=backup.height}
  manager.paint=session
- local segment={key="fixture-session:1:1",version=1,gesture=1,part="UpperTorso",face=2,u0=.1,v0=.2,u1=.7,v1=.6}
- manager:OnRequest(player,{action="PaintVisual",session=session.token,sequence=1,segments={segment},yaw=0,pitch=0,started=now})
+ local segment={key="fixture-session:1:1",version=1,gesture=1,part="UpperTorso",face=1,u0=.1,v0=.2,u1=.7,v1=.6}
+ manager:OnRequest(player,{action="PaintVisual",session=session.token,sequence=1,segments={segment},started=now})
  check(item.visualState and item.visualState.count==1,"visual stored independently of coverage")
- manager:Paint(player,{action="Paint",session=session.token,sequence=1,samples={{part="UpperTorso",face=2,u=.5,v=.5}},yaw=0,pitch=0})
+ manager:Paint(player,{action="Paint",session=session.token,sequence=1,samples={{part="UpperTorso",face=1,u=.5,v=.5}},orientation=CFrame.identity})
  check(item.progress==1 and session.finishing,"coverage completion enters finishing phase")
  check(manager.paint==session and item.stage=="Painting","completion does not release before final upload")
  local finishNotice=false
@@ -40,7 +40,7 @@ local ok,err=xpcall(function()
  manager:OnRequest(player,{action="EndPaint",session=session.token,sequence=0})
  check(manager.paint==session,"unacknowledged end sequence cannot release ownership")
  local final=table.clone(segment);final.version=2;final.u1=.9
- manager:OnRequest(player,{action="PaintVisual",session=session.token,sequence=2,segments={final},yaw=0,pitch=0,started=now})
+ manager:OnRequest(player,{action="PaintVisual",session=session.token,sequence=2,segments={final},started=now})
  check(item.visualState.segments[segment.key].version==2,"final extension accepted while finishing")
  manager:OnRequest(player,{action="EndPaint",session=session.token,sequence=2})
  check(manager.paint==nil and item.stage=="Painted","confirmed final sequence completes body and releases lock")

@@ -1,22 +1,25 @@
--- 工作台展示：仰卧静止姿态、观察者插值，以及原实体可见性恢复
+-- 工作台展示：双轴白膜姿态、旋转中心与旁观者插值。
 --!strict
 local ReplicatedStorage=game:GetService("ReplicatedStorage")
 local Pose=require(ReplicatedStorage.Scripts.Shared.PaintBodyPose)
 local Config=require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
 local Types=require(ReplicatedStorage.Scripts.Shared.GameTypes)
+local Rotation=require(ReplicatedStorage.Scripts.Shared.PaintRotation)
 local Presentation={}
 Presentation.__index=Presentation
 export type Presentation=typeof(setmetatable({} :: {
 	model: Model?,parts: {[string]: BasePart},
-	yaw: number,pitch: number,targetYaw: number,targetPitch: number,
-	dynamic: boolean,rest: CFrame,targetBodyPose: Types.BodyPose?,
+	orientation: CFrame,targetOrientation: CFrame,
+	dynamic: boolean,targetBodyPose: Types.BodyPose?,
+	geometry: Rotation.Geometry?, geometryFrames: Types.BodyPose?, center: Vector3?,
 },Presentation))
 function Presentation.new(): Presentation
-	return setmetatable({model=nil,parts={},yaw=0,pitch=0,targetYaw=0,targetPitch=0,dynamic=false,rest=CFrame.identity,targetBodyPose=nil},Presentation)
+	return setmetatable({model=nil,parts={},orientation=CFrame.identity,targetOrientation=CFrame.identity,dynamic=false,targetBodyPose=nil},Presentation)
 end
 function Presentation.Clear(self: Presentation): ()
 	table.clear(self.parts)
 	self.model,self.targetBodyPose=nil,nil
+	self.geometry,self.geometryFrames,self.center=nil,nil,nil
 	self.dynamic=false
 end
 -- 副本及可见性交接由白膜管理器独占；此控制器只持有当前工位姿态。
@@ -25,8 +28,6 @@ function Presentation.Attach(self: Presentation,source: Model,model: Model,rootD
 	self.model=model
 	local torso=model:FindFirstChild("UpperTorso")
 	assert(torso and torso:IsA("BasePart"),"Painting body requires UpperTorso")
-	local rest=torso:GetAttribute("RestPose")
-	self.rest=if typeof(rest)=="CFrame" then rest else model:GetPivot():ToObjectSpace(torso.CFrame)
 	for _,instance in model:GetDescendants() do
 		if instance:IsA("LuaSourceContainer") or instance:IsA("Humanoid") then instance:Destroy()
 		elseif instance:IsA("Motor6D") then
@@ -52,29 +53,26 @@ function Presentation.Attach(self: Presentation,source: Model,model: Model,rootD
 		end
 	end
 	self.targetBodyPose=receivedPose or Pose.Capture(source)
-	self.yaw,self.pitch=0,0
-end
-function Presentation.CapturePose(self: Presentation): Types.BodyPose?
-	if not self.dynamic or not self.model then return nil end
-	return Pose.Capture(self.model)
+	self.orientation=CFrame.identity
 end
 function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediate: boolean): ()
 	local alpha=if immediate then 1 else 1-math.exp(-Config.TableObserverResponse*dt)
-	local yawDelta=(self.targetYaw-self.yaw+math.pi)%(2*math.pi)-math.pi
-	self.yaw+=yawDelta*alpha
-	self.pitch+=(self.targetPitch-self.pitch)*alpha
-	if not self.model then return end
-	-- 工作台保持锚定的静止仰卧，不打开球窝，四肢不因重力垂落。
-	self.dynamic=false
-	local support=pose*CFrame.Angles(self.pitch,self.yaw,0)*self.rest
-	local torso=self.parts.UpperTorso
-	if torso then torso.CFrame=if immediate then support else torso.CFrame:Lerp(support,alpha) end
-	for name,frame in pairs(self.targetBodyPose or {}) do
+	self.orientation=if immediate then self.targetOrientation else self.orientation:Lerp(self.targetOrientation,alpha)
+	local model,frames=self.model,self.targetBodyPose
+	if not model or not frames then return end
+	local geometry=self.geometry
+	if not geometry or self.geometryFrames~=frames then
+		local created=Rotation.Create(model,frames)
+		self.geometry,self.geometryFrames=created,frames
+		geometry=created
+	end
+	if not geometry then return end
+	local rotated=Rotation.Pose(pose,geometry,self.orientation)
+	self.center=rotated:PointToWorldSpace(geometry.center)
+	local support=rotated*geometry.rest
+	for name,frame in frames do
 		local part=self.parts[name]
-		if part and name~="UpperTorso" then
-			local goal=support*frame
-			part.CFrame=if immediate then goal else part.CFrame:Lerp(goal,alpha)
-		end
+		if part then part.CFrame=support*frame end
 	end
 end
 return Presentation

@@ -76,11 +76,13 @@ module("HitFeedbackRules", SHARED, "local Rules =", "")
 source=(CLIENT/"ClientProcessingManager.luau").read_text(encoding="utf-8")
 methods=source[source.index("function Client.OnHit("):source.index("function Client.RequestPaintEnd(")]
 (OUT/"FeedbackClient.luau").write_text("""
+local CFrame=require('@lune/roblox').CFrame
 local Client={}
 local player={UserId=1}
 local HitRules=require('./HitFeedbackRules')
 local Config={StunHits=3,HitSecondPoseSeconds=0.45,HitEffectSeconds=0.12,HitFinalEffectSeconds=0.18}
 local workspace={GetServerTimeNow=function() return 0.04 end}
+local CFrame=require('@lune/roblox').CFrame
 """+methods+"\nreturn Client",encoding="utf-8")
 test = (ROOT / "Tools/Gameplay/test_white_presentation.luau").read_text(encoding="utf-8")
 (OUT / "test.luau").write_text(test, encoding="utf-8")

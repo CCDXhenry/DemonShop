@@ -60,19 +60,44 @@ function Reference.Draw(texture,segment)
  local a,b=Curve.Point(part,first),Curve.Point(part,last)
  local spans={}
  local function add(p,q,normal,lastNormal) table.insert(spans,{p=p,q=q,normal=normal,lastNormal=lastNormal or normal}) end
+ local function seam(from, to)
+  local t0,t1=geometry.triangles[from.triangle],geometry.triangles[to.triangle]
+  local shared={}
+  for _,p in {t0.a,t0.b,t0.c} do
+   for _,q in {t1.a,t1.b,t1.c} do
+    if (p-q).Magnitude<=1e-5 then table.insert(shared,p);break end
+   end
+  end
+  if #shared~=2 then return nil end
+  local midpoint=(Curve.Point(part,from)+Curve.Point(part,to))*.5
+  local edge=shared[2]-shared[1]
+  return shared[1]+edge*math.clamp((midpoint-shared[1]):Dot(edge)/edge:Dot(edge),0,1)
+ end
+ local function join(from,to,edge)
+  local p,q=Curve.Point(part,from),Curve.Point(part,to)
+  local n0,n1=geometry.triangles[from.triangle].normal,geometry.triangles[to.triangle].normal
+  if from.triangle==to.triangle then add(p,q,n0)
+  else add(p,edge or p,n0);add(edge or q,q,n1) end
+ end
  local distance=(b-a).Magnitude
  if distance>Config.BrushRadius*3 then add(b,b,geometry.triangles[last.triangle].normal)
  elseif first.triangle==last.triangle then add(a,b,geometry.triangles[first.triangle].normal)
  else
-  local steps=math.max(1,math.ceil(distance/(Config.PaintVisualWidth*.3)))
-  local previous,normal=a,geometry.triangles[first.triangle].normal
-  for index=1,steps do
-   local sample=if index==steps then last else Curve.ProjectLocal(part,a:Lerp(b,index/steps))
-   local point=Curve.Point(part,sample)
-   local nextNormal=geometry.triangles[sample.triangle].normal
-   if normal:Dot(nextNormal)>=.2 then add(previous,point,normal,nextNormal)
-   else add(previous,previous,normal);add(point,point,nextNormal) end
-   previous,normal=point,nextNormal
+  local direct=seam(first,last)
+  if direct then join(first,last,direct) else
+   local steps=math.max(1,math.ceil(distance/(Config.PaintVisualWidth*.3)))
+   local previous=first
+   for index=1,steps do
+    local sample=if index==steps then last else Curve.ProjectLocal(part,a:Lerp(b,index/steps))
+    if index<steps and not geometry.triangles[sample.triangle].allowed then previous=nil;continue end
+    if previous then
+     join(previous,sample,if previous.triangle~=sample.triangle then seam(previous,sample) else nil)
+    else
+     local point=Curve.Point(part,sample)
+     add(point,point,geometry.triangles[sample.triangle].normal)
+    end
+    previous=sample
+   end
   end
  end
  -- 不使用正式实现的网格候选、UV 包围盒或缓存。穷举所有允许三角面与像素。

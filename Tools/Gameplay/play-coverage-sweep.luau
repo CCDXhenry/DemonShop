@@ -1,6 +1,9 @@
 -- Play 客户端验收辅助：通过真实网络请求扫涂可见表面，不修改完成度或服务端状态
 local Net=require(game.ReplicatedStorage.Scripts.Shared.NetMsg)
 local Surface=require(game.ReplicatedStorage.Scripts.Shared.PaintSurface)
+local Curve=require(game.ReplicatedStorage.Scripts.Shared.CurvedSurface)
+local Rotation=require(game.ReplicatedStorage.Scripts.Shared.PaintRotation)
+local BodyPose=require(game.ReplicatedStorage.Scripts.Shared.PaintBodyPose)
 local test=_G.GameplayTest
 assert(test and test.snapshot and test.snapshot.session,"Begin painting and attach a snapshot listener first")
 test.bodyId=test.snapshot.tableId;test.paintTestRunning=true;test.paintResults={}
@@ -8,15 +11,26 @@ task.spawn(function()
  local item
  local sequence=1000000 -- 独立辅助命名空间；不得与正常绘制同时运行
  for _,candidate in test.snapshot.items do if candidate.id==test.bodyId then item=candidate end end
- local base=workspace.NeonContractDistrict.RuneBodyTable.BodyPlacementAnchor.CFrame*CFrame.new(0,4,0)
- local origin=(base*CFrame.new(0,1,12)).Position
+ local placement=workspace.NeonContractDistrict.RuneBodyTable.BodyPlacementAnchor.Position
+ local base,origin=Rotation.TablePose(placement),Rotation.CameraPose(placement).Position
+ local frames=test.snapshot.bodyPose or BodyPose.Capture(item.model)
+ local geometry=Rotation.Create(item.model,frames)
  for phase=0,44 do
   if not test.snapshot.session then break end
-  local yaw,pitch=phase*.18,math.sin(phase*.2)*.85
-  local pose=base*CFrame.Angles(pitch,yaw,0)
+  local orientation=CFrame.Angles(math.sin(phase*.2)*.85,phase*.18,0)
+  local pose=Rotation.Pose(base,geometry,orientation)
   local samples={}
   for _,part in item.model:GetChildren() do if part:IsA('BasePart') and Surface.IsBody(part) then
-   local cf=pose*part:GetAttribute('RestPose')
+   local cf=pose*geometry.rest*frames[part.Name]
+   if Curve.IsPart(part) then
+    for triangleIndex,triangle in Curve.Geometry(part).triangles do
+     local point=cf:PointToWorldSpace((triangle.a+triangle.b+triangle.c)/3)
+     if triangle.allowed and (triangleIndex+phase)%8==0 and cf:VectorToWorldSpace(triangle.normal):Dot((origin-point).Unit)>.1 then
+      table.insert(samples,{part=part.Name,face=1,triangle=triangleIndex,surfaceVersion=Curve.Version,u=1/3,v=1/3})
+     end
+    end
+    continue
+   end
    for face=1,6 do if Surface.Allowed(part,face) then
     local n=Surface.Point(Vector3.new(2,2,2),face,.5,.5)
     local world=cf:PointToWorldSpace(Surface.Point(part.Size,face,.5,.5))
@@ -30,7 +44,7 @@ task.spawn(function()
    local batch={}
    for j=index,math.min(index+11,#samples) do table.insert(batch,samples[j]) end
    sequence+=1
-   Net.FireRequest({action='Paint',session=test.snapshot.session,sequence=sequence,samples=batch,yaw=yaw,pitch=pitch})
+   Net.FireRequest({action='Paint',session=test.snapshot.session,sequence=sequence,samples=batch,orientation=orientation})
    task.wait(.09)
   end
   for _,candidate in test.snapshot.items do if candidate.id==test.bodyId then

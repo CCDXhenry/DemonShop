@@ -732,23 +732,26 @@ ENTRIES = [
         }
     ),
     (
-        "", "DRAG ON THE BODY TO PAINT", "", "",
+        "", "HOLD AND DRAG TO PAINT AND ROTATE", "", "",
         {
-            "zh-hans": "在躯体上滑动绘制符文", "zh-hant": "在軀體上滑動繪製符文",
-            "zh-cn": "在躯体上滑动绘制符文", "zh-tw": "在軀體上滑動繪製符文",
-            "ja": "体の上をドラッグして描画＋回転", "ko": "신체 위를 드래그하여 그리고 회전하세요",
-            "es": "ARRASTRA SOBRE EL CUERPO PARA PINTAR Y ROTAR",
-            "fr": "GLISSEZ SUR LE CORPS POUR PEINDRE ET PIVOTER",
-            "de": "ZIEHE ÜBER DEN KÖRPER ZUM MALEN UND DREHEN",
-            "it": "TRASCINA SUL CORPO PER DIPINGERE E RUOTARE",
-            "pt": "ARRASTE NO CORPO PARA PINTAR E GIRAR",
-            "ru": "ПРОВОДИТЕ ПО ТЕЛУ ДЛЯ РИСОВАНИЯ И ВРАЩАЙТЕ",
-            "pl": "PRZECIĄGNIJ PO CIELE, ABY MALOWAĆ I OBRACAĆ",
-            "tr": "ÇİZMEK VE DÖNDÜRMEK İÇİN GÖVDE ÜZERİNDE SÜRÜKLE",
-            "vi": "KÉO TRÊN THÂN THỂ ĐỂ VẼ VÀ XOAY",
-            "th": "ลากบนร่างเพื่อวาดและหมุนมุมมอง",
-            "id": "SERET PADA TUBUH UNTUK MELUKIS DAN MEMUTAR",
-            "ar": "اسحب على الجسد للرسم والتدوير"
+            "zh-hans": "按住并拖动以旋转白膜并连续涂画",
+            "zh-hant": "按住並拖曳以旋轉白膜並連續塗畫",
+            "zh-cn": "按住并拖动以旋转白膜并连续涂画",
+            "zh-tw": "按住並拖曳以旋轉白膜並連續塗畫",
+            "ja": "長押し＆ドラッグで回転しながら連続描画",
+            "ko": "길게 누르고 드래그하여 회전하며 연속으로 그리세요",
+            "es": "MANTÉN Y ARRASTRA PARA PINTAR Y GIRAR",
+            "fr": "MAINTENEZ ET GLISSEZ POUR PEINDRE ET PIVOTER",
+            "de": "HALTEN UND ZIEHEN ZUM MALEN UND DREHEN",
+            "it": "TIENI PREMUTO E TRASCINA PER DIPINGERE E RUOTARE",
+            "pt": "SEGURE E ARRASTE PARA PINTAR E GIRAR",
+            "ru": "УДЕРЖИВАЙТЕ И ВЕДИТЕ, ЧТОБЫ РИСОВАТЬ И ВРАЩАТЬ",
+            "pl": "PRZYTRZYMAJ I PRZECIĄGNIJ, ABY MALOWAĆ I OBRACAĆ",
+            "tr": "BOYAMAK VE DÖNDÜRMEK İÇİN BASILI TUTUP SÜRÜKLE",
+            "vi": "NHẤN GIỮ VÀ KÉO ĐỂ VẼ VÀ XOAY",
+            "th": "กดค้างแล้วลากเพื่อวาดและหมุน",
+            "id": "TAHAN DAN GESER UNTUK MELUKIS DAN MEMUTAR",
+            "ar": "اضغط مطولًا واسحب للرسم والتدوير"
         }
     ),
     (

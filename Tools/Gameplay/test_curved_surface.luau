@@ -26,6 +26,10 @@ for name,data in Data.Parts do
   local uv=Curve.UV(name,index,sample.u,sample.v)
   check(uv.X>=0 and uv.X<=1 and uv.Y>=0 and uv.Y<=1,'atlas bounds '..name)
  end
+ for _,axis in {Vector3.xAxis,Vector3.yAxis,Vector3.zAxis,-Vector3.yAxis} do
+  local hit,depth=Curve.Intersect(part,axis*4,-axis,8)
+  check(hit and Surface.IsPaintSample(part,hit) and (Curve.Point(part,hit)-axis*(4-depth)).Magnitude<.0001,'visible mesh cap and exact intersection '..name)
+ end
  local covered={}
  local sample=Curve.ProjectLocal(part,Vector3.new(0,0,-part.Size.Z/2))
  local _,first=Surface.Stamp(part,sample,covered)
@@ -42,6 +46,21 @@ for name,data in Data.Parts do
  part:Destroy()
 end
 check(allArea>20 and allArea<60,'body area scale')
+local body=Roblox.Instance.new('Model')
+local function bodyPart(name,size,z)
+ local p=Roblox.Instance.new('Part')
+ p.Name,p.Size,p.CFrame=name,size,Roblox.CFrame.new(0,0,z)
+ p:SetAttribute('Paintable',true);p:SetAttribute('SurfaceVersion',Curve.Version);p.Parent=body
+ return p
+end
+local torso=bodyPart('UpperTorso',Vector3.new(2,2,2),0)
+local hand=bodyPart('LeftHand',Vector3.one*.2,0)
+local buried={}
+check(math.abs(Curve.ExcludeInterior(body,buried)-Curve.Geometry(hand).total)<.0001,'fully enclosed hand excluded; outer torso remains drawable')
+hand.CFrame=Roblox.CFrame.new(0,0,-2)
+local hit=Curve.FirstHit(Curve.BodyMesh(body),Vector3.new(0,0,-5),Vector3.zAxis,10)
+check(hit and hit.part=='LeftHand','frontmost visible limb wins')
+body:Destroy()
 local segment={key='s:1',version=1,gesture=1,part='Head',face=1,u0=.1,v0=.2,u1=.3,v1=.4,triangle0=100,triangle1=101,surfaceVersion=Curve.Version}
 check(Rules.Validate(segment),'valid curved visual')
 local state=Rules.New()

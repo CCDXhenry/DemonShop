@@ -11,6 +11,11 @@ local folder = ReplicatedStorage:WaitForChild("RemoteEvents")
 local requestEvent = folder:WaitForChild("GameRequest") :: RemoteEvent
 local notifyEvent = folder:WaitForChild("GameNotify") :: RemoteEvent
 local Net = {}
+local function ValidOrientation(value: unknown): boolean
+	if value == nil then return true end
+	if typeof(value) ~= "CFrame" or value.Position.Magnitude > 0.00001 then return false end
+	return BodyPose.IsFiniteFrame(value)
+end
 function Net.Validate(value: unknown): boolean
 	if typeof(value) ~= "table" then
 		return false
@@ -30,11 +35,6 @@ function Net.Validate(value: unknown): boolean
 	if r.version ~= nil and (not Surface.IsFinite(r.version) or (r.version :: number) % 1 ~= 0) then
 		return false
 	end
-	for _, name in { "yaw", "pitch" } do
-		if r[name] ~= nil and not Surface.IsFinite(r[name]) then
-			return false
-		end
-	end
 	if r.action == "PaintVisual" then
 		if not Surface.IsFinite(r.sequence) or (r.sequence :: number) < 1 or (r.sequence :: number) % 1 ~= 0 or not Surface.IsFinite(r.started) then return false end
 		if typeof(r.segments) ~= "table" then return false end
@@ -49,20 +49,27 @@ function Net.Validate(value: unknown): boolean
 	end
 	if r.action == "EndPaint" and r.sequence ~= nil and (not Surface.IsFinite(r.sequence) or (r.sequence :: number) < 0 or (r.sequence :: number) % 1 ~= 0) then return false end
 	if r.action == "Paint" then
+		if not ValidOrientation(r.orientation) then return false end
 		if not Surface.IsFinite(r.sequence) or (r.sequence :: number) % 1 ~= 0 or (r.sequence :: number) < 1 then return false end
 		local samples = r.samples
 		if typeof(samples) ~= "table" then
 			return false
 		end
 		local list = samples :: { unknown }
-		if #list > 12 then
+		if #list > Config.PaintCoverageBatchSize then
 			return false
 		end
-		for _, raw in ipairs(list) do
+		local count = 0
+		for index, raw in list do
+			count += 1
+			if count > Config.PaintCoverageBatchSize or typeof(index) ~= "number" or index % 1 ~= 0 or index < 1 or index > #list then return false end
 			if typeof(raw) ~= "table" then
 				return false
 			end
 			local s = raw :: { [string]: unknown }
+			if not ValidOrientation(s.orientation) then return false end
+			if s.packedInk~=nil and (typeof(s.packedInk)~="boolean" or s.triangle==nil) then return false end
+			if s.slice ~= nil and typeof(s.slice) ~= "boolean" then return false end
 			if s.breakBefore ~= nil and typeof(s.breakBefore) ~= "boolean" then return false end
 			if typeof(s.part) ~= "string" or #s.part > 32 then
 				return false
@@ -80,6 +87,7 @@ function Net.Validate(value: unknown): boolean
 				return false
 			end
 		end
+		if count ~= #list then return false end
 	end
 	return true
 end

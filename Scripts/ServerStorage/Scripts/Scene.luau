@@ -4,6 +4,7 @@ local PhysicsService = game:GetService("PhysicsService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Physics = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
+local PaintRotation = require(ReplicatedStorage.Scripts.Shared.PaintRotation)
 local Scene = {}
 local district = workspace:WaitForChild("NeonContractDistrict")
 local pool = district:WaitForChild("SoulHoldingPool")
@@ -34,7 +35,6 @@ Scene.PoolDrop = Part(pool, "DropPointAnchor")
 Scene.PoolPickup = Part(pool, "PickupPointAnchor")
 Scene.PoolFloor = Part(pool, "PoolFloor")
 Scene.Table = Part(district:WaitForChild("RuneBodyTable"), "BodyPlacementAnchor")
-Scene.Slab = Part(district:WaitForChild("RuneBodyTable"), "FullBodySlab")
 Scene.TableInteract = Part(district:WaitForChild("RuneBodyTable"), "TransferStartAnchor")
 Scene.Altar = Part(district:WaitForChild("SoulConversionAltar"), "BodyArrivalAnchor")
 Scene.AltarRest = Part(district:WaitForChild("SoulConversionAltar"), "BodyRest")
@@ -59,14 +59,10 @@ local function Unit(text: string, salt: number): number
 	return value / 1000003
 end
 function Scene.TablePose(): CFrame
-	local slab = Scene.Slab
-	local top = slab.CFrame * CFrame.new(0, slab.Size.Y / 2 + Config.PaintLieClearance, 0)
-	-- 俯视画面上方为世界 -Z，左侧为世界 -X。头朝画面左，身体横放，面朝上。
-	return CFrame.fromMatrix(top.Position, Vector3.zAxis, -Vector3.xAxis)
+	return PaintRotation.TablePose(Scene.Table.Position)
 end
 function Scene.CameraPose(): CFrame
-	local center = Scene.TablePose().Position
-	return CFrame.lookAt(center + Vector3.new(0, Config.PaintCameraHeight, 0), center, -Vector3.zAxis)
+	return PaintRotation.CameraPose(Scene.Table.Position)
 end
 function Scene.AltarPilePose(id: string, layer: number): CFrame
 	local rest = Scene.AltarRest

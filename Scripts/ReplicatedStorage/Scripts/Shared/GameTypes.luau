@@ -7,11 +7,11 @@ export type PlayerSettingInfo = SaveRules.Settings
 export type ClientLocalPlayerSaveInfo = SaveRules.Profile
 export type PlayerConfigInfo = { gameVersion: string }
 export type BodyPose = { [string]: CFrame }
-export type Sample = { part: string, face: number, u: number, v: number, breakBefore: boolean?, triangle: number?, surfaceVersion: number? }
+export type Sample = { part: string, face: number, u: number, v: number, breakBefore: boolean?, packedInk: boolean?, slice: boolean?, triangle: number?, surfaceVersion: number?, orientation: CFrame? }
 export type Stroke = { key: string, samples: { Sample } }
-export type VisualSegment = { key: string, version: number, gesture: number, part: string, face: number, u0: number, v0: number, u1: number, v1: number, triangle0: number?, triangle1: number?, surfaceVersion: number? }
-export type VisualState = { segments: { [string]: VisualSegment }, count: number, revision: number }
-export type Request = { action: string, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, yaw: number?, pitch: number?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose? }
+export type VisualSegment = { key: string, version: number, gesture: number, part: string, face: number, u0: number, v0: number, u1: number, v1: number, triangle0: number?, triangle1: number?, surfaceVersion: number?, ink: buffer? }
+export type VisualState = { segments: { [string]: VisualSegment }, count: number, revision: number, inkCount: number? }
+export type Request = { action: string, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, orientation: CFrame?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose? }
 export type GroundFall = {target: CFrame, started: number, velocity: Vector3}
 export type PoolToss = { from: CFrame, target: CFrame, started: number, owner: number, collision: boolean? }
 export type AltarToss = {
@@ -43,10 +43,10 @@ export type Item = {
 	visualState: VisualState?,
 	area: number,
 	totalArea: number,
+	exteriorMeasured: boolean?,
 	progress: number,
 	paintSeconds: number,
-	poseYaw: number?,
-	posePitch: number?,
+	paintOrientation: CFrame?,
 	poseBody: BodyPose?,
 	streetSlot: boolean,
 	nextWalk: number,
@@ -81,8 +81,7 @@ export type ItemView =
 export type Snapshot = {
 	bodyPose: BodyPose?,
 	revision: number,
-	poseYaw: number?,
-	posePitch: number?,
+	paintOrientation: CFrame?,
 	stationVersions: { [string]: number },
 	items: { ItemView },
 	pool: number,
@@ -94,5 +93,5 @@ export type Snapshot = {
 	painter: number?,
 	session: string?,
 }
-export type Notice = { kind: string, attackSequence: number?, hit: boolean?, version: number?, hits: number?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, yaw: number?, pitch: number?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
+export type Notice = { kind: string, attackSequence: number?, hit: boolean?, version: number?, hits: number?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
 return {}

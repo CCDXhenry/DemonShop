@@ -33,23 +33,40 @@ function Rules.Validate(raw: unknown): boolean
 		end
 		if (value.u0 :: number)+(value.v0 :: number)>1.00001 or (value.u1 :: number)+(value.v1 :: number)>1.00001 then return false end
 	elseif value.triangle0~=nil or value.triangle1~=nil then return false end
+	if value.ink~=nil then
+		return value.surfaceVersion==Curve.Version and value.triangle0==value.triangle1 and value.face==1 and value.gesture==1
+			and value.u0==0 and value.v0==0 and value.u1==0 and value.v1==0
+			and Curve.ValidInk(value.part :: string,value.triangle0 :: number,value.key :: string,value.ink)
+	end
 	return true
 end
 function Rules.Apply(state: Types.VisualState, segments: {Types.VisualSegment}, session: string): ({Types.VisualSegment}?, GameTexts.TextId?)
 	local additions, seen = 0, {} :: {[string]: boolean}
 	for _, segment in segments do
-		if not Rules.Validate(segment) or string.sub(segment.key,1,#session+1) ~= session .. ":" then return nil,"InvalidVisualSegment" end
+		if not Rules.Validate(segment) or (not segment.ink and string.sub(segment.key,1,#session+1) ~= session .. ":") then return nil,"InvalidVisualSegment" end
 		if seen[segment.key] then return nil,"DuplicateVisualSegment" end
 		seen[segment.key] = true
 		local old = state.segments[segment.key]
 		if old and (old.part ~= segment.part or old.face ~= segment.face or old.gesture ~= segment.gesture or old.u0 ~= segment.u0 or old.v0 ~= segment.v0 or old.triangle0~=segment.triangle0 or old.surfaceVersion~=segment.surfaceVersion) then return nil,"SegmentOriginChanged" end
-		if not old then additions += 1 end
+		if not old and not segment.ink then additions += 1 end
 	end
-	if state.count + additions > Config.PaintLocalSegmentBudget then return nil,"PaintBudgetReached" end
+	if state.count - (state.inkCount or 0) + additions > Config.PaintLocalSegmentBudget then return nil,"PaintBudgetReached" end
 	local accepted: {Types.VisualSegment} = {}
 	for _, segment in segments do
 		local old = state.segments[segment.key]
-		if not old or segment.version > old.version then
+		if segment.ink then
+			local merged,added = Curve.MergeInk(if old then old.ink else nil,segment.ink)
+			if added then
+				local stored=table.clone(segment)
+				stored.ink,stored.version=merged,if old then old.version+1 else 1
+				state.segments[segment.key]=stored
+				if not old then
+					state.count+=1
+					state.inkCount=(state.inkCount or 0)+1
+				end
+				table.insert(accepted,stored)
+			end
+		elseif not old or segment.version > old.version then
 			local stored: Types.VisualSegment={key=segment.key,version=segment.version,gesture=segment.gesture,part=segment.part,face=segment.face,u0=segment.u0,v0=segment.v0,u1=segment.u1,v1=segment.v1}
 			stored.triangle0,stored.triangle1,stored.surfaceVersion=segment.triangle0,segment.triangle1,segment.surfaceVersion
 			state.segments[segment.key] = stored

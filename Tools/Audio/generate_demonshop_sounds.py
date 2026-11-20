@@ -110,27 +110,47 @@ def synth_uiclose(sr=SAMPLE_RATE) -> tuple[np.ndarray, int]:
     return apply_adsr(sig, sr, attack=0.01, decay=0.05, sustain=0.5, release=0.06), 2
 
 
+def synth_attackswing(sr=SAMPLE_RATE) -> tuple[np.ndarray, int]:
+    duration = 0.16
+    t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+    # Instant cutting blade/club transient (1600Hz down to 380Hz in first 40ms)
+    transient = np.sin(2 * np.pi * np.linspace(1600, 380, len(t)) * t) * np.exp(-45 * t)
+    # Immediate high-velocity air rush
+    np.random.seed(55)
+    noise = (np.random.rand(len(t)) * 2 - 1)
+    air = noise * np.exp(-24 * t) * 0.75
+    # Low-mid weapon resonance sweep
+    body = np.sin(2 * np.pi * np.linspace(650, 160, len(t)) * t) * np.exp(-20 * t) * 0.5
+    sig = np.tanh(transient * 0.75 + air + body)
+    return apply_adsr(sig, sr, attack=0.0005, decay=0.03, sustain=0.2, release=0.05), 1
+
+
 def synth_hitimpact(sr=SAMPLE_RATE) -> tuple[np.ndarray, int]:
     duration = 0.22
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
-    freq = np.linspace(150, 45, len(t))
+    freq = np.linspace(160, 45, len(t))
     thump = np.sin(2 * np.pi * freq * t) * np.exp(-22 * t)
+    # Crisp contact transient slap (sharp impact snap within first 12ms)
+    slap = np.sin(2 * np.pi * np.linspace(950, 280, len(t)) * t) * np.exp(-70 * t) * 0.75
     np.random.seed(45)
     flesh_noise = (np.random.rand(len(t)) * 2 - 1) * np.exp(-35 * t)
-    sig = np.tanh((thump * 1.4 + flesh_noise * 0.6) * 1.2)
-    return apply_adsr(sig, sr, attack=0.002, decay=0.05, sustain=0.3, release=0.08), 1
+    impact_click = (np.random.rand(len(t)) * 2 - 1) * np.exp(-85 * t) * 0.4
+    sig = np.tanh((thump * 1.3 + slap + impact_click + flesh_noise * 0.45) * 1.25)
+    return apply_adsr(sig, sr, attack=0.001, decay=0.04, sustain=0.25, release=0.08), 1
 
 
 def synth_bodystun(sr=SAMPLE_RATE) -> tuple[np.ndarray, int]:
     duration = 0.45
     t = np.linspace(0, duration, int(sr * duration), endpoint=False)
-    impact = np.sin(2 * np.pi * np.linspace(110, 35, len(t)) * t) * np.exp(-15 * t)
+    impact = np.sin(2 * np.pi * np.linspace(120, 35, len(t)) * t) * np.exp(-15 * t)
+    # Sharp initial heavy contact slap
+    heavy_slap = np.sin(2 * np.pi * np.linspace(1100, 240, len(t)) * t) * np.exp(-60 * t) * 0.85
     daze_mod = np.sin(2 * np.pi * 8 * t) * 0.4
     daze_tone = np.sin(2 * np.pi * 480 * t + daze_mod) * np.exp(-6 * t) * 0.35
     np.random.seed(46)
     noise = (np.random.rand(len(t)) * 2 - 1) * np.exp(-20 * t) * 0.4
-    sig = impact * 0.6 + daze_tone + noise
-    return apply_adsr(sig, sr, attack=0.003, decay=0.08, sustain=0.4, release=0.15), 1
+    sig = np.tanh(impact * 0.7 + heavy_slap + daze_tone + noise)
+    return apply_adsr(sig, sr, attack=0.002, decay=0.07, sustain=0.35, release=0.15), 1
 
 
 def synth_bodypickup(sr=SAMPLE_RATE) -> tuple[np.ndarray, int]:
@@ -302,6 +322,7 @@ SYNTHESIZERS = {
     "UIClick": synth_uiclick,
     "UIOpen": synth_uiopen,
     "UIClose": synth_uiclose,
+    "AttackSwing": synth_attackswing,
     "HitImpact": synth_hitimpact,
     "BodyStun": synth_bodystun,
     "BodyPickup": synth_bodypickup,

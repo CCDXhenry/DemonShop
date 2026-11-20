@@ -51,12 +51,12 @@ for name,frame in bent do
 end
 table.clear(Net.requests)
 local upload=Upload.new();upload:Begin('pose-session')
-upload:Update({},.1,1,0,0,false,frames)
+upload:Update({},.1,1,false,frames)
 check(#Net.requests==1 and #Net.requests[1].segments==0 and Net.requests[1].bodyPose~=nil,'idle limb motion uses existing reliable visual stream')
-upload:Update({},.11,1,0,0,false,bent)
+upload:Update({},.11,1,false,bent)
 check(#Net.requests==1,'joint motion obeys paint upload interval')
 upload:Ack(1);upload.closing=true
-upload:Update({},.2,1,0,0,true,bent)
+upload:Update({},.2,1,true,bent)
 check(Net.requests[2].action=='EndPaint','continued limb swing cannot prevent intentional exit')
 model:Destroy()
 print('PASS: '..checks..' hanging paint pose assertions (production R15 template, validator, reconstruction and upload queue)')

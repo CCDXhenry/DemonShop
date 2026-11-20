@@ -152,15 +152,33 @@ buffer.fill(isolatedReference.pixels,0,255)
 for _,s in {dot1,dot2,far} do isolatedRecords[s.key]=s;isolated:Apply('body',s);Reference.Draw(isolatedReference,s) end
 drain(isolated,'body')
 check(buffer.tostring(isolated.textures.body.pixels)==buffer.tostring(isolatedReference.pixels),'separate gestures and long jump paint only the isolated endpoints')
+-- 遮罩和同一个笔心的普通点在实际图集上产生逐像素一致的墨迹。
+local seed=projected(parts[1],0,.1,-.49)
+local node=table.clone(seed)
+node.u,node.v=Curve.InkCenter(seed.u,seed.v)
+local asDot=segment(parts[1],node,node)
+local asMask=table.clone(asDot)
+asMask.key=Curve.InkKey(parts[1].Name,seed.triangle)
+asMask.ink=Curve.CopyInk(nil)
+Curve.MarkInk(asMask.ink,seed.u,seed.v)
+local bitmap=View.new()
+bitmap:Bind('mask',model,{[asMask.key]=asMask})
+bitmap:Update('mask')
+for _=1,10000 do if bitmap:IsReady('mask') then break end;bitmap:Update('mask') end
+local expectedMask={model=model,size=1024,pixels=buffer.create(1024^2*4),scanned=0,slices=0}
+buffer.fill(expectedMask.pixels,0,255)
+Reference.Draw(expectedMask,asDot)
+check(bitmap:IsReady('mask') and buffer.tostring(bitmap.textures.mask.pixels)==buffer.tostring(expectedMask.pixels),'bounded ink replays the same visible brush footprint pixel for pixel')
+bitmap:Destroy()
 isolated:Destroy()
 -- 网络已确认但本地未画完时，不能结束会话。
 table.clear(Net.requests)
 local upload=Upload.new();upload:Begin('session');upload.closing=true
-upload:Update({},1,1,0,0,true,nil,false)
+upload:Update({},1,1,true,nil,false)
 check(#Net.requests==0,'exit waits for local raster even with no pending network batches')
-upload:Update({},1.1,1,0,0,true,nil,true)
+upload:Update({},1.1,1,true,nil,true)
 check(#Net.requests==1 and Net.requests[1].action=='EndPaint','raster completion permits final EndPaint')
-upload:Update({},1.2,1,0,0,true,nil,true)
+upload:Update({},1.2,1,true,nil,true)
 check(#Net.requests==1,'repeated exit completion cannot send EndPaint twice')
 -- 取消处理中任务不允许继续写已销毁纹理；重生/移除沿用相同释放点。
 local nextStroke=segment(parts[1],projected(parts[1],-.3,.1,-.49),projected(parts[1],.3,.1,-.49))

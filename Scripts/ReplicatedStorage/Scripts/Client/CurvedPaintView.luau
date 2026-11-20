@@ -196,6 +196,15 @@ local function Prepare(texture: Texture,tiles: {[number]: Tile},segment: Types.V
  if not (segment.u0>=0 and segment.v0>=0 and segment.u0+segment.v0<=1.00001 and segment.u1>=0 and segment.v1>=0 and segment.u1+segment.v1<=1.00001) then return end
  local first,last=MappingFor(texture,body.part,firstIndex,body.key),MappingFor(texture,body.part,lastIndex,body.key)
  if not first or not last then return end
+ if segment.ink then
+  Curve.EachInk(segment.ink,function(u,v)
+   local x=first.ox+first.bx*u+first.cx*v
+   local y=first.oy+first.by*u+first.cy*v
+   local z=first.oz+first.bz*u+first.cz*v
+   AddSpan(texture,tiles,body,x,y,z,x,y,z,first.nx,first.ny,first.nz)
+  end)
+  return
+ end
  local ax,ay,az=first.ox+first.bx*segment.u0+first.cx*segment.v0,first.oy+first.by*segment.u0+first.cy*segment.v0,first.oz+first.bz*segment.u0+first.cz*segment.v0
  local bx,by,bz=last.ox+last.bx*segment.u1+last.cx*segment.v1,last.oy+last.by*segment.u1+last.cy*segment.v1,last.oz+last.bz*segment.u1+last.cz*segment.v1
  local dx,dy,dz=bx-ax,by-ay,bz-az
@@ -206,27 +215,40 @@ local function Prepare(texture: Texture,tiles: {[number]: Tile},segment: Types.V
   -- 同一平面三角面内已有精确重心坐标，无需反复搜索最近三角面。
   AddSpan(texture,tiles,body,ax,ay,az,bx,by,bz,first.nx,first.ny,first.nz)
  else
+  local edge=Curve.SharedEdgePoint(body.part,firstIndex,lastIndex,Vector3.new((ax+bx)*.5,(ay+by)*.5,(az+bz)*.5))
+  if edge then
+   AddSpan(texture,tiles,body,ax,ay,az,edge.X,edge.Y,edge.Z,first.nx,first.ny,first.nz)
+   AddSpan(texture,tiles,body,edge.X,edge.Y,edge.Z,bx,by,bz,last.nx,last.ny,last.nz)
+   return
+  end
   local steps=math.max(1,math.ceil(distance/(Config.PaintVisualWidth*.3)))
   local px,py,pz,nx,ny,nz=ax,ay,az,first.nx,first.ny,first.nz
+  local previousIndex: number?=firstIndex
   for index=1,steps do
    coroutine.yield()
    local x,y,z,nextNormalX,nextNormalY,nextNormalZ=bx,by,bz,last.nx,last.ny,last.nz
+   local nextIndex=lastIndex
    if index<steps then
     local t=index/steps
     local sample=Curve.ProjectLocal(body.part,Vector3.new(ax+dx*t,ay+dy*t,az+dz*t))
-    local m=MappingFor(texture,body.part,sample.triangle :: number,body.key)
-    if not m then continue end
+    nextIndex=sample.triangle :: number
+    local m=MappingFor(texture,body.part,nextIndex,body.key)
+    if not m or not m.allowed then previousIndex=nil;continue end
     x,y,z=m.ox+m.bx*sample.u+m.cx*sample.v,m.oy+m.by*sample.u+m.cy*sample.v,m.oz+m.bz*sample.u+m.cz*sample.v
     nextNormalX,nextNormalY,nextNormalZ=m.nx,m.ny,m.nz
    end
-   -- 法线发生突变时只画端点，不能用连续胶囊跨过折面背侧。
-   if nx*nextNormalX+ny*nextNormalY+nz*nextNormalZ>=.2 then
+   if not previousIndex then
+    AddSpan(texture,tiles,body,x,y,z,x,y,z,nextNormalX,nextNormalY,nextNormalZ)
+   elseif previousIndex==nextIndex then
     AddSpan(texture,tiles,body,px,py,pz,x,y,z,nx,ny,nz,nextNormalX,nextNormalY,nextNormalZ)
    else
-    AddSpan(texture,tiles,body,px,py,pz,px,py,pz,nx,ny,nz)
-    AddSpan(texture,tiles,body,x,y,z,x,y,z,nextNormalX,nextNormalY,nextNormalZ)
+    local seam=Curve.SharedEdgePoint(body.part,previousIndex,nextIndex,Vector3.new((px+x)*.5,(py+y)*.5,(pz+z)*.5))
+    -- 不相邻的表面只画端点，避免用笔段越过空隙或遮挡。
+    AddSpan(texture,tiles,body,px,py,pz,if seam then seam.X else px,if seam then seam.Y else py,if seam then seam.Z else pz,nx,ny,nz)
+    AddSpan(texture,tiles,body,if seam then seam.X else x,if seam then seam.Y else y,if seam then seam.Z else z,x,y,z,nextNormalX,nextNormalY,nextNormalZ)
    end
    px,py,pz,nx,ny,nz=x,y,z,nextNormalX,nextNormalY,nextNormalZ
+   previousIndex=nextIndex
   end
  end
 end

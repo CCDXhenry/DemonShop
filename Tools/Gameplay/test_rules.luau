@@ -43,7 +43,7 @@ part:SetAttribute('PaintMask1',string.rep('0',64))
 local masked,maskedArea=Surface.Stamp(part,sample,{})
 check(#masked==0 and maskedArea==0,'hidden contact mask excludes coverage')
 part:SetAttribute('PaintMask1',nil)
-local hidden,hiddenArea=Surface.Stamp(part,{part='UpperTorso',face=5,u=.5,v=.5},covered);check(#hidden==0 and hiddenArea==0,"joint surface excluded")
+local hidden,hiddenArea=Surface.Stamp(part,{part='UpperTorso',face=5,u=.5,v=.5},covered);check(#hidden>0 and hiddenArea>0,"exposed upper face can receive ink")
 for face=1,6 do
  local point=Surface.Point(part.Size,face,.3,.7)
  local normal=Surface.Point(vector.new(2,2,2),face,.5,.5)

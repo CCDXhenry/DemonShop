@@ -65,7 +65,7 @@ function Pointer.PlaceBrush(root: Frame, screen: Vector2, visible: boolean, pres
 	local position = TipOnPoint(brush, point, scale)
 	brush.Position = UDim2.fromOffset(position.X, position.Y)
 end
-function Pointer.Update(root: Frame, _model: Model?, _camera: Camera, _pointer: Vector2, _enabled: boolean): ()
+function Pointer.HideLegacyCursor(root: Frame): ()
 	local cursor = root:FindFirstChild("PaintCursorFrame")
 	if cursor and cursor:IsA("GuiObject") then
 		cursor.Visible = false

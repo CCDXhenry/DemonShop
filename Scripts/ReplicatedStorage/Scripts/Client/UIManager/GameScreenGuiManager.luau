@@ -129,14 +129,11 @@ function Manager.Refresh(self: Manager, state: DisplayState): ()
 	local touch = UserInputService.TouchEnabled
 	self.painting = state.painting
 	self.windowOpen = state.windowOpen == true
-	-- 触摸画符时笔尖由 UpdatePointer 按落笔开关，避免这里每拍把正在绘制的笔尖关掉。
 	if not state.painting or GuiService.MenuIsOpen then
 		self:ApplyBrushCursor(false)
-	elseif not touch then
-		self:ApplyBrushCursor(true)
 	end
 	self.buttons.ExitPaintButton.Visible = state.painting and not touch
-	self.buttons.ResetViewButton.Visible = false
+	self.buttons.ResetViewButton.Visible = state.painting and not touch
 	self.touchFrames.TouchPaintFrame.Visible = touch and state.painting
 	local paintFrame = self.paintFrame
 	if paintFrame then
@@ -181,15 +178,15 @@ function Manager.ApplyBrushCursor(self: Manager, show: boolean): ()
 		self.savedMouseIcon = nil
 	end
 end
-function Manager.UpdatePointer(self: Manager, model: Model?, camera: Camera, pointer: Vector2, enabled: boolean, drawing: boolean?): ()
+function Manager.UpdatePointer(self: Manager, pointer: Vector2?, drawing: boolean): ()
 	local root = self.root
 	if not root then
 		return
 	end
-	PaintPointer.Update(root, model, camera, pointer, enabled)
-	local show = enabled and self.painting and not GuiService.MenuIsOpen
+	PaintPointer.HideLegacyCursor(root)
+	local show = pointer ~= nil and self.painting and not GuiService.MenuIsOpen
 	self:ApplyBrushCursor(show)
-	PaintPointer.PlaceBrush(root, pointer, show, drawing == true)
+	PaintPointer.PlaceBrush(root, pointer or Vector2.zero, show, drawing)
 end
 function Manager.ReleaseAttack(self: Manager): ()
 	self.heldInput = nil

@@ -32,41 +32,41 @@ check(Rules.Apply(state,{segment(2)},'session')==nil,'whole-body budget enforced
 local extended=Rules.Apply(state,{segment(1,3)},'session')
 check(extended and #extended==1,'existing segment may update at full budget')
 local upload=Upload.new();upload:Begin('session')
-upload:Update({[first.key]=first},.01,10,0,0,false)
-upload:Update({[first.key]=longer},.02,10,0,0,false)
+upload:Update({[first.key]=first},.01,10,false)
+upload:Update({[first.key]=longer},.02,10,false)
 check(#Net.requests==0,'rendering updates do not send each frame')
-upload:Update({},.1,10,0,0,false)
+upload:Update({},.1,10,false)
 check(#Net.requests==1 and #Net.requests[1].segments==1 and Net.requests[1].segments[1].version==2,'queue coalesces latest geometry by ID')
 upload.closing=true
-upload:Update({},.2,10,0,0,true)
+upload:Update({},.2,10,true)
 check(#Net.requests==1,'exit waits for acknowledgement')
-upload:Update({},1.2,11,0,0,true)
+upload:Update({},1.2,11,true)
 check(#Net.requests==2 and Net.requests[2].sequence==1,'unacknowledged batch retries with original sequence')
 upload:Ack(1)
-upload:Update({},1.3,11,0,0,true)
+upload:Update({},1.3,11,true)
 check(Net.requests[3].action=='EndPaint' and Net.requests[3].sequence==1,'finish references fully acknowledged final batch')
-upload:Update({},1.4,11,0,0,true)
+upload:Update({},1.4,11,true)
 check(#Net.requests==3,'finish submitted once')
 table.clear(Net.requests);upload:Begin('session')
 local many={}
 for i=1,130 do local s=segment(i);many[s.key]=s end
-upload:Update(many,2,12,0,0,true)
+upload:Update(many,2,12,true)
 check(#Net.requests==3 and #Net.requests[1].segments==64 and #Net.requests[3].segments==2,'large flush splits into bounded packets')
 upload.closing=true;upload:Ack(2)
-upload:Update({},2.2,12,0,0,true)
+upload:Update({},2.2,12,true)
 check(#Net.requests==3,'200 ms delayed final acknowledgement cannot release ownership early')
-upload:Ack(3);upload:Update({},2.3,12,0,0,true)
+upload:Ack(3);upload:Update({},2.3,12,true)
 check(Net.requests[4].action=='EndPaint','final acknowledgement releases closing session')
 upload:Clear()
 check(next(upload.pending)==nil and next(upload.flight)==nil and upload.session==nil,'session destruction clears upload resources')
 table.clear(Net.requests);upload:Begin('session')
 many={}
 for i=1,1000 do local s=segment(i);many[s.key]=s end
-upload:Update(many,3,13,0,0,true)
+upload:Update(many,3,13,true)
 check(#Net.requests==4,'large release flush has bounded immediate burst')
-upload:Update({},3.01,13,0,0,true)
+upload:Update({},3.01,13,true)
 check(#Net.requests==4,'closing drain does not bypass rate limit every render frame')
-upload:Update({},3.1,13,0,0,true)
+upload:Update({},3.1,13,true)
 check(#Net.requests==8,'remaining release geometry continues in bounded ticks')
 local packet={action='PaintVisual',session='session',sequence=1,started=10,segments={segment(1)}}
 check(Protocol.Validate(packet),'visual wire packet accepted')
@@ -81,6 +81,19 @@ packet.segments={segment(1)};packet.started=math.huge
 check(not Protocol.Validate(packet),'nonfinite presentation timestamp rejected')
 packet.started=10;packet.sequence=1.5
 check(not Protocol.Validate(packet),'fractional wire sequence rejected')
+local C=require('@lune/roblox').CFrame
+local sample={part='UpperTorso',face=2,u=.5,v=.5,orientation=C.Angles(0,math.pi,.2)}
+local coverage={action='Paint',session='session',sequence=1,orientation=C.Angles(-.2,.1,.3),samples={sample}}
+check(Protocol.Validate(coverage),'coverage packet accepts each sample rotation independently of display rotation')
+sample.orientation=C.Angles(0/0,0,0)
+check(not Protocol.Validate(coverage),'nonfinite historical rotation is rejected')
+sample.orientation=C.new(0,.1,0)
+check(not Protocol.Validate(coverage),'historical rotation cannot translate the pivot')
+sample.orientation=C.new(0,0,0,1,0,0,0,1,0,0,0,-1)
+check(not Protocol.Validate(coverage),'historical rotation cannot reflect the model')
+sample.orientation=C.identity
+coverage.samples={[2]=sample}
+check(not Protocol.Validate(coverage),'sparse coverage array is rejected')
 local extra=segment(1);extra.unrecognized='must not be retained'
 local cleanState=Rules.New();Rules.Apply(cleanState,{extra},'session')
 check(cleanState.segments[extra.key].unrecognized==nil,'canonical storage strips fields outside visual protocol')

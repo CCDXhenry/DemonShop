@@ -12,7 +12,13 @@ function Surface.IsBody(part: Instance): boolean
 	return part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and part:GetAttribute("Paintable") == true
 end
 function Surface.Allowed(part: BasePart, face: number): boolean
-	return face <= 4 or (face == 5 and part.Name == "Head") or (face == 6 and string.find(part.Name, "Foot") ~= nil)
+	return face >= 1 and face <= 6
+end
+function Surface.IsPaintSample(part: BasePart, sample: Types.Sample): boolean
+	if Curve.IsPart(part) then
+		return Curve.Valid(part,sample) and Curve.Geometry(part).triangles[sample.triangle :: number].allowed
+	end
+	return sample.triangle == nil and Surface.Allowed(part,sample.face)
 end
 function Surface.Dimensions(size: Vector3, face: number): Vector2
 	if face <= 2 then
@@ -95,15 +101,19 @@ function Surface.Stamp(part: BasePart, sample: Types.Sample, covered: { [string]
 	end
 	local d, grid = Surface.Dimensions(part.Size, sample.face), Config.PaintGrid
 	local area = 0
-	for x = 0, grid - 1 do
-		for y = 0, grid - 1 do
-			local dx, dy = ((x + 0.5) / grid - sample.u) * d.X, ((y + 0.5) / grid - sample.v) * d.Y
-			if dx * dx + dy * dy <= Config.BrushRadius ^ 2 and Surface.CellAllowed(part, sample.face, x, y) then
-				local key = string.format("%s:%d:%d:%d", part.Name, sample.face, x, y)
+	-- 旧平面模板仍使用 8×8 遮罩，每个粗格再细分，窄笔在粗格交界也能落墨。
+	local subdivisions = math.max(1,math.ceil(math.max(d.X,d.Y)/(grid*Config.BrushRadius)))
+	local resolution = grid*subdivisions
+	local radius = Vector2.new(Config.BrushRadius/d.X,Config.BrushRadius/d.Y)
+	for x=math.max(0,math.floor((sample.u-radius.X)*resolution)),math.min(resolution-1,math.floor((sample.u+radius.X)*resolution)) do
+		for y=math.max(0,math.floor((sample.v-radius.Y)*resolution)),math.min(resolution-1,math.floor((sample.v+radius.Y)*resolution)) do
+			local dx,dy = ((x+.5)/resolution-sample.u)*d.X, ((y+.5)/resolution-sample.v)*d.Y
+			if dx*dx+dy*dy<=Config.BrushRadius^2 and Surface.CellAllowed(part,sample.face,math.floor(x/subdivisions),math.floor(y/subdivisions)) then
+				local key = string.format("%s:%d:%d:%d",part.Name,sample.face,x,y)
 				if not covered[key] then
-					covered[key] = true
-					table.insert(cells, key)
-					area += d.X * d.Y / grid ^ 2
+					covered[key]=true
+					table.insert(cells,key)
+					area+=d.X*d.Y/resolution^2
 				end
 			end
 		end
