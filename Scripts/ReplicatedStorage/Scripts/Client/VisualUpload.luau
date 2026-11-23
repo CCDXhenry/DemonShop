@@ -32,8 +32,21 @@ end
 function Upload.Update(self: Upload,changed: {[string]: Types.VisualSegment},now: number,started: number,force: boolean,bodyPose: Types.BodyPose?,rasterReady: boolean?): ()
  for key,segment in changed do self.pending[key]=segment end
  if not self.session or self.blocked then return end
- for _,batch in self.flight do
-  if now-batch.sent>=Config.PaintVisualRetrySeconds then Net.FireRequest(batch.request);batch.sent=now end
+ local timedOut: {number} = {}
+ for seq, batch in self.flight do
+  if now - batch.sent >= Config.PaintVisualRetrySeconds then
+   table.insert(timedOut, seq)
+  end
+ end
+ if #timedOut > 1 then
+  table.sort(timedOut)
+ end
+ for _, seq in timedOut do
+  local batch = self.flight[seq]
+  if batch then
+   Net.FireRequest(batch.request)
+   batch.sent = now
+  end
  end
  local immediate=force and not self.wasForced
  self.wasForced=force

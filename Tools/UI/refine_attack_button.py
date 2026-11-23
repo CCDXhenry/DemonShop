@@ -44,7 +44,7 @@ def process_icon():
 
     # Draw smooth circular gradient mask for border edge
     draw.ellipse((mcx - mradius, mcy - mradius, mcx + mradius, mcy + mradius), fill=255)
-    
+
     # Slight blur for smooth sub-pixel anti-aliasing
     mask = mask.filter(ImageFilter.GaussianBlur(radius=scale_factor * 1.2))
     mask = mask.resize((cw, ch), Image.Resampling.LANCZOS)

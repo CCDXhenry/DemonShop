@@ -1,5 +1,6 @@
 """Run production coverage/save/lease rules with Lune; only service boundaries are mocked."""
 from pathlib import Path
+import re
 import subprocess
 import sys
 ROOT=Path(__file__).resolve().parents[2]
@@ -182,7 +183,7 @@ for fps in (30, 60):
 source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientProcessingManager.luau").read_text(encoding="utf-8")
 methods=[
     source[source.index("local function ActivePaintTarget("):source.index("function Client.new(")],
-    source[source.index("function Client.Carried("):source.index("local function HidePlayerCharactersForPaint(")],
+    source[source.index("function Client.Carried("):source.index("function Client.TriggerAutoFlip(")],
     source[source.index("local function PaintControl("):source.index("function Client.Paint(")],
 ]
 for name in ("TriggerAutoFlip","ExitView","OnNotice","RequestPaintEnd","Paint","StepPaintRotation","Update","OnInput","OnMove","OnRelease","ResetPaintView","UpdateAltar"):
@@ -274,6 +275,104 @@ subprocess.run(["lune","run",str(OUT/"test_foundation_chat.luau")],cwd=ROOT,chec
 
 
 run_hit_feedback_tests()
+
+# Exercise station prompt distances, toolbar potion isolation, respawn rescue, and looped audio with production modules.
+for name in ("StationPotionBoundary", "test_station_and_potions"):
+    (OUT / (name + ".luau")).write_text((ROOT / "Tools/Gameplay" / (name + ".luau")).read_text(encoding="utf-8"), encoding="utf-8")
+
+scene_src = (server / "Scene.luau").read_text(encoding="utf-8")
+scene_body = scene_src[scene_src.index("local Scene = {}"):].replace(":WaitForChild(", ":FindFirstChild(")
+scene_prefix = (
+    "local R=require('@lune/roblox')\n"
+    "local Instance,Vector3,CFrame,Enum=R.Instance,R.Vector3,R.CFrame,R.Enum\n"
+    "local B=require('./StationPotionBoundary')\n"
+    "local workspace,RaycastParams,PhysicsService=B.workspace,B.RaycastParams,B.PhysicsService\n"
+    "local Physics=require('./PhysicsConfig')\n"
+    "local Config=require('./GameConfig')\n"
+    "local PaintRotation=require('./PaintRotation')\n"
+)
+(OUT / "StationScene.luau").write_text(scene_prefix + scene_body, encoding="utf-8")
+(OUT / "StationSceneFallback.luau").write_text(scene_prefix + scene_body, encoding="utf-8")
+
+rep_src = (server / "Replication.luau").read_text(encoding="utf-8")
+(OUT / "StationReplication.luau").write_text(
+    "local Types=require('./GameTypes')\nlocal Net=require('./StationPotionBoundary').Net\n" + rep_src[rep_src.index("local Replication ="):],
+    encoding="utf-8",
+)
+
+pm_src = (server / "ProcessingManager.luau").read_text(encoding="utf-8")
+pm_body = pm_src[pm_src.index("type PlayerData ="):]
+pm_body = re.sub(r"\b([A-Za-z_]\w*):WaitForChild\(", r"B.WaitForChild(\1, ", pm_body)
+pm_body = re.sub(r"\b([A-Za-z_]\w*):EquipTool\(", r"B.EquipTool(\1, ", pm_body)
+pm_body = re.sub(r"\b([A-Za-z_]\w*):UnequipTools\(\)", r"B.UnequipTools(\1)", pm_body)
+pm_body = re.sub(r"\b([A-Za-z_]\w*)\.(CharacterRemoving|CharacterAdded|Died|Unequipped):Connect\(", r'B.Signal(\1, "\2"):Connect(', pm_body)
+pm_body = pm_body.replace("slash:Stop()", "B.StopSound(slash)")
+pm_prefix = (
+    "local R=require('@lune/roblox')\n"
+    "local CFrame,Vector3,Instance,Enum=R.CFrame,R.Vector3,R.Instance,R.Enum\n"
+    "local task=require('@lune/task')\n"
+    "local Config=require('./GameConfig')\n"
+    "local Physics=require('./PhysicsConfig')\n"
+    "local Painting=require('./Painting')\n"
+    "local RealPaintRotation=require('./PaintRotation')\n"
+    "local PaintRotation=setmetatable({Create=function() return {center=Vector3.zero,radius=1} end},{__index=RealPaintRotation})\n"
+    "local CurvedSurface=require('./CurvedSurface')\n"
+    "local BodyPose=require('./PaintBodyPose')\n"
+    "local VisualRules=require('./VisualRules')\n"
+    "local Lifecycle=require('./LifecycleTool')\n"
+    "local B=require('./StationPotionBoundary')\n"
+    "local Net,workspace,Scene=B.Net,B.workspace,require('./StationScene')\n"
+    "local Players,ReplicatedStorage,HttpService,RunService=B.Players,B.ReplicatedStorage,B.HttpService,B.RunService\n"
+    "local NPC,Carry,Ragdoll,Ground,Door,Info=B.NPC,B.Carry,B.Ragdoll,B.Ground,B.Door,B.Info\n"
+    "local Replication=require('./StationReplication')\n"
+    "local Random={new=function() return B.Random end}\n"
+)
+(OUT / "StationProcessingManager.luau").write_text(pm_prefix + pm_body, encoding="utf-8")
+
+sound_src = (shared / "GameSoundTool.luau").read_text(encoding="utf-8")
+sound_body = sound_src[sound_src.index("local soundsPools:"):].replace("part.Parent = workspace", "part.Parent = B.soundRoot")
+sound_prefix = (
+    "local R=require('@lune/roblox')\n"
+    "local Instance,CFrame,Vector3=R.Instance,R.CFrame,R.Vector3\n"
+    "local B=require('./StationPotionBoundary')\n"
+    "local ReplicatedStorage,SoundService=B.ReplicatedStorage,B.SoundService\n"
+    "local Config=require('./GameConfig')\n"
+    "local Lifecycle=require('./LifecycleTool')\n"
+)
+(OUT / "StationSoundTool.luau").write_text(sound_prefix + sound_body, encoding="utf-8")
+
+client_src = (client / "ClientProcessingManager.luau").read_text(encoding="utf-8")
+potions_start = client_src.index("local function StackCount(")
+potions_fn = client_src.index("function Client.Potions(", potions_start)
+next_local = client_src.find("\nlocal function ", potions_fn + 1)
+next_method = client_src.find("\nfunction Client.", potions_fn + 1)
+potions_end = min(x for x in (next_local, next_method) if x != -1)
+client_parts = [client_src[potions_start:potions_end]]
+for cname in ("Carried", "Held", "Update", "UpdateAltar"):
+    cstart = client_src.index("function Client." + cname + "(")
+    cend = client_src.find("\nfunction Client.", cstart + 1)
+    client_parts.append(client_src[cstart:cend])
+client_prefix = (
+    "local R=require('@lune/roblox')\n"
+    "local Vector2,Vector3,Enum,CFrame=R.Vector2,R.Vector3,R.Enum,R.CFrame\n"
+    "local B=require('./StationPotionBoundary')\n"
+    "local Players,player,workspace,os=B.Players,B.Players.LocalPlayer,B.workspace,B.os\n"
+    "local UserInputService={TouchEnabled=false}\n"
+    "local Config=require('./GameConfig')\n"
+    "local Physics=require('./PhysicsConfig')\n"
+    "local Hints=require('./Hints')\n"
+    "local Net=B.Net\n"
+    "local Sound=B.SoundMock\n"
+    "local positions={Pool=Vector3.new(-20,2,0),Table=Vector3.new(0,2,0),Altar=Vector3.new(20,2,0),Shelf=Vector3.new(40,2,0),Sigil=Vector3.new(60,2,0)}\n"
+    "local UIManager={GetTargetGuiManager=function() return {Refresh=function() end} end,HasShowingWindow=function() return false end}\n"
+    "local AltarSacrifice={new=function() return {Update=function() return nil end,Clear=function() end} end}\n"
+    "local function RestoreHiddenPlayers() end\n"
+    "local function SyncHiddenPlayers() end\n"
+    "local Client={}\n"
+    "Client.__index=Client\n"
+)
+(OUT / "StationClient.luau").write_text(client_prefix + "\n".join(client_parts) + "\nreturn Client\n", encoding="utf-8")
+subprocess.run(["lune", "run", str(OUT / "test_station_and_potions.luau")], cwd=ROOT, check=True)
 
 # World prompts use production rules/controller with only native service boundaries mocked.
 subprocess.run(["python",str(ROOT/"Tools/Gameplay/test_world_interaction.py")],cwd=ROOT,check=True)

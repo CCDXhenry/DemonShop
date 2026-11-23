@@ -401,29 +401,11 @@ end
 function Carry.AdvanceAltarToss(item: Types.Item, now: number): boolean
 	local toss = item.altarToss
 	if not toss then return false end
-	local model = item.model
-	local bed = Scene.AltarRest
-	local lifted = if toss.flightStarts > toss.started then Altar.LiftHeight else 0
-	if now < toss.flightStarts then
-		local progress = math.clamp((now - toss.started) / math.max(Altar.LiftSeconds, 0.001), 0, 1)
-		model:PivotTo(toss.from + Vector3.yAxis * (lifted * Smooth(progress)))
-		return false
-	end
-	local flightEnds = toss.flightStarts + Altar.FlightSeconds
-	local drop = toss.rest + bed.CFrame.UpVector * Altar.DropClearance
-	if now < flightEnds then
-		local progress = Smooth(math.clamp((now - toss.flightStarts) / math.max(Altar.FlightSeconds, 0.001), 0, 1))
-		local pose = (toss.from + Vector3.yAxis * lifted):Lerp(drop, progress)
-		model:PivotTo(pose + Vector3.yAxis * (4 * progress * (1 - progress) * Altar.ArcHeight))
-		return false
-	end
-	local landEnds = toss.landEnds or (flightEnds + (Altar.LandSeconds or 0.32))
+	local landEnds = toss.landEnds or (toss.flightStarts + Altar.FlightSeconds + (Altar.LandSeconds or 0.32))
 	if now < landEnds then
-		local span = math.max(landEnds - flightEnds, 0.001)
-		local progress = math.clamp((now - flightEnds) / span, 0, 1)
-		model:PivotTo(drop:Lerp(toss.rest, progress * progress))
 		return false
 	end
+	local model = item.model
 	local pivot = model:GetPivot()
 	model:PivotTo(toss.rest)
 	for _, part in model:GetDescendants() do

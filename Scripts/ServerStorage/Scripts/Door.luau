@@ -51,11 +51,14 @@ function Door.Init(scope: Lifecycle.Lifecycle): ()
 			target = side * math.rad(95)
 		end
 		local step = math.rad(135) * math.min(dt, 0.1)
-		angle += math.clamp(target - angle, -step, step)
-		leaf:PivotTo(closed * CFrame.Angles(0, angle, 0))
-		local shut = math.abs(angle) < 0.005 and target == 0
-		if panel and panel:IsA("BasePart") then
-			panel.CanCollide = shut
+		local nextAngle = angle + math.clamp(target - angle, -step, step)
+		local shut = math.abs(nextAngle) < 0.005 and target == 0
+		if math.abs(nextAngle - angle) > 1e-5 then
+			angle = nextAngle
+			leaf:PivotTo(closed * CFrame.Angles(0, angle, 0))
+			if panel and panel:IsA("BasePart") then
+				panel.CanCollide = shut
+			end
 		end
 		if shut then
 			side = 0

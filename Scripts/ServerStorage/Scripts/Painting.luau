@@ -13,11 +13,26 @@ export type Session = {
 	player: Player, id: string, token: string, last: number, sequence: number,
 	orientation: CFrame, walkSpeed: number, jumpPower: number, jumpHeight: number,
 	geometry: Rotation.Geometry?,
+	bodyMesh: Curve.BodyMesh?, bodyMeshModel: Model?,
 	visualSequence: number?, visualWindow: number?, visualPackets: number?, finishing: boolean?,
 	coverageWindow: number?, coveragePackets: number?,
 }
 export type Result = { stroke: Types.Stroke?, complete: boolean }
 local CoveragePacketsPerSecond = 30
+local function SyncBodyMesh(session: Session, model: Model): ()
+	local mesh = session.bodyMesh
+	if not mesh then
+		return
+	end
+	if session.bodyMeshModel ~= model then
+		session.bodyMesh = nil
+		session.bodyMeshModel = nil
+		return
+	end
+	for _, entry in mesh do
+		entry.frame = entry.part.CFrame
+	end
+end
 function Painting.SetPose(session: Session, item: Types.Item, base: CFrame, orientation: CFrame, forceApply: boolean?): ()
 	if orientation ~= session.orientation or forceApply then
 		local rotated = Rotation.Pose(base, session.geometry, orientation)
@@ -26,6 +41,7 @@ function Painting.SetPose(session: Session, item: Types.Item, base: CFrame, orie
 		else
 			item.model:PivotTo(rotated)
 		end
+		SyncBodyMesh(session, item.model)
 	end
 	session.orientation = orientation
 	item.paintOrientation = orientation
@@ -63,12 +79,16 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 	local current = Rotation.Pose(pose, session.geometry, session.orientation)
 	if poseChanged and item.poseBody then
 		BodyPose.Apply(item.model, current, item.poseBody)
+		SyncBodyMesh(session, item.model)
+	end
+	if session.bodyMeshModel ~= item.model then
+		session.bodyMesh = nil
+		session.bodyMeshModel = nil
 	end
 	local pivotAtCurrent = current:PointToWorldSpace(if session.geometry then session.geometry.center else Vector3.zero)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
 	params.FilterDescendantsInstances = { item.model }
-	local mesh: Curve.BodyMesh? = nil
 	local accepted: { Types.Sample } = {}
 	local previous: Types.Sample? = nil
 	local rayOrigin = origin
@@ -110,8 +130,15 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 					continue
 				end
 			else
-				local parts = mesh or Curve.BodyMesh(item.model)
-				mesh = parts
+				local cached = session.bodyMesh
+				local parts: Curve.BodyMesh
+				if cached and session.bodyMeshModel == item.model then
+					parts = cached
+				else
+					parts = Curve.BodyMesh(item.model)
+					session.bodyMesh = parts
+					session.bodyMeshModel = item.model
+				end
 				local visible,depth = Curve.FirstHit(parts,rayOrigin,direction.Unit,direction.Magnitude+.015)
 				if not visible or visible.part~=sample.part or math.abs(depth-direction.Magnitude)>.015 then
 					previous=nil

@@ -35,42 +35,71 @@ end
 local events=folder(RS,"RemoteEvents")
 for _,name in {"GameRequest","GameNotify"} do if not events:FindFirstChild(name) then local r=Instance.new("RemoteEvent");r.Name=name;r.Parent=events end end
 local ui=folder(RS,"UI")
-local existing=ui:FindFirstChild("GameScreenGui");if existing then existing:Destroy() end
-local gui=Instance.new("ScreenGui");gui.Name="GameScreenGui";gui.ResetOnSpawn=false;gui.IgnoreGuiInset=true;gui.DisplayOrder=10
-local root=Instance.new("Frame");root.Name="CenterFrame";root.BackgroundTransparency=1;root.Size=UDim2.fromOffset(1920,1080);root.AnchorPoint=Vector2.new(.5,.5);root.Position=UDim2.fromScale(.5,.5);root.Parent=gui
-local scale=Instance.new("UIScale");scale.Parent=root
+-- 增量补齐唯一 UI 模板，严禁销毁既有 GameScreenGui、WindowCanvas、ModalButton 或定制模板。
+local existing=ui:FindFirstChild("GameScreenGui")
+local gui: ScreenGui
+if existing and existing:IsA("ScreenGui") then
+ gui=existing
+else
+ local created=Instance.new("ScreenGui");created.Name="GameScreenGui";created.ResetOnSpawn=false;created.IgnoreGuiInset=true;created.DisplayOrder=10;created.Parent=ui
+ gui=created
+end
 local function label(parent,name,text,x,y,w,h,font)
  local l=Instance.new("TextLabel");l.Name=name;l.Text=text;l.Position=UDim2.fromOffset(x,y);l.Size=UDim2.fromOffset(w,h)
  l.BackgroundTransparency=1;l.TextColor3=Color3.fromRGB(245,238,255);l.Font=Enum.Font.GothamBold;l.TextSize=font;l.TextScaled=false;l.TextWrapped=false;l.AutoLocalize=false;l:SetAttribute("DesignTextSize",font);l.Parent=parent
  local stroke=Instance.new("UIStroke");stroke.StrokeSizingMode=Enum.StrokeSizingMode.ScaledSize;stroke.Thickness=.05;stroke.Color=Color3.fromRGB(25,13,39);stroke.Parent=l
  return l
 end
-local function panel(name,x,y,w,h)
- local f=Instance.new("Frame");f.Name=name;f.Position=UDim2.fromOffset(x,y);f.Size=UDim2.fromOffset(w,h);f.BackgroundColor3=Color3.fromRGB(23,16,36);f.BackgroundTransparency=.12;f.BorderSizePixel=0;f.Parent=root
- local c=Instance.new("UICorner");c.CornerRadius=UDim.new(0,16);c.Parent=f
- local s=Instance.new("UIStroke");s.StrokeSizingMode=Enum.StrokeSizingMode.ScaledSize;s.Thickness=.012;s.Color=Color3.fromRGB(138,80,190);s.Parent=f;return f
+local existingRoot=gui:FindFirstChild("CenterFrame")
+local root: Frame
+if existingRoot and existingRoot:IsA("Frame") then
+ root=existingRoot
+else
+ local created=Instance.new("Frame");created.Name="CenterFrame";created.BackgroundTransparency=1;created.Size=UDim2.fromOffset(1920,1080);created.AnchorPoint=Vector2.new(.5,.5);created.Position=UDim2.fromScale(.5,.5);created.Parent=gui
+ root=created
+ local scale=Instance.new("UIScale");scale.Parent=root
+ local function panel(name,x,y,w,h)
+  local f=Instance.new("Frame");f.Name=name;f.Position=UDim2.fromOffset(x,y);f.Size=UDim2.fromOffset(w,h);f.BackgroundColor3=Color3.fromRGB(23,16,36);f.BackgroundTransparency=.12;f.BorderSizePixel=0;f.Parent=root
+  local c=Instance.new("UICorner");c.CornerRadius=UDim.new(0,16);c.Parent=f
+  local s=Instance.new("UIStroke");s.StrokeSizingMode=Enum.StrokeSizingMode.ScaledSize;s.Thickness=.012;s.Color=Color3.fromRGB(138,80,190);s.Parent=f;return f
+ end
+ local hud=panel("StatusFrame",1390,60,460,240)
+ label(hud,"TitleText","SOUL WORKSHOP",16,8,428,52,36)
+ label(hud,"CoinsText","COINS  0",16,65,428,48,32)
+ label(hud,"CarryText","HANDS EMPTY",16,120,428,44,26)
+ label(hud,"StockText","POOL 0/8  |  POTIONS 0/8",16,172,428,40,24)
+ label(root,"HintText","",400,900,1120,56,32)
+ label(root,"NoticeText","",400,840,1120,48,28)
+ local paint=panel("PaintFrame",550,90,820,170);paint.Visible=false
+ label(paint,"TitleText","DRAW THE RUNE",20,8,780,44,32)
+ label(paint,"ProgressText","0%",20,55,780,42,28)
+ local bar=Instance.new("Frame");bar.Name="ProgressBarFrame";bar.Position=UDim2.fromOffset(40,115);bar.Size=UDim2.fromOffset(740,22);bar.BorderSizePixel=0;bar.BackgroundColor3=Color3.fromRGB(59,37,78);bar.Parent=paint
+ local fill=Instance.new("Frame");fill.Name="FillFrame";fill.Size=UDim2.fromScale(0,1);fill.BorderSizePixel=0;fill.BackgroundColor3=Color3.fromRGB(180,85,255);fill.Parent=bar
+ local function button(name,text,x,y,w)
+  local b=Instance.new("ImageButton");b.Name=name;b.Position=UDim2.fromOffset(x,y);b.Size=UDim2.fromOffset(w,72);b.Image="";b.BackgroundColor3=Color3.fromRGB(89,44,133);b.BorderSizePixel=0;b.AutoButtonColor=true;b.Parent=root
+  local c=Instance.new("UICorner");c.CornerRadius=UDim.new(0,14);c.Parent=b
+  label(b,"LabelText",text,8,8,w-16,56,28);return b
+ end
+ local exit=button("ExitPaintButton","EXIT",560,950,350);exit.Visible=false
+ local reset=button("ResetViewButton","RESET VIEW",1010,950,350);reset.Visible=false
 end
-local hud=panel("StatusFrame",1390,60,460,240)
-label(hud,"TitleText","SOUL WORKSHOP",16,8,428,52,36)
-label(hud,"CoinsText","COINS  0",16,65,428,48,32)
-label(hud,"CarryText","HANDS EMPTY",16,120,428,44,26)
-label(hud,"StockText","POOL 0/8  |  POTIONS 0/8",16,172,428,40,24)
-label(root,"HintText","",400,900,1120,56,32)
-label(root,"NoticeText","",400,840,1120,48,28)
-local paint=panel("PaintFrame",550,90,820,170);paint.Visible=false
-label(paint,"TitleText","DRAW THE RUNE",20,8,780,44,32)
-label(paint,"ProgressText","0%",20,55,780,42,28)
-local bar=Instance.new("Frame");bar.Name="ProgressBarFrame";bar.Position=UDim2.fromOffset(40,115);bar.Size=UDim2.fromOffset(740,22);bar.BorderSizePixel=0;bar.BackgroundColor3=Color3.fromRGB(59,37,78);bar.Parent=paint
-local fill=Instance.new("Frame");fill.Name="FillFrame";fill.Size=UDim2.fromScale(0,1);fill.BorderSizePixel=0;fill.BackgroundColor3=Color3.fromRGB(180,85,255);fill.Parent=bar
-local function button(name,text,x,y,w)
- local b=Instance.new("ImageButton");b.Name=name;b.Position=UDim2.fromOffset(x,y);b.Size=UDim2.fromOffset(w,72);b.Image="";b.BackgroundColor3=Color3.fromRGB(89,44,133);b.BorderSizePixel=0;b.AutoButtonColor=true;b.Parent=root
- local c=Instance.new("UICorner");c.CornerRadius=UDim.new(0,14);c.Parent=b
- label(b,"LabelText",text,8,8,w-16,56,28);return b
+if not root:FindFirstChildOfClass("UIScale") then
+ local scale=Instance.new("UIScale");scale.Parent=root
 end
-local exit=button("ExitPaintButton","EXIT",560,950,350);exit.Visible=false
-local reset=button("ResetViewButton","RESET VIEW",1010,950,350);reset.Visible=false
+local windowCanvas=gui:FindFirstChild("WindowCanvas")
+if not windowCanvas then
+ local canvas=Instance.new("Frame");canvas.Name="WindowCanvas";canvas.Size=UDim2.fromOffset(1920,1080);canvas.AnchorPoint=Vector2.new(.5,.5);canvas.Position=UDim2.fromScale(.5,.5);canvas.BackgroundTransparency=1;canvas.Active=false;canvas.Parent=gui
+ windowCanvas=canvas
+end
+if not windowCanvas:FindFirstChildOfClass("UIScale") then
+ local s=Instance.new("UIScale");s.Parent=windowCanvas
+end
+if not gui:FindFirstChild("ModalButton") then
+ local modal=Instance.new("ImageButton");modal.Name="ModalButton";modal.Size=UDim2.fromScale(1,1);modal.BackgroundColor3=Color3.new(0,0,0);modal.BackgroundTransparency=.4;modal.Image="";modal.Modal=true;modal.AutoButtonColor=false;modal.Visible=false;modal.ZIndex=101;modal.Parent=gui
+end
 -- 画符触控仍用固定像素；攻击钮单独贴在原生跳跃键旁，不进 Center 画布。
 local function touchPaint()
+ if gui:FindFirstChild("TouchPaintFrame") then return end
  local f=Instance.new("Frame");f.Name="TouchPaintFrame";f.BackgroundTransparency=1;f.Visible=false;f.Parent=gui
  f.Size=UDim2.fromOffset(300,50);f.AnchorPoint=Vector2.new(.5,1);f.Position=UDim2.new(.5,0,1,-24)
  local names={"ExitPaintButton","ResetViewButton"}
@@ -84,7 +113,7 @@ local function touchPaint()
 end
 touchPaint()
 local function touchAttack()
- local old=ui:FindFirstChild("TouchAttackFrame");if old then old:Destroy() end
+ if ui:FindFirstChild("TouchAttackFrame") then return end
  local frame=Instance.new("Frame");frame.Name="TouchAttackFrame";frame.BackgroundTransparency=1;frame.BorderSizePixel=0
  frame.AnchorPoint=Vector2.zero;frame.Position=UDim2.fromOffset(0,0);frame.Size=UDim2.fromOffset(76,76)
  frame.Visible=false;frame.Active=false;frame.Selectable=false;frame.ZIndex=10
@@ -109,24 +138,29 @@ local function touchAttack()
 end
 touchAttack()
 gui.Parent=ui
-for _,name in {"PaintFaceGui","PaintCellFrame","PaintRuneImage"} do local v=ui:FindFirstChild(name);if v then v:Destroy() end end
-local surface=Instance.new("SurfaceGui");surface.Name="PaintFaceGui";surface.CanvasSize=Vector2.new(256,256);surface.SizingMode=Enum.SurfaceGuiSizingMode.FixedSize;surface.AlwaysOnTop=false;surface.LightInfluence=0;surface.Brightness=2;surface.ZOffset=.015;surface.Parent=ui
-local cell=Instance.new("Frame");cell.Name="PaintCellFrame";cell.AnchorPoint=Vector2.new(.5,.5);cell.Size=UDim2.fromScale(.15,.15);cell.BackgroundColor3=Color3.fromRGB(176,63,255);cell.BorderSizePixel=0
-local corner=Instance.new("UICorner");corner.CornerRadius=UDim.new(1,0);corner.Parent=cell;cell.Parent=ui
-local rune=Instance.new("ImageLabel");rune.Name="PaintRuneImage";rune.AnchorPoint=Vector2.new(.5,.5);rune.Size=UDim2.fromOffset(36,36);rune.BackgroundTransparency=1;rune.BorderSizePixel=0;rune.ImageColor3=Color3.fromRGB(176,63,255);rune.ImageTransparency=0;rune.ScaleType=Enum.ScaleType.Stretch;rune.Parent=ui
--- 清理已替换的旧业务资源；共享 Core、第三方与现有地图几何保持原样。
+if not ui:FindFirstChild("PaintFaceGui") then
+ local surface=Instance.new("SurfaceGui");surface.Name="PaintFaceGui";surface.CanvasSize=Vector2.new(256,256);surface.SizingMode=Enum.SurfaceGuiSizingMode.FixedSize;surface.AlwaysOnTop=false;surface.LightInfluence=0;surface.Brightness=2;surface.ZOffset=.015;surface.Parent=ui
+end
+if not ui:FindFirstChild("PaintCellFrame") then
+ local cell=Instance.new("Frame");cell.Name="PaintCellFrame";cell.AnchorPoint=Vector2.new(.5,.5);cell.Size=UDim2.fromScale(.15,.15);cell.BackgroundColor3=Color3.fromRGB(176,63,255);cell.BorderSizePixel=0
+ local corner=Instance.new("UICorner");corner.CornerRadius=UDim.new(1,0);corner.Parent=cell;cell.Parent=ui
+end
+if not ui:FindFirstChild("PaintRuneImage") then
+ local rune=Instance.new("ImageLabel");rune.Name="PaintRuneImage";rune.AnchorPoint=Vector2.new(.5,.5);rune.Size=UDim2.fromOffset(36,36);rune.BackgroundTransparency=1;rune.BorderSizePixel=0;rune.ImageColor3=Color3.fromRGB(176,63,255);rune.ImageTransparency=0;rune.ScaleType=Enum.ScaleType.Stretch;rune.Parent=ui
+end
+-- 清理已替换的旧业务资源；基础框架事件、共享音效（UIClick/UIOpen/UIClose）与现有 UI 骨架严禁销毁。
 local legacy={
- [RS.UI]={"GameFrame","GameScreenGui","FarmToolShopFrame","FarmWeaponEnhanceFrame","FarmCollectorShopFrame","FarmBasketShopFrame","FarmRestaurantFrame","FarmSpeciesFrame","FarmEquipmentFrame","FarmWeaponShopFrame","FarmHatchFrame","FarmConfirmationFrame","RoastChickenHUDFrame","FarmInteractionFrame","AnimalHealthGui","NestSignGui","RestaurantSignGui","WorkerSignGui","EggSignGui","FarmOwnerSignGui","CookedFoodSignGui","DamagePopGui","FarmTouchUseFrame","PackingDeliverySignGui","PackingEntranceSignGui","OriginalFoodDeliverySignGui","OriginalKitchenEntranceSignGui","OriginalFoodDirectionSignGui"},
- [RS.RemoteEvents]={"NotifyPlayerInfoInit","NotifyPlayersOtherPlayerInfoInit","NotifyPlayerAcquiredGamePass","RequestSetBGMVolume","RequestSetSoundEffectVolume","RequestSetVibrationsOnOffState","RoastChickenAction"},
- [RS.Models]={"Weapons","Baskets","Collectors","CollectorTools"},
- [SS.Models]={"PersonalFarmTemplate","FarmWorkerTemplate","FarmUIArtwork","FarmPackerTemplate","FarmCustomerTemplate","FarmPackageTemplate","FarmRestaurantOriginalLayout"},
- [RS.Sounds]={"Upgrade","Zap_T1","Zap_T2","Zap_T3","Zap_T4","Zap_T5","AnimalHit","UIClick","FoodDrop","EggHatch","Warning","Coin","UIOpen","AnimalCooked","Delivery","PackageDone","UIClose","AnimalScared","EggSpeedup","EggLand","Pickup","EggSpawn"},
- [RS.VFX]={"ZapMuzzle_T1","ZapMuzzle_T2","ZapMuzzle_T3","ZapMuzzle_T4","ZapMuzzle_T5","ZapArcBeam","HitImpact","RoastFlight","FloatAnchor"},
- [RS.BindableEvents]={"CloseWindow","LocalPlayerInfoInit","OtherPlayerInfoInit","LocalPlayerAcquiredGamePass","OpenWindow","FarmInfoChanged"},
- [SS.BindableEvents]={"PlayerInfoInit","FarmInfoChanged"},
- [SS]={"FarmVillageArchive"},
+ {parent=ui,names={"FarmToolShopFrame","FarmWeaponEnhanceFrame","FarmCollectorShopFrame","FarmBasketShopFrame","FarmRestaurantFrame","FarmSpeciesFrame","FarmEquipmentFrame","FarmWeaponShopFrame","FarmHatchFrame","FarmConfirmationFrame","RoastChickenHUDFrame","FarmInteractionFrame","AnimalHealthGui","NestSignGui","RestaurantSignGui","WorkerSignGui","EggSignGui","FarmOwnerSignGui","CookedFoodSignGui","DamagePopGui","FarmTouchUseFrame","PackingDeliverySignGui","PackingEntranceSignGui","OriginalFoodDeliverySignGui","OriginalKitchenEntranceSignGui","OriginalFoodDirectionSignGui"}},
+ {parent=events,names={"RoastChickenAction"}},
+ {parent=models,names={"Weapons","Baskets","Collectors","CollectorTools"}},
+ {parent=SS:FindFirstChild("Models"),names={"PersonalFarmTemplate","FarmWorkerTemplate","FarmUIArtwork","FarmPackerTemplate","FarmCustomerTemplate","FarmPackageTemplate","FarmRestaurantOriginalLayout"}},
+ {parent=RS:FindFirstChild("Sounds"),names={"Upgrade","Zap_T1","Zap_T2","Zap_T3","Zap_T4","Zap_T5","AnimalHit","FoodDrop","EggHatch","Warning","Coin","AnimalCooked","Delivery","PackageDone","AnimalScared","EggSpeedup","EggLand","Pickup","EggSpawn"}},
+ {parent=RS:FindFirstChild("VFX"),names={"ZapMuzzle_T1","ZapMuzzle_T2","ZapMuzzle_T3","ZapMuzzle_T4","ZapMuzzle_T5","ZapArcBeam","HitImpact","RoastFlight","FloatAnchor"}},
+ {parent=RS:FindFirstChild("BindableEvents"),names={"FarmInfoChanged"}},
+ {parent=SS:FindFirstChild("BindableEvents"),names={"FarmInfoChanged"}},
+ {parent=SS,names={"FarmVillageArchive"}},
 }
-for parent,names in legacy do for _,name in names do local old=parent:FindFirstChild(name);if old and old~=gui then old:Destroy() end end end
+for _,entry in legacy do if entry.parent then for _,name in entry.names do local old=entry.parent:FindFirstChild(name);if old and old~=gui then old:Destroy() end end end end
 local house=district:FindFirstChild("StairEntranceHouse")
 if house then for _,name in {"AutomaticDoor","DoorController"} do local old=house:FindFirstChild(name);if old and old:IsA("LuaSourceContainer") then old:Destroy() end end end
 -- 文案迁移与 update-processing-localization.luau 保持一致（离线测试校验）。
@@ -217,4 +251,3 @@ setupStationPrompt(ui)
 end
 
 return {rigParts=#models.WhiteR15:GetChildren(),ui=gui:GetFullName(),models=models:GetFullName()}
-

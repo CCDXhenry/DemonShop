@@ -18,7 +18,7 @@ local LogPrefix = "[ClientPreloadManager]"
 local LayoutGuideName = "ScreenLayoutGuideFrame"
 local SlashSoundName = "WeaponSlash"
 local EffectAnchorName = "PreloadEffectAnchor"
-local WarmupPosition = Vector3.new(0, -1000, 0)
+local WarmupPosition = Vector3.new(0, 5000, 0)
 local WarmupFrameCount = 2
 local WarmupAnimationFade = 0
 local WarmupAnimationWeight = 0.0001
@@ -240,6 +240,17 @@ local function CollectSounds(assets: { Instance })
 	end
 end
 
+local function AnchorClone(root: Instance)
+	if root:IsA("BasePart") then
+		root.Anchored = true
+	end
+	for _, descendant in root:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+		end
+	end
+end
+
 local function WarmupTemplates(templates: { Instance }, token: number)
 	local clones: { Instance } = {}
 	for _, template in templates do
@@ -247,6 +258,7 @@ local function WarmupTemplates(templates: { Instance }, token: number)
 			break
 		end
 		local clone = template:Clone()
+		AnchorClone(clone)
 		if PlaceOffscreen(clone, WarmupPosition) then
 			EmitParticles(clone)
 			table.insert(clones, clone)
@@ -346,6 +358,7 @@ function Manager.WarmupEffects(effectTemplates: { Instance }, options: WarmupOpt
 	for _, template in effectTemplates do
 		local cloned = template:Clone()
 		if cloned:IsA("Model") or cloned:IsA("BasePart") then
+			AnchorClone(cloned)
 			PlaceOffscreen(cloned, position)
 			table.insert(roots, cloned)
 		elseif cloned:IsA("Attachment") then

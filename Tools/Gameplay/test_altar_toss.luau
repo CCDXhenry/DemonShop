@@ -35,7 +35,8 @@ end
 
 local automatic, model = body("table", 0, true)
 local manual, manualModel = body("shoulder", 1, false)
-local start = model.PrimaryPart.CFrame.Position
+local initialAutoCFrame = model.PrimaryPart.CFrame
+local initialManualCFrame = manualModel.PrimaryPart.CFrame
 local events = 0
 local manager = setmetatable({
 	items = {table = automatic, shoulder = manual},
@@ -52,30 +53,31 @@ check(automatic.altarToss.landEnds == Config.LiftSeconds + Config.FlightSeconds 
 check(manual.altarToss.landEnds == Config.FlightSeconds + landSeconds, "manual toss schedules deterministic landing time without lift")
 
 step(Config.LiftSeconds / 2)
-check(near(model.PrimaryPart.CFrame.Position, start + V.yAxis * Config.LiftHeight / 2), "table body lifts vertically before launch")
+check(model.PrimaryPart.CFrame == initialAutoCFrame, "server skips per-frame PivotTo during table lift")
 check(model.UpperTorso.Anchored and not model.UpperTorso.CanCollide, "no collisions during lift")
-check(manual.altarToss.flightStarts == 0 and not near(manualModel.PrimaryPart.CFrame.Position, start), "manual toss skips table lift")
+check(manual.altarToss.flightStarts == 0 and manualModel.PrimaryPart.CFrame == initialManualCFrame, "manual toss skips table lift and per-frame server PivotTo")
 check(automatic.altarToss.rest.Position.Y < manual.altarToss.rest.Position.Y, "simultaneous tosses have independent layers")
 
 step(Config.LiftSeconds)
-check(near(model.PrimaryPart.CFrame.Position, start + V.yAxis * Config.LiftHeight), "arc starts at the lift endpoint")
+check(model.PrimaryPart.CFrame == initialAutoCFrame and automatic.altarToss.flightStarts == Config.LiftSeconds, "server keeps body untouched at lift endpoint")
 
 step(Config.FlightSeconds)
 check(manual.altarToss ~= nil and not manual.convertEnds, "manual flight enters landing buffer before conversion")
+check(manualModel.PrimaryPart.CFrame == initialManualCFrame, "server skips per-frame PivotTo before manual landEnds")
 check(manualModel.UpperTorso.Anchored and not manualModel.UpperTorso.CanCollide, "landing buffer stays anchored without loose server physics")
 check(B.altarOwner == nil and events == 0, "server never switches altar body into loose ragdoll physics")
 
+local manualRest = manual.altarToss.rest
 local manualLandedAt = Config.FlightSeconds + landSeconds
 step(manualLandedAt)
 check(manual.altarToss == nil and manual.convertEnds == manualLandedAt + 5 and manual.version == 2, "manual toss lands deterministically and starts conversion")
-check(manualModel:GetAttribute("PhysicsMode") == "AltarAnchored" and near(manualModel.PrimaryPart.CFrame.Position, Scene.AltarRest.CFrame.Position) == false, "manual toss anchors at its altar rest pose")
-check( automatic.altarToss ~= nil and not automatic.convertEnds, "table toss continues its own clock independently")
+check(manualModel:GetAttribute("PhysicsMode") == "AltarAnchored" and near(manualModel.PrimaryPart.CFrame.Position, manualRest.Position), "manual toss anchors at its altar rest pose")
+check(automatic.altarToss ~= nil and not automatic.convertEnds and model.PrimaryPart.CFrame == initialAutoCFrame, "table toss continues its own clock without per-frame PivotTo")
 
 local tableFlightEnd = Config.LiftSeconds + Config.FlightSeconds
 step(tableFlightEnd + landSeconds * 0.5)
-local drop = automatic.altarToss.rest + Scene.AltarRest.CFrame.UpVector * Config.DropClearance
-check(model.PrimaryPart.CFrame.Position.Y < drop.Position.Y and model.PrimaryPart.CFrame.Position.Y > automatic.altarToss.rest.Position.Y, "landing phase smoothly descends from drop clearance to altar surface")
-check(model.UpperTorso.Anchored and not automatic.convertEnds, "body remains anchored while descending onto altar")
+check(model.PrimaryPart.CFrame == initialAutoCFrame, "server skips per-frame PivotTo during landing cushion before landEnds")
+check(model.UpperTorso.Anchored and not automatic.convertEnds, "body remains anchored while client animates descent")
 
 local tableRest = automatic.altarToss.rest
 local headRest = tableRest * model.Head:GetAttribute("RestPose")

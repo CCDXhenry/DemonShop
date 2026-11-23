@@ -63,7 +63,7 @@ for _, group in groups do
 	table.sort(names)
 	for _, textId in names do table.insert(ordered,textId) end
 end
-Check(#ordered,87)
+Check(#ordered,89)
 local index = 0
 -- Match LocalizationExtension's generalized iteration, including nested independent cursors.
 for key, entry in Texts do

@@ -75,8 +75,14 @@ function LifecycleTool.Spawn(self: Lifecycle, callback: () -> ()): ()
 	end
 	local pending: thread
 	pending = coroutine.create(function()
-		callback()
+		local ok, err = pcall(function(): any
+			callback()
+			return nil
+		end)
 		self.threads[pending] = nil
+		if not ok then
+			warn(err)
+		end
 	end)
 	self.threads[pending] = true
 	task.spawn(pending)

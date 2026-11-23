@@ -54,8 +54,8 @@ export type Client = typeof(setmetatable(
 		attackTarget: string?,
 		comboEnds: number,
 		bodies: WhiteBodies.Manager,
-		altarView: AltarSacrifice.View,
 		altarViews: { [string]: AltarSacrifice.View },
+		altarIds: { [string]: boolean }?,
 		altarBodyId: string?,
 		altarLoopSound: Sound?,
 		potionShelf: PotionShelf.View,
@@ -98,6 +98,8 @@ export type Client = typeof(setmetatable(
 		touchGuiEnabled: boolean?,
 		hiddenPlayerParts: { [Instance]: boolean }?,
 		hidePlayersScope: Lifecycle.Lifecycle?,
+		ignoreMouseMove: boolean,
+		catchHardwareOrigin: boolean,
 		completeFlash: { id: string, started: number }?,
 		flipFlash: { id: string, started: number }?,
 		initialized: boolean,
@@ -158,8 +160,8 @@ function Client.new(): Client
 			attackTarget = nil,
 			comboEnds = 0,
 			bodies = bodies,
-			altarView = AltarSacrifice.new(),
 			altarViews = {},
+			altarIds = {},
 			altarBodyId = nil,
 			altarLoopSound = nil,
 			potionShelf = PotionShelf.new(positions.Shelf),
@@ -197,6 +199,8 @@ function Client.new(): Client
 			touchGuiEnabled = nil,
 			hiddenPlayerParts = {},
 			hidePlayersScope = nil,
+			ignoreMouseMove = false,
+			catchHardwareOrigin = false,
 			completeFlash = nil,
 			flipFlash = nil,
 			initialized = false,
@@ -231,8 +235,8 @@ function Client.Held(self: Client): Types.ItemView?
 	end
 	return nil
 end
-local function StackCount(model: Model): number
-	local count = model:GetAttribute("StackCount")
+local function StackCount(tool: Instance): number
+	local count = tool:GetAttribute("StackCount")
 	if typeof(count) == "number" and count > 0 then
 		return count
 	end
@@ -242,16 +246,43 @@ function Client.Potions(self: Client): Hints.Potions
 	local stored = 0
 	local equipped = false
 	local character = player.Character
-	for _, item in self.items do
-		local model = item.model
-		if item.kind == "Potion" and item.location == "Toolbar" and model then
-			stored += StackCount(model)
-			if model.Parent == character then
-				equipped = true
+	local backpack: Instance? = if (player :: any).FindFirstChildOfClass
+		then player:FindFirstChildOfClass("Backpack")
+		else nil
+	local seen: { [Instance]: boolean } = {}
+	local function Scan(container: Instance?, isEquipped: boolean): ()
+		if not container then
+			return
+		end
+		for _, child in container:GetChildren() do
+			if not seen[child] and child:IsA("Tool") and child.Name == "Potion" then
+				seen[child] = true
+				stored += StackCount(child)
+				if isEquipped or (character ~= nil and child.Parent == character) then
+					equipped = true
+				end
 			end
 		end
 	end
+	Scan(backpack, false)
+	Scan(character, true)
 	return { stored = stored, equipped = equipped }
+end
+local function SetHiddenTransparency(instance: Instance, modifier: number): ()
+	if instance:IsA("BasePart") or instance:IsA("Decal") then
+		local target = instance :: any
+		if target.LocalTransparencyModifier ~= modifier then
+			target.LocalTransparencyModifier = modifier
+		end
+	end
+end
+local function SetCharacterVisibility(character: Model, modifier: number, hidden: { [Instance]: boolean }): ()
+	for _, descendant in character:GetDescendants() do
+		if descendant:IsA("BasePart") or descendant:IsA("Decal") then
+			SetHiddenTransparency(descendant, modifier)
+			hidden[descendant] = true
+		end
+	end
 end
 local function RestoreHiddenPlayers(self: Client): ()
 	if self.hidePlayersScope then
@@ -261,17 +292,12 @@ local function RestoreHiddenPlayers(self: Client): ()
 	local hidden = self.hiddenPlayerParts
 	if hidden then
 		for instance in hidden do
-			if instance:IsA("BasePart") then
-				instance.LocalTransparencyModifier = 0
-			elseif instance:IsA("Decal") then
-				instance.LocalTransparencyModifier = 0
-			end
+			SetHiddenTransparency(instance, 0)
 		end
 		table.clear(hidden)
 	end
 end
-
-local function HidePlayerCharactersForPaint(self: Client): ()
+local function SyncHiddenPlayers(self: Client): ()
 	if not Players or not Players.GetPlayers then
 		return
 	end
@@ -279,23 +305,14 @@ local function HidePlayerCharactersForPaint(self: Client): ()
 	self.hiddenPlayerParts = hidden
 	for _, targetPlayer in Players:GetPlayers() do
 		local character = targetPlayer.Character
-		if not character then
-			continue
-		end
-		for _, descendant in character:GetDescendants() do
-			if descendant:IsA("BasePart") then
-				if descendant.LocalTransparencyModifier ~= 1 then
-					descendant.LocalTransparencyModifier = 1
-				end
-				hidden[descendant] = true
-			elseif descendant:IsA("Decal") then
-				if descendant.LocalTransparencyModifier ~= 1 then
-					descendant.LocalTransparencyModifier = 1
-				end
-				hidden[descendant] = true
-			end
+		if character then
+			SetCharacterVisibility(character, 1, hidden)
 		end
 	end
+end
+
+local function HidePlayerCharactersForPaint(self: Client): ()
+	SyncHiddenPlayers(self)
 end
 
 local function HidePlayersForPaint(self: Client): ()
@@ -343,6 +360,7 @@ function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	self.finishPaint = false
 	self.pointer, self.brushFrame = nil, nil
 	self.pointerOrigin, self.hardwareOrigin = nil, nil
+	self.ignoreMouseMove, self.catchHardwareOrigin = false, false
 	table.clear(self.paintSamples)
 	if self.localCovered then table.clear(self.localCovered) end
 	self.localProgress, self.localArea, self.localTotalArea = 0, 0, 0
@@ -385,6 +403,7 @@ function Client.EnterView(self: Client, id: string, session: string, frames: Typ
 	self.visualClosing = false
 	self.paintSequence = 0
 	self.lastPaint = os.clock()
+	self.ignoreMouseMove, self.catchHardwareOrigin = false, false
 	if self.localCovered then table.clear(self.localCovered) else self.localCovered = {} end
 	local item = self.items[id]
 	local initialProgress = if item then math.clamp(item.progress, 0, 1) else 0
@@ -821,8 +840,6 @@ local function SnapPointerToBrush(self: Client, hardware: Vector2): ()
 	self.hardwareOrigin = hardware
 end
 -- 输入事件里的坐标比 GetMouseLocation 少一个顶栏高度。喷口使用前者。
-local ignoreMouseMove = false
-local catchHardwareOrigin = false
 local function ReadMouse(): Vector2?
 	local ok, value = pcall(function(): Vector2
 		return UserInputService:GetMouseLocation()
@@ -848,17 +865,10 @@ local function HardwareNow(fallback: Vector2): Vector2
 	end
 	return mouse - ReadInset()
 end
-local function FormatPoint(point: Vector2?): string
-	if not point then
-		return "nil"
-	end
-	return string.format("(%.1f,%.1f)", point.X, point.Y)
-end
 -- 把系统光标移到喷口。成功时后续输入会从笔尖发出，不再保留拖拽偏移。
-local function WarpMouseToTip(tip: Vector2): boolean
+local function WarpMouseToTip(self: Client, tip: Vector2): boolean
 	local target = tip + ReadInset()
-	local before = ReadMouse()
-	ignoreMouseMove = true
+	self.ignoreMouseMove = true
 	local sent = pcall(function()
 		local virtual = UserInputService:CreateVirtualInput()
 		if virtual == nil then
@@ -868,18 +878,10 @@ local function WarpMouseToTip(tip: Vector2): boolean
 	end)
 	local after = ReadMouse()
 	local arrived = sent and after ~= nil and (after - target).Magnitude <= 8
-	--print(string.format(
-	--	"[画笔重置] 喷口=%s 目标鼠标=%s 移动前=%s 移动后=%s 落到喷口=%s",
-	--	FormatPoint(tip),
-	--	FormatPoint(target),
-	--	FormatPoint(before),
-	--	FormatPoint(after),
-	--	tostring(arrived)
-	--))
 	if arrived then
 		return true
 	end
-	ignoreMouseMove = false
+	self.ignoreMouseMove = false
 	return false
 end
 
@@ -1122,6 +1124,9 @@ function Client.Update(self: Client, dt: number): ()
 	if self.worldInteraction then self.worldInteraction:Refresh() end
 	local missingModel = false
 	for _, item in self.items do
+		if item.location == "Toolbar" or item.location == "Shelf" then
+			continue
+		end
 		if not item.model or not item.model.Parent then missingModel = true; break end
 	end
 	if (not self.synced or missingModel) and now - self.lastSync > 3 and player:GetAttribute("GameReady") == true then
@@ -1143,9 +1148,9 @@ function Client.Update(self: Client, dt: number): ()
 		if item and item.model then self.ui:SetProgress(math.max(item.progress, self.localProgress or 0)) end
 		local point = self:Paint(now)
 		self.ui:UpdatePointer(point, self.drawing and not self.presentation:IsFlipping())
-		ignoreMouseMove = false
-		if catchHardwareOrigin and not self.drawing and self.hardwareOrigin then
-			catchHardwareOrigin = false
+		self.ignoreMouseMove = false
+		if self.catchHardwareOrigin and not self.drawing and self.hardwareOrigin then
+			self.catchHardwareOrigin = false
 			self.hardwareOrigin = HardwareNow(self.hardwareOrigin)
 		end
 	end
@@ -1240,29 +1245,7 @@ function Client.Update(self: Client, dt: number): ()
 	end
 	self.ui:Refresh({painting=self.paintId~=nil,hasTarget=false,windowOpen=UIManager.HasShowingWindow()})
 	if self.paintId then
-		if Players and Players.GetPlayers then
-			local hidden: { [Instance]: boolean } = self.hiddenPlayerParts or {}
-			self.hiddenPlayerParts = hidden
-			for _, targetPlayer in Players:GetPlayers() do
-				local character = targetPlayer.Character
-				if not character then
-					continue
-				end
-				for _, descendant in character:GetDescendants() do
-					if descendant:IsA("BasePart") then
-						if descendant.LocalTransparencyModifier ~= 1 then
-							descendant.LocalTransparencyModifier = 1
-						end
-						hidden[descendant] = true
-					elseif descendant:IsA("Decal") then
-						if descendant.LocalTransparencyModifier ~= 1 then
-							descendant.LocalTransparencyModifier = 1
-						end
-						hidden[descendant] = true
-					end
-				end
-			end
-		end
+		SyncHiddenPlayers(self)
 		self:Text("HintText", { textId = if Config.PaintRotationEnabled then "Painting" else "PaintingFlat" })
 		return
 	end
@@ -1348,7 +1331,7 @@ function Client.OnMove(self: Client, input: InputObject): ()
 	if input ~= self.touch and (self.touch ~= nil or input.UserInputType ~= Enum.UserInputType.MouseMovement) then
 		return
 	end
-	if ignoreMouseMove and input ~= self.touch then
+	if self.ignoreMouseMove and input ~= self.touch then
 		return
 	end
 	local hardware = Vector2.new(input.Position.X, input.Position.Y)
@@ -1368,17 +1351,17 @@ function Client.OnRelease(self: Client, input: InputObject): ()
 				if Config.PaintRotationEnabled then
 					SnapPointerToBrush(self, hardware)
 					local tip = self.pointer
-					if tip and WarpMouseToTip(tip) then
+					if tip and WarpMouseToTip(self, tip) then
 						self.pointer = tip
 						self.pointerOrigin = tip
 						self.hardwareOrigin = tip
 					elseif tip then
 						self.hardwareOrigin = HardwareNow(hardware)
-						catchHardwareOrigin = true
+						self.catchHardwareOrigin = true
 					end
 				else
 					self.pointerOrigin, self.hardwareOrigin = nil, nil
-					catchHardwareOrigin = false
+					self.catchHardwareOrigin = false
 				end
 			end
 		end
@@ -1402,17 +1385,37 @@ function Client.ResetPaintView(self: Client): ()
 end
 function Client.UpdateAltar(self: Client, now: number): ()
 	local active: { Types.ItemView } = {}
+	local seen: { [string]: boolean } = {}
 	for _, item in self.items do
 		if item.kind == "Body" and item.location == "Altar" then
 			table.insert(active, item)
+			seen[item.id] = true
 		end
 	end
+	local completed = false
+	local tracked = self.altarIds
+	if tracked then
+		for id in tracked do
+			if not seen[id] then
+				completed = true
+				break
+			end
+		end
+	elseif self.altarBodyId and not seen[self.altarBodyId] then
+		completed = true
+	end
+	if completed and Sound then
+		Sound.Play("AltarComplete", positions.Altar)
+	end
+	self.altarIds = seen
 	if #active == 0 then
-		if self.altarLoopSound then
-			self.altarLoopSound:Stop()
+		local loopSound = self.altarLoopSound
+		if loopSound then
 			self.altarLoopSound = nil
-			if self.altarBodyId then
-				Sound.Play("AltarComplete", positions.Altar)
+			if Sound and Sound.Stop then
+				Sound.Stop(loopSound)
+			else
+				loopSound:Stop()
 			end
 		end
 		for id, view in self.altarViews do
@@ -1421,16 +1424,13 @@ function Client.UpdateAltar(self: Client, now: number): ()
 			self.altarViews[id] = nil
 		end
 		self.altarBodyId = nil
-		self.altarView:Clear()
 		return
 	end
-	if not self.altarLoopSound then
-		self.altarLoopSound = Sound.Play("AltarLoop", positions.Altar)
+	if not self.altarLoopSound and Sound then
+		self.altarLoopSound = Sound.Play("AltarLoop", positions.Altar, nil, true)
 	end
-	local seen: { [string]: boolean } = {}
 	local shelfFull = self.snapshot ~= nil and self.snapshot.shelf >= Config.ShelfCapacity
 	for _, item in active do
-		seen[item.id] = true
 		local model = self.bodies:GetAltarModel(item.id)
 		if not model then
 			self.view:ClearSacrifice(item.id)
@@ -1511,7 +1511,7 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 			end
 		else
 			self.pointerOrigin, self.hardwareOrigin = nil, nil
-			catchHardwareOrigin = false
+			self.catchHardwareOrigin = false
 		end
 		self.drawing, self.finishPaint, self.touch = false, true, nil
 		self.brushFrame = nil
@@ -1588,13 +1588,27 @@ function Client.Destroy(self: Client): ()
 	self.scope:Destroy()
 	self.potionShelf:Destroy()
 	if self.altarBodyId then self.view:ClearSacrifice(self.altarBodyId); self.altarBodyId = nil end
-	if self.altarLoopSound then self.altarLoopSound:Stop(); self.altarLoopSound = nil end
+	if self.altarIds then
+		for id in self.altarIds do
+			self.view:ClearSacrifice(id)
+		end
+		table.clear(self.altarIds)
+	end
+	local loopSound = self.altarLoopSound
+	if loopSound then
+		self.altarLoopSound = nil
+		if Sound and Sound.Stop then
+			Sound.Stop(loopSound)
+		else
+			loopSound:Stop()
+		end
+	end
 	for id, view in self.altarViews do
 		self.view:ClearSacrifice(id)
 		view:Clear()
 		self.altarViews[id] = nil
 	end
-	self.altarView:Clear()
+	self.ignoreMouseMove, self.catchHardwareOrigin = false, false
 	self.bodies:Destroy()
 	self.view:Destroy()
 	self.presentation:Clear()

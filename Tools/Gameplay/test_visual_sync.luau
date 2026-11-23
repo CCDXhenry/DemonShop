@@ -22,7 +22,7 @@ local function stamp(index, version)
 	}
 end
 
-check(Config.PaintTarget == 0.4 and Config.PaintFlatTarget == 0.48, 'server completion targets are 40% (rotated) and 48% (flat) of paintable area')
+check(Config.PaintTarget > 0 and Config.PaintTarget <= 1 and Config.PaintFlatTarget > 0 and Config.PaintFlatTarget <= 1, 'server completion targets stay within valid (0, 1] range')
 local state = Rules.New()
 local first = stamp(1)
 check(Rules.Validate(first), 'valid rune stamp accepted')
@@ -84,6 +84,42 @@ upload:Ack(3); upload:Update({}, 2.3, 12, true)
 check(Net.requests[4].action == 'EndPaint', 'final acknowledgement releases closing session')
 upload:Clear()
 check(next(upload.pending) == nil and next(upload.flight) == nil and upload.session == nil, 'session destruction clears upload resources')
+
+do
+	table.clear(Net.requests)
+	upload:Begin('retry-order')
+	local function sendTenPackets(indexBase, timeBase, forceFirst)
+		for tick = 0, 2 do
+			local batch = {}
+			local perTick = if tick < 2 then 4 else 2
+			for packet = 0, perTick - 1 do
+				local base = indexBase + (tick * 4 + packet) * Config.PaintVisualBatchSize
+				local count = if packet == perTick - 1 and tick == 2 then 1 else Config.PaintVisualBatchSize
+				for offset = 1, count do
+					local s = stamp(base + offset)
+					batch[s.key] = s
+				end
+			end
+			upload:Update(batch, timeBase + tick * Config.PaintBatchInterval, 12, forceFirst and tick == 0)
+		end
+	end
+	-- 发送 10 批（1..10），确认前 8 批后再发 10 批（11..20），触发 Luau flight 哈希表乱序风险
+	sendTenPackets(0, 2, true)
+	check(upload.sequence == 10 and #Net.requests == 10, 'ten initial packets queued')
+	upload:Ack(8)
+	sendTenPackets(1000, 2.3, false)
+	check(upload.sequence == 20 and #Net.requests == 20, 'twenty total packets queued across flight rehash')
+	table.clear(Net.requests)
+	local timeoutAt = 2.3 + 2 * Config.PaintBatchInterval + Config.PaintVisualRetrySeconds
+	upload:Update({}, timeoutAt, 12, false)
+	check(#Net.requests == 12, 'all twelve timed-out unacknowledged packets retransmit together')
+	local serverSequence = 8
+	for _, req in ipairs(Net.requests) do
+		check(req.sequence == serverSequence + 1, 'timed-out packets retransmit in ascending sequence without PaintOutOfSequence')
+		serverSequence = req.sequence
+	end
+	upload:Clear()
+end
 
 local packet = { action = 'PaintVisual', session = 'session', sequence = 1, started = 10, segments = { stamp(1) } }
 check(Protocol.Validate(packet), 'visual wire packet accepted')

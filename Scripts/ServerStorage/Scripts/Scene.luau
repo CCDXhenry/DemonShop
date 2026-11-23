@@ -50,7 +50,30 @@ end
 table.sort(potionPoints, TopThenLeft)
 assert(#potionPoints > 0, "SoulCrystalDisplay.PotionPoints is empty")
 Scene.Spawn = Part(district, "StreetSpawn")
-Scene.SigilPosition = Part(district, "SummoningSubmitAnchor").Position
+local sigil = Part(district, "SummoningSubmitAnchor")
+Scene.SigilPosition = sigil.Position
+local function PromptRange(anchor: BasePart): number
+	local prompt = anchor:FindFirstChild("WorldInteractionPrompt")
+	if prompt and prompt:IsA("ProximityPrompt") and prompt.MaxActivationDistance > 0 then
+		return prompt.MaxActivationDistance
+	end
+	return Config.InteractionRange
+end
+local stationRanges: { [string]: number } = {
+	Pool = PromptRange(Scene.PoolPickup),
+	Table = PromptRange(Scene.TableInteract),
+	Altar = PromptRange(Scene.Altar),
+	Shelf = PromptRange(Scene.Shelf),
+	Sigil = PromptRange(sigil),
+}
+Scene.StationRanges = stationRanges
+function Scene.StationRange(target: string): number
+	local range = Scene.StationRanges[target]
+	if typeof(range) == "number" and range > 0 then
+		return range
+	end
+	return Config.InteractionRange
+end
 local function Unit(text: string, salt: number): number
 	local value = salt
 	for index = 1, #text do
@@ -146,7 +169,8 @@ function Scene.BindPoolCollision(): ()
 end
 function Scene.ShelfPose(quality: number, slot: number): CFrame
 	local point = potionPoints[math.clamp(quality, 1, #potionPoints)]
-	return point.CFrame * CFrame.new(ShelfSlotOffsets[slot])
+	local offset = ShelfSlotOffsets[math.clamp(slot, 1, #ShelfSlotOffsets)]
+	return point.CFrame * CFrame.new(offset)
 end
 function Scene.SafePose(position: Vector3, fallback: Vector3, ignored: { Instance }): CFrame
 	local params = RaycastParams.new()

@@ -55,6 +55,7 @@ type Texture = {
 	dirty: boolean,
 	fullDirty: boolean,
 	dirtyBoxes: { [number]: DirtyBox },
+	inkedBoxes: { [number]: DirtyBox },
 	flashes: { FlashBatch },
 	used: number,
 	rebuilding: boolean,
@@ -62,7 +63,6 @@ type Texture = {
 	mappings: { [string]: { [number]: Mapping } },
 	parts: { [string]: RasterPart },
 	mappingCount: number,
-	tinted: buffer?,
 }
 
 local TileSize = 8
@@ -132,6 +132,7 @@ function View.RemoveTexture(self: View, id: string): ()
 		coroutine.close(taskInfo.thread)
 		self.tasks[id] = nil
 	end
+	self.sacrificeStep[id] = nil
 	local texture: Texture? = self.textures[id]
 	if not texture then
 		return
@@ -141,6 +142,11 @@ function View.RemoveTexture(self: View, id: string): ()
 			part.TextureContent = Content.none
 		end
 	end
+	table.clear(texture.dirtyBoxes)
+	table.clear(texture.inkedBoxes)
+	table.clear(texture.flashes)
+	table.clear(texture.mappings)
+	table.clear(texture.parts)
 	texture.image:Destroy()
 	self.textures[id] = nil
 end
@@ -200,6 +206,7 @@ function View.Ensure(self: View, id: string): Texture?
 			dirty = true,
 			fullDirty = true,
 			dirtyBoxes = {},
+			inkedBoxes = {},
 			flashes = {},
 			used = os.clock(),
 			rebuilding = true,
@@ -439,21 +446,26 @@ local function Prepare(texture: Texture, tiles: { [number]: Tile }, segment: Typ
 	end
 end
 
+local function ExpandBox(boxes: { [number]: DirtyBox }, chunkKey: number, minX: number, minY: number, maxX: number, maxY: number): ()
+	local box = boxes[chunkKey]
+	if box then
+		if minX < box.minX then box.minX = minX end
+		if minY < box.minY then box.minY = minY end
+		if maxX > box.maxX then box.maxX = maxX end
+		if maxY > box.maxY then box.maxY = maxY end
+	else
+		boxes[chunkKey] = { minX = minX, minY = minY, maxX = maxX, maxY = maxY }
+	end
+end
+
 local function MarkDirtyPixel(texture: Texture, x: number, y: number): ()
 	texture.dirty = true
+	local chunkKey = math.floor(y / DirtyChunkSize) * texture.chunkGrid + math.floor(x / DirtyChunkSize)
+	ExpandBox(texture.inkedBoxes, chunkKey, x, y, x, y)
 	if texture.fullDirty then
 		return
 	end
-	local chunkKey = math.floor(y / DirtyChunkSize) * texture.chunkGrid + math.floor(x / DirtyChunkSize)
-	local box = texture.dirtyBoxes[chunkKey]
-	if box then
-		if x < box.minX then box.minX = x end
-		if y < box.minY then box.minY = y end
-		if x > box.maxX then box.maxX = x end
-		if y > box.maxY then box.maxY = y end
-	else
-		texture.dirtyBoxes[chunkKey] = { minX = x, minY = y, maxX = x, maxY = y }
-	end
+	ExpandBox(texture.dirtyBoxes, chunkKey, x, y, x, y)
 end
 
 local function ApplyFlashColor(texture: Texture, pixels: { number }, ratio: number): ()
@@ -560,18 +572,11 @@ local function RasterTile(texture: Texture, tile: Tile, diagnostics: Diagnostics
 	end
 	if maxX >= minX then
 		texture.dirty = true
+		-- 8×8 Tile 完整落入单个 64×64 脏块，避免跨部位 UV 岛合并为整图拷贝。
+		local chunkKey = math.floor(tile.y / DirtyChunkSize) * texture.chunkGrid + math.floor(tile.x / DirtyChunkSize)
+		ExpandBox(texture.inkedBoxes, chunkKey, minX, minY, maxX, maxY)
 		if not texture.fullDirty then
-			-- 8×8 Tile 完整落入单个 64×64 脏块，避免跨部位 UV 岛合并为整图拷贝。
-			local chunkKey = math.floor(tile.y / DirtyChunkSize) * texture.chunkGrid + math.floor(tile.x / DirtyChunkSize)
-			local box = texture.dirtyBoxes[chunkKey]
-			if box then
-				if minX < box.minX then box.minX = minX end
-				if minY < box.minY then box.minY = minY end
-				if maxX > box.maxX then box.maxX = maxX end
-				if maxY > box.maxY then box.maxY = maxY end
-			else
-				texture.dirtyBoxes[chunkKey] = { minX = minX, minY = minY, maxX = maxX, maxY = maxY }
-			end
+			ExpandBox(texture.dirtyBoxes, chunkKey, minX, minY, maxX, maxY)
 		end
 	end
 	if diagnostics then
@@ -603,33 +608,53 @@ function View.IsReady(self: View, id: string): boolean
 	return not texture.rebuilding and not texture.dirty and self.tasks[id] == nil and (self.heads[id] or 1) > #(self.queue[id] or {})
 end
 
+local function CopyDirtyRegion(source: buffer, size: number, box: DirtyBox): (number, number, buffer)
+	local width = box.maxX - box.minX + 1
+	local height = box.maxY - box.minY + 1
+	local rowBytes = width * 4
+	local pixels = buffer.create(rowBytes * height)
+	for row = 0, height - 1 do
+		buffer.copy(pixels, row * rowBytes, source, ((box.minY + row) * size + box.minX) * 4, rowBytes)
+	end
+	return width, height, pixels
+end
+
 local function UploadTint(texture: Texture, brightness: number): ()
-	local length = buffer.len(texture.pixels)
-	local existing = texture.tinted
-	local tinted: buffer = if existing and buffer.len(existing) == length then existing else buffer.create(length)
-	texture.tinted = tinted
-	buffer.copy(tinted, 0, texture.pixels, 0, length)
-	if brightness > 0 then
-		local highlight = Config.AltarStrokeHighlight
-		local targetRed = math.floor(highlight.R * 255 + 0.5)
-		local targetGreen = math.floor(highlight.G * 255 + 0.5)
-		local targetBlue = math.floor(highlight.B * 255 + 0.5)
-		local inkR = StrokeRed + (targetRed - StrokeRed) * brightness
-		local inkG = StrokeGreen + (targetGreen - StrokeGreen) * brightness
-		local inkB = StrokeBlue + (targetBlue - StrokeBlue) * brightness
-		local alphaBuf = texture.alpha
-		local totalPixels = texture.size * texture.size
-		for pixelIndex = 0, totalPixels - 1 do
-			local a = buffer.readu8(alphaBuf, pixelIndex)
-			if a > 0 then
-				local offset = pixelIndex * 4
-				buffer.writeu8(tinted, offset, math.floor(255 + (inkR - 255) * a / 255 + 0.5))
-				buffer.writeu8(tinted, offset + 1, math.floor(255 + (inkG - 255) * a / 255 + 0.5))
-				buffer.writeu8(tinted, offset + 2, math.floor(255 + (inkB - 255) * a / 255 + 0.5))
+	local size = texture.size
+	local source = texture.pixels
+	if brightness <= 0 then
+		for _, box in texture.inkedBoxes do
+			local width, height, pixels = CopyDirtyRegion(source, size, box)
+			texture.image:WritePixelsBuffer(Vector2.new(box.minX, box.minY), Vector2.new(width, height), pixels)
+		end
+		return
+	end
+	local highlight = Config.AltarStrokeHighlight
+	local targetRed = math.floor(highlight.R * 255 + 0.5)
+	local targetGreen = math.floor(highlight.G * 255 + 0.5)
+	local targetBlue = math.floor(highlight.B * 255 + 0.5)
+	local inkR = StrokeRed + (targetRed - StrokeRed) * brightness
+	local inkG = StrokeGreen + (targetGreen - StrokeGreen) * brightness
+	local inkB = StrokeBlue + (targetBlue - StrokeBlue) * brightness
+	local alphaBuf = texture.alpha
+	for _, box in texture.inkedBoxes do
+		local width, height, out = CopyDirtyRegion(source, size, box)
+		local rowBytes = width * 4
+		for row = 0, height - 1 do
+			local srcPixelRow = (box.minY + row) * size + box.minX
+			local dstRowOffset = row * rowBytes
+			for col = 0, width - 1 do
+				local a = buffer.readu8(alphaBuf, srcPixelRow + col)
+				if a > 0 then
+					local dstOffset = dstRowOffset + col * 4
+					buffer.writeu8(out, dstOffset, math.floor(255 + (inkR - 255) * a / 255 + 0.5))
+					buffer.writeu8(out, dstOffset + 1, math.floor(255 + (inkG - 255) * a / 255 + 0.5))
+					buffer.writeu8(out, dstOffset + 2, math.floor(255 + (inkB - 255) * a / 255 + 0.5))
+				end
 			end
 		end
+		texture.image:WritePixelsBuffer(Vector2.new(box.minX, box.minY), Vector2.new(width, height), out)
 	end
-	texture.image:WritePixelsBuffer(Vector2.zero, Vector2.new(texture.size, texture.size), tinted)
 end
 
 local function Commit(texture: Texture): ()
@@ -643,13 +668,7 @@ local function Commit(texture: Texture): ()
 	local size = texture.size
 	local source = texture.pixels
 	for _, box in texture.dirtyBoxes do
-		local width = box.maxX - box.minX + 1
-		local height = box.maxY - box.minY + 1
-		local rowBytes = width * 4
-		local pixels = buffer.create(rowBytes * height)
-		for row = 0, height - 1 do
-			buffer.copy(pixels, row * rowBytes, source, ((box.minY + row) * size + box.minX) * 4, rowBytes)
-		end
+		local width, height, pixels = CopyDirtyRegion(source, size, box)
 		texture.image:WritePixelsBuffer(Vector2.new(box.minX, box.minY), Vector2.new(width, height), pixels)
 	end
 	table.clear(texture.dirtyBoxes)

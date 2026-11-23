@@ -74,13 +74,6 @@ function UIManager.RegisterWindow(windowId: string, config: WindowConfig): ()
 	WindowConfigs[windowId] = config
 end
 
-local function MarkButtonApplied(appliedButtons: { [GuiButton]: boolean }, button: GuiButton): ()
-	appliedButtons[button] = true
-	scope:Connect(button.Destroying:Connect(function()
-		appliedButtons[button] = nil
-	end))
-end
-
 local function CheckModalButtonVisible(): ()
 	if not initialized then
 		return
@@ -121,6 +114,7 @@ local function ApplyButtonEffects(button: GuiButton): ()
 	if uiScale == nil then
 		return
 	end
+	interactionEffectAppliedButtons[button] = true
 	local buttonScope = LifecycleTool.new()
 	buttonScopes[button] = buttonScope
 	buttonScope:Connect(button.Destroying:Connect(function(): ()
@@ -128,7 +122,6 @@ local function ApplyButtonEffects(button: GuiButton): ()
 		buttonScopes[button] = nil
 		interactionEffectAppliedButtons[button] = nil
 	end))
-	MarkButtonApplied(interactionEffectAppliedButtons, button)
 	local normalScale: number = uiScale.Scale
 	local hoveredScale: number = ButtonHoveredScale * normalScale
 	local pressedScale: number = ButtonPressedScale * normalScale
@@ -229,17 +222,14 @@ function UIManager.Init(gameScreenGuiNew: ScreenGui): ()
 	end
 	TextFitting.FitMarkedRoot(gameScreenGuiNew)
 
-	local uiParents: { Instance } = { workspace, gameScreenGui }
-	for uiParentIndex: number, uiParent: Instance in uiParents do
-		scope:Connect(uiParent.DescendantAdded:Connect(function(descendant: Instance)
-			if descendant:IsA("GuiButton") then
-				ApplyButtonEffects(descendant)
-			end
-		end))
-		for descendantIndex: number, descendant: Instance in uiParent:GetDescendants() do
-			if descendant:IsA("GuiButton") then
-				ApplyButtonEffects(descendant)
-			end
+	scope:Connect(gameScreenGuiNew.DescendantAdded:Connect(function(descendant: Instance)
+		if descendant:IsA("GuiButton") then
+			ApplyButtonEffects(descendant)
+		end
+	end))
+	for _: number, descendant: Instance in gameScreenGuiNew:GetDescendants() do
+		if descendant:IsA("GuiButton") then
+			ApplyButtonEffects(descendant)
 		end
 	end
 end

@@ -28,6 +28,7 @@ type PlayerData = { IsActive: (Player) -> boolean, CanAddCoins: (Player, number)
 type PaintSession = Painting.Session
 type PlayerRecord = {
 	scope: Lifecycle.Lifecycle,
+	characterScope: Lifecycle.Lifecycle?,
 	lastAttack: number,
 	lastRequest: number,
 	lastSync: number,
@@ -121,7 +122,7 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 	end
 	local list: { Types.ItemView } = {}
 	for _, item in self.items do
-		if item.location == "Shelf" then continue end
+		if item.location == "Shelf" or item.location == "Toolbar" then continue end
 		table.insert(list, {
 			id = item.id,
 			kind = item.kind,
@@ -390,16 +391,16 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 	self.paint = nil
 	Net.FireNotify(player, { kind = "EndPaint", session = session.token, id = session.id, started = altarTossStarted, altarToss = altarToss })
 end
-function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
+function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): boolean
 	if self.paint then
 		self:Tell(player, "TableInUse")
-		return
+		return false
 	end
 	local character = player.Character
 	local root = self:Root(player)
 	local hum = character and character:FindFirstChildOfClass("Humanoid")
 	if not character or not root or not hum then
-		return
+		return false
 	end
 	local initialFlipped = not Config.PaintRotationEnabled and item.paintFlipped == true
 	local initialOrientation = PaintRotation.FlatOrientation(initialFlipped)
@@ -441,8 +442,9 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
 		self:Restack(player)
 	end
 	Net.FireNotify(player, { kind = "BeginPaint", id = item.id, session = session.token, bodyPose = frames, orientation = initialOrientation, flipped = initialFlipped })
+	return true
 end
-function Manager.Pool(self: Manager, player: Player): ()
+function Manager.Pool(self: Manager, player: Player): boolean
 	local stack = self:Carried(player)
 	local chosen: Types.Item? = nil
 	for _, item in stack do
@@ -454,7 +456,7 @@ function Manager.Pool(self: Manager, player: Player): ()
 	if chosen then
 		if #self.pool >= Config.PoolCapacity then
 			self:Tell(player, "PoolFull")
-			return
+			return false
 		end
 		local keep = #stack > 1
 		chosen.location = "Pool"
@@ -464,44 +466,50 @@ function Manager.Pool(self: Manager, player: Player): ()
 		if keep then
 			self:Restack(player)
 		end
+		return true
 	elseif #stack > 0 or self:ShoulderOccupied(player) then
 		self:Tell(player, "StoreUnfinished")
+		return false
 	elseif #self.pool > 0 then
 		local id = self.pool[1]
 		local item = self.items[id]
 		if item and Carry.Take(item, player) then
 			table.remove(self.pool, 1)
 			self:Restack(player)
+			return true
 		end
+		return false
 	else
 		self:Tell(player, "PoolIsEmpty")
+		return false
 	end
 end
-function Manager.Table(self: Manager, player: Player): ()
+function Manager.Table(self: Manager, player: Player): boolean
 	if self.paint then
 		self:Tell(player, "TableInUse")
-		return
+		return false
 	end
 	local stack = self:Carried(player)
 	local occupied = #stack > 0 or self:ShoulderOccupied(player)
 	if self.tableId then
 		if occupied then
 			self:Tell(player, "TableIsOccupied")
-			return
+			return false
 		end
 		local item = self.items[self.tableId]
 		if not item then
-			return
+			return false
 		end
 		if item.stage == "Painted" then
 			if Carry.Take(item, player) then
 				self.tableId = nil
 				self:Restack(player)
+				return true
 			end
+			return false
 		else
-			self:BeginPaint(player, item)
+			return self:BeginPaint(player, item)
 		end
-		return
 	end
 	local chosen: Types.Item? = nil
 	for _, item in stack do
@@ -512,7 +520,7 @@ function Manager.Table(self: Manager, player: Player): ()
 	end
 	if not chosen and occupied then
 		self:Tell(player, "BringUnfinished")
-		return
+		return false
 	end
 	local item = chosen
 	if not item and #self.pool > 0 then
@@ -521,7 +529,7 @@ function Manager.Table(self: Manager, player: Player): ()
 	end
 	if not item then
 		self:Tell(player, "BringStunned")
-		return
+		return false
 	end
 	local keep = chosen ~= nil and self:HasOtherBodies(player, item)
 	Carry.Static(item, Scene.TablePose(), not keep)
@@ -533,8 +541,9 @@ function Manager.Table(self: Manager, player: Player): ()
 		self:Restack(player)
 	end
 	self:BeginPaint(player, item)
+	return true
 end
-function Manager.Altar(self: Manager, player: Player): ()
+function Manager.Altar(self: Manager, player: Player): boolean
 	local chosen: Types.Item? = nil
 	for _, item in self:Carried(player) do
 		if item.stage == "Painted" then
@@ -544,21 +553,41 @@ function Manager.Altar(self: Manager, player: Player): ()
 	end
 	if not chosen then
 		self:Tell(player, "AltarNeedsCompleted")
-		return
+		return false
 	end
 	self:LaunchToAltar(chosen)
+	return true
 end
 function Manager.OwnedPotion(self: Manager, player: Player, quality: number): Types.Item?
-	for _, item in self.items do
+	local valid: Types.Item? = nil
+	local stale: { string } = {}
+	for id, item in self.items do
 		if item.kind == "Potion" and item.owner == player and item.quality == quality and item.location == "Toolbar" then
-			return item
+			if item.model.Parent == nil then
+				table.insert(stale, id)
+			elseif not valid then
+				valid = item
+			end
 		end
 	end
-	return nil
+	for _, id in stale do
+		self.items[id] = nil
+	end
+	return valid
 end
 function Manager.GrantStack(self: Manager, player: Player, quality: number, count: number): Tool?
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	local character = player.Character
 	local existing = self:OwnedPotion(player, quality)
 	if existing and existing.model:IsA("Tool") then
+		if backpack and existing.model.Parent ~= backpack and existing.model.Parent ~= character then
+			local ok = pcall(function(): ()
+				existing.model.Parent = backpack
+			end)
+			if not ok or (existing.model.Parent ~= backpack and existing.model.Parent ~= character) then
+				return nil
+			end
+		end
 		local nextCount = (existing.stack or 1) + count
 		existing.stack = nextCount
 		existing.model:SetAttribute("StackCount", nextCount)
@@ -586,6 +615,15 @@ function Manager.GrantStack(self: Manager, player: Player, quality: number, coun
 	tool:SetAttribute("OwnerUserId", player.UserId)
 	tool:SetAttribute("StackCount", count)
 	tool:SetAttribute("Quality", quality)
+	if backpack then
+		local ok = pcall(function(): ()
+			tool.Parent = backpack
+		end)
+		if not ok or tool.Parent ~= backpack then
+			tool:Destroy()
+			return nil
+		end
+	end
 	local potion: Types.Item = {
 		id = id,
 		kind = "Potion",
@@ -611,10 +649,6 @@ function Manager.GrantStack(self: Manager, player: Player, quality: number, coun
 		walkTrack = nil,
 	}
 	self.items[id] = potion
-	local backpack = player:FindFirstChildOfClass("Backpack")
-	if backpack then
-		tool.Parent = backpack
-	end
 	return tool
 end
 function Manager.EquippedPotion(self: Manager, player: Player): Types.Item?
@@ -641,11 +675,18 @@ function Manager.RescuePotions(_self: Manager, player: Player, character: Model)
 		folder.Parent = player
 		reserve = folder
 	end
-	for _, child in character:GetChildren() do
-		if child:IsA("Tool") and child.Name == "Potion" then
-			child.Parent = reserve
+	local function MovePotions(container: Instance?): ()
+		if not container then
+			return
+		end
+		for _, child in container:GetChildren() do
+			if child:IsA("Tool") and child.Name == "Potion" then
+				child.Parent = reserve
+			end
 		end
 	end
+	MovePotions(character)
+	MovePotions(player:FindFirstChildOfClass("Backpack"))
 end
 function Manager.ReleasePotions(self: Manager, player: Player): ()
 	local owned: { Types.Item } = {}
@@ -664,20 +705,20 @@ function Manager.ReleasePotions(self: Manager, player: Player): ()
 		reserve:Destroy()
 	end
 end
-function Manager.Shelf(self: Manager, player: Player): ()
+function Manager.Shelf(self: Manager, player: Player): boolean
 	if #self:Carried(player) > 0 then
 		self:Tell(player, "HandsFull")
-		return
+		return false
 	end
 	if self:ShelfCount() == 0 then
 		self:Tell(player, "PotionsNotReady")
-		return
+		return false
 	end
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	local backpack = player:FindFirstChildOfClass("Backpack")
 	if (self.paint and self.paint.player == player) or not character or not humanoid or humanoid.Health <= 0 or not backpack then
-		return
+		return false
 	end
 	local qualities: { number } = {}
 	for quality, ids in self.shelf do
@@ -693,11 +734,18 @@ function Manager.Shelf(self: Manager, player: Player): ()
 		local tool = if ids then self:GrantStack(player, quality, #ids) else nil
 		if tool then
 			if tool.Parent ~= backpack and tool.Parent ~= character then
-				tool.Parent = backpack
+				pcall(function(): ()
+					tool.Parent = backpack
+				end)
 			end
-			table.insert(granted, quality)
-			equip = tool
+			if tool.Parent == backpack or tool.Parent == character then
+				table.insert(granted, quality)
+				equip = tool
+			end
 		end
+	end
+	if #granted == 0 then
+		return false
 	end
 	for _, quality in granted do
 		local ids = self.shelf[quality]
@@ -715,16 +763,17 @@ function Manager.Shelf(self: Manager, player: Player): ()
 	if equip then
 		humanoid:EquipTool(equip)
 	end
+	return true
 end
-function Manager.Submit(self: Manager, player: Player): ()
+function Manager.Submit(self: Manager, player: Player): boolean
 	local record = self.players[player]
 	local item = self:EquippedPotion(player)
 	if not record or not self.data.IsActive(player) then
-		return
+		return false
 	end
 	if not item then
 		self:Tell(player, "BringPotionSigil")
-		return
+		return false
 	end
 	-- 售出一次：当前服务器每位资料已就绪的玩家各得完整奖励；无人可收款则不消耗药水。
 	local reward = Config.PotionReward
@@ -741,7 +790,7 @@ function Manager.Submit(self: Manager, player: Player): ()
 	end
 	if #recipients == 0 then
 		self:Tell(player, "CoinLimit")
-		return
+		return false
 	end
 	local count = item.stack or 1
 	if count > 1 then
@@ -764,6 +813,7 @@ function Manager.Submit(self: Manager, player: Player): ()
 	for _, other in blocked do
 		self:Tell(other, "CoinLimit")
 	end
+	return true
 end
 function Manager.Attack(self: Manager, player: Player, request: Types.Request): ()
 	local function OnResult(hit: boolean): ()
@@ -969,6 +1019,7 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 		return
 	end
 	local target = request.target
+	local changed = false
 	if request.action == "Drop" then
 		local stack = self:Carried(player)
 		local root = self:Root(player)
@@ -978,18 +1029,25 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 			if #stack > 1 then
 				self:Restack(player)
 			end
+			changed = true
 		elseif root then
 			local held = self:Held(player)
 			if held then
 				Carry.Drop(held, root.Position + root.CFrame.LookVector * 3)
+				changed = true
 			end
 		end
 	elseif request.action == "TakeTable" then
-		if not self:Held(player) and not self.paint and self.tableId and self:Near(player, Scene.TableInteract.Position, Config.InteractionRange, nil) then
+		if not self:Held(player) and not self.paint and self.tableId then
+			if not self:Near(player, Scene.TableInteract.Position, Scene.StationRange("Table"), nil) then
+				self:Tell(player, "StationTooFar")
+				return
+			end
 			local item = self.items[self.tableId]
 			if item and Carry.Take(item, player) then
 				self.tableId = nil
 				self:Restack(player)
+				changed = true
 			end
 		end
 	elseif request.action == "Interact" and target then
@@ -1006,16 +1064,20 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 				self:Tell(player, "StationChanged")
 				return
 			end
+			if not self:Near(player, position, Scene.StationRange(target), nil) then
+				self:Tell(player, "StationTooFar")
+				return
+			end
 			if target == "Pool" then
-				self:Pool(player)
+				changed = self:Pool(player)
 			elseif target == "Table" then
-				self:Table(player)
+				changed = self:Table(player)
 			elseif target == "Altar" then
-				self:Altar(player)
+				changed = self:Altar(player)
 			elseif target == "Shelf" then
-				self:Shelf(player)
+				changed = self:Shelf(player)
 			else
-				self:Submit(player)
+				changed = self:Submit(player)
 			end
 		else
 			local item = self.items[target]
@@ -1029,8 +1091,11 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 			elseif item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits) then
 				local root=item.model.PrimaryPart
 				if root and self:Near(player,root.Position,Config.InteractionRange,item.model) then
-					if Carry.Take(item, player, #carried) and item.kind == "Body" then
-						self:Restack(player)
+					if Carry.Take(item, player, #carried) then
+						if item.kind == "Body" then
+							self:Restack(player)
+						end
+						changed = true
 					end
 				else
 					self:Tell(player,"ItemUnavailable")
@@ -1040,7 +1105,9 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 			end
 		end
 	end
-	self:Changed()
+	if changed then
+		self:Changed()
+	end
 end
 function Manager.ReleasePlayer(self: Manager, player: Player): ()
 	self:EndPaint(player)
@@ -1066,17 +1133,40 @@ function Manager.ReleasePlayer(self: Manager, player: Player): ()
 end
 function Manager.OnCharacter(self: Manager, player: Player, character: Model): ()
 	local record = self.players[player]
-	if not record then
+	if not record or not record.scope.alive or record.closing then
 		return
+	end
+	if record.characterScope then
+		record.characterScope:Destroy()
+		record.characterScope = nil
 	end
 	self:ReleasePlayer(player)
-	local humanoid = character:WaitForChild("Humanoid") :: Humanoid
-	local root = character:WaitForChild("HumanoidRootPart") :: BasePart
-	if not record.scope.alive or player.Character ~= character then
+	local humanoidInst = character:WaitForChild("Humanoid", 10)
+	if not record.scope.alive or record.closing or player.Character ~= character then
 		return
 	end
+	if not humanoidInst or not humanoidInst:IsA("Humanoid") then
+		return
+	end
+	local humanoid: Humanoid = humanoidInst
+	local rootInst = character:WaitForChild("HumanoidRootPart", 10)
+	if not record.scope.alive or record.closing or player.Character ~= character then
+		return
+	end
+	if not rootInst or not rootInst:IsA("BasePart") then
+		return
+	end
+	local root: BasePart = rootInst
 	root.CFrame = Scene.Spawn.CFrame * CFrame.new(0, 4, 0)
-	local backpack = player:WaitForChild("Backpack")
+	local backpack = player:WaitForChild("Backpack", 10)
+	if not record.scope.alive or record.closing or player.Character ~= character or not backpack then
+		return
+	end
+	if record.characterScope then
+		record.characterScope:Destroy()
+	end
+	local characterScope = Lifecycle.new()
+	record.characterScope = characterScope
 	for _, child in backpack:GetChildren() do
 		if child:IsA("Tool") and child.Name ~= "Potion" then
 			child:Destroy()
@@ -1100,12 +1190,12 @@ function Manager.OnCharacter(self: Manager, player: Player, character: Model): (
 	if slash and slash:IsA("Sound") then
 		slash.SoundId = Config.WeaponSlashSound
 		local function OnStopSlash(): () slash:Stop() end
-		record.scope:Connect(club.Unequipped:Connect(OnStopSlash))
-		record.scope:Connect(humanoid.Died:Connect(OnStopSlash))
+		characterScope:Connect(club.Unequipped:Connect(OnStopSlash))
+		characterScope:Connect(humanoid.Died:Connect(OnStopSlash))
 	end
 	club.Parent = backpack
 	humanoid:EquipTool(club)
-	record.scope:Connect(humanoid.Died:Connect(function(): ()
+	characterScope:Connect(humanoid.Died:Connect(function(): ()
 		self:ReleasePlayer(player)
 	end))
 end
@@ -1114,9 +1204,13 @@ function Manager.AddPlayer(self: Manager, player: Player): ()
 		return
 	end
 	if not self.data.IsActive(player) then return end
-	local record: PlayerRecord = { scope = Lifecycle.new(), lastAttack = 0, lastRequest = 0, lastSync = 0, closing = false }
+	local record: PlayerRecord = { scope = Lifecycle.new(), characterScope = nil, lastAttack = 0, lastRequest = 0, lastSync = 0, closing = false }
 	self.players[player] = record
 	record.scope:Connect(player.CharacterRemoving:Connect(function(character: Model): ()
+		if record.characterScope then
+			record.characterScope:Destroy()
+			record.characterScope = nil
+		end
 		self:RescuePotions(player, character)
 	end))
 	record.scope:Connect(player.CharacterAdded:Connect(function(character: Model): ()
@@ -1144,6 +1238,10 @@ function Manager.RemovePlayer(self: Manager, player: Player): ()
 	record.closing = true
 	self:ReleasePlayer(player)
 	self:ReleasePotions(player)
+	if record.characterScope then
+		record.characterScope:Destroy()
+		record.characterScope = nil
+	end
 	record.scope:Destroy()
 	self.players[player] = nil
 	self.removing[player] = nil
@@ -1176,11 +1274,14 @@ function Manager.Update(self: Manager): ()
 			changedMotion = true
 		end
 	end
-	if changedMotion then self:Changed() end
 	if now < self.nextUpdate then
+		if changedMotion then
+			self:Changed()
+		end
 		return
 	end
 	self.nextUpdate = now + 0.1
+	local changed = changedMotion
 	local count, bodies = 0, 0
 	for _, item in self.items do
 		local carrier = item.holder
@@ -1188,7 +1289,7 @@ function Manager.Update(self: Manager): ()
 			if carrier then
 				self:Restack(carrier)
 			end
-			self:Changed()
+			changed = true
 		end
 		if item.streetSlot then
 			count += 1
@@ -1212,7 +1313,7 @@ function Manager.Update(self: Manager): ()
 			if (outside or fallen) and now >= (item.poolRecoverAt or 0) then
 				item.poolRecoverAt = now + Physics.PoolRecoverSeconds
 				Carry.RecoverPool(item)
-				self:Changed()
+				changed = true
 			end
 		elseif item.location ~= "Altar" and primary and primary.Position.Y < -40 then
 			carrier = item.holder
@@ -1225,14 +1326,14 @@ function Manager.Update(self: Manager): ()
 				self:Restack(carrier)
 			end
 			item.streetSlot = false
-			self:Changed()
+			changed = true
 		end
 	end
 	if count < Config.StreetPopulation and bodies < Config.MaximumBodies and now >= self.nextSpawn then
 		local item = NPC.Spawn(self.runtime, self.items)
 		if item then
 			self.items[item.id] = item
-			self:Changed()
+			changed = true
 		end
 		self.nextSpawn = now + Config.SpawnInterval
 	end
@@ -1245,7 +1346,6 @@ function Manager.Update(self: Manager): ()
 	table.sort(ready, function(a: Types.Item, b: Types.Item): boolean
 		return (a.convertEnds or 0) < (b.convertEnds or 0)
 	end)
-	local changed = false
 	for _, item in ready do
 		if self.items[item.id] ~= item then continue end
 		if self:QualityCount(Config.DefaultPotionQuality) >= Config.ShelfCapacity then
@@ -1259,15 +1359,14 @@ function Manager.Update(self: Manager): ()
 			changed = true
 		end
 	end
-	if changed then
-		self:Changed()
-	end
 	if self.paint and not self:Root(self.paint.player) then
 		local player = self.paint.player
 		self:EndPaint(player)
+		changed = true
+	end
+	if changed then
 		self:Changed()
 	end
-
 end
 function Manager.Close(self: Manager): ()
 	self.closing = true

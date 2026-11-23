@@ -25,7 +25,7 @@ else
 	--游戏场景
 	GameConfig.GamePlaceId = 110812537538556
 	--清除玩家数据场景
-	GameConfig.ClearDataStorePlaceId = 83125403445803
+	GameConfig.ClearDataStorePlaceId = 0
 end
 
 --通行证id
