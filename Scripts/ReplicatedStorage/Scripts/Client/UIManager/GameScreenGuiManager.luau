@@ -21,6 +21,7 @@ export type DisplayState = {
 	painting: boolean,
 	hasTarget: boolean,
 	windowOpen: boolean?,
+	carryingBody: boolean?,
 }
 export type Manager = typeof(setmetatable(
 	{} :: {
@@ -36,7 +37,9 @@ export type Manager = typeof(setmetatable(
 		buttons: { [string]: GuiButton },
 		touchFrames: { [string]: Frame },
 		touchAttack: Frame?,
+		throwStick: Frame?,
 		attackButton: ImageButton?,
+		carryingBody: boolean,
 		jumpButton: GuiObject?,
 		pressTween: Tween?,
 		releaseTween: Tween?,
@@ -64,6 +67,7 @@ function Manager.new(): Manager
 			touchFrames = {},
 			painting = false,
 			windowOpen = false,
+			carryingBody = false,
 			brushCursor = false,
 			savedMouseIcon = nil,
 		},
@@ -108,7 +112,12 @@ function Manager.LayoutTouch(self: Manager): ()
 			ancestor = ancestor.Parent
 		end
 	end
-	frame.Visible = touch and jumpVisible and not self.painting and not self.windowOpen
+	local show = touch and jumpVisible and not self.painting and not self.windowOpen
+	frame.Visible = show and not self.carryingBody
+	local stick = self.throwStick
+	if stick then
+		stick.Visible = show and self.carryingBody
+	end
 	if not jump or not jumpVisible then
 		return
 	end
@@ -119,8 +128,14 @@ function Manager.LayoutTouch(self: Manager): ()
 	local size = math.max(minimum, jump.AbsoluteSize.X * ratio)
 	local origin = frame.AbsolutePosition - Vector2.new(frame.Position.X.Offset, frame.Position.Y.Offset)
 	local topLeft = jump.AbsolutePosition - Vector2.new(size + gap, size + gap)
+	local placed = UDim2.fromOffset(math.max(0, topLeft.X - origin.X), math.max(0, topLeft.Y - origin.Y))
 	frame.Size = UDim2.fromOffset(size, size)
-	frame.Position = UDim2.fromOffset(math.max(0, topLeft.X - origin.X), math.max(0, topLeft.Y - origin.Y))
+	frame.Position = placed
+	if stick then
+		local stickOrigin = stick.AbsolutePosition - Vector2.new(stick.Position.X.Offset, stick.Position.Y.Offset)
+		stick.Size = UDim2.fromOffset(size, size)
+		stick.Position = UDim2.fromOffset(math.max(0, topLeft.X - stickOrigin.X), math.max(0, topLeft.Y - stickOrigin.Y))
+	end
 end
 function Manager.Refresh(self: Manager, state: DisplayState): ()
 	if not self.gui then
@@ -129,6 +144,7 @@ function Manager.Refresh(self: Manager, state: DisplayState): ()
 	local touch = UserInputService.TouchEnabled
 	self.painting = state.painting
 	self.windowOpen = state.windowOpen == true
+	self.carryingBody = state.carryingBody == true
 	if not state.painting or GuiService.MenuIsOpen then
 		self:ApplyBrushCursor(false)
 	end
@@ -274,6 +290,10 @@ function Manager.Init(self: Manager, gui: ScreenGui, owned: boolean?): ()
 	attackFrame.Parent = gui
 	self.touchAttack = attackFrame
 	self.attackButton = attackFrame:WaitForChild("AttackButton") :: ImageButton
+	local stickTemplate = ReplicatedStorage.UI:WaitForChild("ThrowStick") :: Frame
+	local throwStick = stickTemplate:Clone()
+	throwStick.Parent = gui
+	self.throwStick = throwStick
 	local root = gui:WaitForChild("CenterFrame") :: Frame
 	self.root = root
 	for _, node in gui:GetDescendants() do
@@ -343,6 +363,9 @@ function Manager.Init(self: Manager, gui: ScreenGui, owned: boolean?): ()
 	end))
 	self:LayoutTouch()
 end
+function Manager.GetThrowStick(self: Manager): Frame?
+	return self.throwStick
+end
 function Manager.Create(self: Manager): ScreenGui
 	if self.gui then
 		return self.gui
@@ -379,15 +402,19 @@ function Manager.Destroy(self: Manager): ()
 	self.texts:Destroy()
 	local gui, owned = self.gui, self.owned
 	local attack = self.touchAttack
+	local stick = self.throwStick
 	self.gui, self.root, self.paintFrame, self.fill = nil, nil, nil, nil
-	self.touchAttack, self.attackButton, self.jumpButton = nil, nil, nil
-	self.painting, self.windowOpen = false, false
+	self.touchAttack, self.throwStick, self.attackButton, self.jumpButton = nil, nil, nil, nil
+	self.painting, self.windowOpen, self.carryingBody = false, false, false
 	self.owned = false
 	table.clear(self.labels)
 	table.clear(self.buttons)
 	table.clear(self.touchFrames)
 	if attack then
 		attack:Destroy()
+	end
+	if stick then
+		stick:Destroy()
 	end
 	if gui and owned then
 		gui:Destroy()

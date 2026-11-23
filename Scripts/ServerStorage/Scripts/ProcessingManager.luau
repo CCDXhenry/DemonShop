@@ -24,12 +24,14 @@ local VisualRules = require(Shared.VisualRules)
 local BodyPose = require(Shared.PaintBodyPose)
 local PaintRotation = require(Shared.PaintRotation)
 local CurvedSurface = require(Shared.CurvedSurface)
+local ThrowArc = require(Shared.ThrowArc)
 type PlayerData = { IsActive: (Player) -> boolean, CanAddCoins: (Player, number) -> boolean, AddCoins: (Player, number) -> boolean }
 type PaintSession = Painting.Session
 type PlayerRecord = {
 	scope: Lifecycle.Lifecycle,
 	characterScope: Lifecycle.Lifecycle?,
 	lastAttack: number,
+	lastThrow: number,
 	lastRequest: number,
 	lastSync: number,
 	closing: boolean,
@@ -138,7 +140,16 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 			paintFlipped = item.paintFlipped == true,
 			flyEnds = item.flyEnds,
 			convertEnds = item.convertEnds,
-			toss = if item.poolToss then { from = item.poolToss.from, target = item.poolToss.target, started = item.poolToss.started, owner = item.poolToss.owner } else nil,
+			toss = if item.poolToss then {
+				from = item.poolToss.from,
+				target = item.poolToss.target,
+				started = item.poolToss.started,
+				owner = item.poolToss.owner,
+				kind = item.poolToss.kind,
+				origin = item.poolToss.origin,
+				velocity = item.poolToss.velocity,
+				duration = item.poolToss.duration,
+			} else nil,
 			altarToss = if item.altarToss then {
 				from = item.altarToss.from,
 				rest = item.altarToss.rest,
@@ -938,6 +949,92 @@ function Manager.PaintVisual(self: Manager,player: Player,request: Types.Request
 		end
 	end
 end
+function Manager.SettleThrown(self: Manager, item: Types.Item): ()
+	if item.location ~= "Thrown" then
+		return
+	end
+	local toss = item.poolToss
+	local ownerId = if toss then toss.owner else nil
+	local torso = item.model:FindFirstChild("UpperTorso")
+	local position = if torso and torso:IsA("BasePart") then torso.Position else item.model:GetPivot().Position
+	local kind, poolFull = ThrowArc.Landing(Scene.PoolContainsStrict(position), item.stage == "Painted", #self.pool, Config.PoolCapacity)
+	if kind == "Pool" then
+		item.location = "Pool"
+		table.insert(self.pool, item.id)
+		Carry.FinishPool(item)
+		return
+	end
+	if poolFull and ownerId then
+		local thrower = Players:GetPlayerByUserId(ownerId)
+		if thrower then
+			self:Tell(thrower, "PoolFull")
+		end
+	end
+	Carry.FinishGround(item)
+end
+function Manager.SweepThrow(origin: Vector3, velocity: Vector3, ignored: { Instance }, model: Model): (number, Vector3)
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	params.FilterDescendantsInstances = ignored
+	params.RespectCanCollide = true
+	local throwConfig = Physics.ManualThrow
+	local function Cast(frame: CFrame, size: Vector3, delta: Vector3): RaycastResult?
+		return workspace:Blockcast(frame, size, delta, params)
+	end
+	local duration, landing = ThrowArc.Sweep(origin, velocity, workspace.Gravity, throwConfig.PreviewStepSeconds, throwConfig.PreviewDurationSeconds, ThrowArc.SweepBox(model), Cast)
+	return duration, landing
+end
+function Manager.Throw(self: Manager, player: Player, request: Types.Request): ()
+	local record = self.players[player]
+	if not record or record.closing then
+		return
+	end
+	local now = workspace:GetServerTimeNow()
+	if now - record.lastThrow < Physics.ManualThrow.CooldownSeconds then
+		return
+	end
+	if self.paint and self.paint.player == player then
+		return
+	end
+	local root = self:Root(player)
+	local character = player.Character
+	if not root or not character then
+		return
+	end
+	local stack = self:Carried(player)
+	local top = stack[1]
+	if not top or top.id ~= request.target or top.version ~= request.version then
+		self:Tell(player, "ItemChanged")
+		return
+	end
+	local requested = request.direction
+	if not requested or not ThrowArc.IsFiniteVector(requested) then
+		return
+	end
+	local flat = Vector3.new(requested.X, 0, requested.Z)
+	if flat.Magnitude < 0.001 then
+		return
+	end
+	local direction = flat.Unit
+	local shoulder = character:FindFirstChild("UpperTorso")
+	local basis = if shoulder and shoulder:IsA("BasePart") then shoulder.CFrame else root.CFrame
+	local origin = ThrowArc.Origin(basis, direction)
+	local velocity = ThrowArc.LaunchVelocity(direction, workspace.Gravity)
+	if velocity.Magnitude < 0.001 then
+		return
+	end
+	record.lastThrow = now
+	local duration, landing = Manager.SweepThrow(origin, velocity, { character, top.model }, top.model)
+	local target = CFrame.new(landing) * top.model:GetPivot().Rotation
+	local placed = Carry.BeginManualToss(top, origin, velocity, duration, target, player, #stack == 1)
+	if placed then
+		self:SettleThrown(top)
+	end
+	if #stack > 1 then
+		self:Restack(player)
+	end
+	self:Changed()
+end
 function Manager.OnRequest(self: Manager, player: Player, request: Types.Request): ()
 	local record = self.players[player]
 	if not record or record.closing or self.closing or not self.data.IsActive(player) then
@@ -1008,6 +1105,10 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 		self:Attack(player, request)
 		return
 	end
+	if request.action == "Throw" then
+		self:Throw(player, request)
+		return
+	end
 	if now - record.lastRequest < 0.12 then
 		return
 	end
@@ -1020,24 +1121,7 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 	end
 	local target = request.target
 	local changed = false
-	if request.action == "Drop" then
-		local stack = self:Carried(player)
-		local root = self:Root(player)
-		local top = stack[1]
-		if top and root then
-			Carry.Drop(top, root.Position + root.CFrame.LookVector * 3, #stack == 1)
-			if #stack > 1 then
-				self:Restack(player)
-			end
-			changed = true
-		elseif root then
-			local held = self:Held(player)
-			if held then
-				Carry.Drop(held, root.Position + root.CFrame.LookVector * 3)
-				changed = true
-			end
-		end
-	elseif request.action == "TakeTable" then
+	if request.action == "TakeTable" then
 		if not self:Held(player) and not self.paint and self.tableId then
 			if not self:Near(player, Scene.TableInteract.Position, Scene.StationRange("Table"), nil) then
 				self:Tell(player, "StationTooFar")
@@ -1204,7 +1288,7 @@ function Manager.AddPlayer(self: Manager, player: Player): ()
 		return
 	end
 	if not self.data.IsActive(player) then return end
-	local record: PlayerRecord = { scope = Lifecycle.new(), characterScope = nil, lastAttack = 0, lastRequest = 0, lastSync = 0, closing = false }
+	local record: PlayerRecord = { scope = Lifecycle.new(), characterScope = nil, lastAttack = 0, lastThrow = 0, lastRequest = 0, lastSync = 0, closing = false }
 	self.players[player] = record
 	record.scope:Connect(player.CharacterRemoving:Connect(function(character: Model): ()
 		if record.characterScope then
@@ -1268,6 +1352,13 @@ function Manager.Update(self: Manager): ()
 				changedMotion = true
 			elseif Carry.AdvanceAltarToss(item, now) then
 				item.convertEnds = now + Config.ConversionSeconds
+				changedMotion = true
+			end
+		elseif item.poolToss and item.poolToss.kind == "Manual" then
+			local function OnSettled(settled: Types.Item): ()
+				self:SettleThrown(settled)
+			end
+			if Carry.AdvanceManualToss(item, now, OnSettled) then
 				changedMotion = true
 			end
 		elseif item.poolToss and Carry.AdvancePoolToss(item, now) then
@@ -1380,9 +1471,7 @@ function Manager.Init(self: Manager): ()
 	self.runtime.Parent = workspace
 	self.scope:Own(self.runtime)
 	Ragdoll.Init()
-	Scene.EnsurePoolContainment()
 	if Physics.GroundRootEnabled then Ground.Init() end
-	Scene.BindPoolCollision()
 	Door.Init(self.scope)
 	self.scope:Connect(Net.ConnectRequest(function(player: Player, request: Types.Request): ()
 		self:OnRequest(player, request)

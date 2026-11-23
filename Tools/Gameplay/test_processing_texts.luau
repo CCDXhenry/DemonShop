@@ -17,7 +17,7 @@ local raw = {kind="Body",stage="Raw"}
 local painted = {kind="Body",stage="Painted"}
 local potion = {kind="Potion"}
 for _,case in {
-	{nil,nil,"StunNpc"}, {nil,painted,"TakeRuneBody"}, {nil,raw,"TakeBody"},
+	{nil,nil,"StunNpc"}, {nil,painted,"ThrowAim"}, {nil,raw,"ThrowAim"},
 	{Snapshot({shelf=1,altarId="a",tableId="t",pool=1}),nil,"PotionReady"},
 	{Snapshot({altarId="a",tableId="t",pool=1}),nil,"AltarWorking"},
 	{Snapshot({tableId="t",pool=1}),nil,"ReturnTable"}, {Snapshot({pool=1}),nil,"FetchPool"},
@@ -25,7 +25,7 @@ for _,case in {
 local equippedPotions = {stored=1, equipped=true}
 local storedPotions = {stored=1, equipped=false}
 Check(Hints.Next(nil, nil, equippedPotions).textId, "TakePotion")
-Check(Hints.Next(nil, raw, equippedPotions).textId, "TakeBody")
+Check(Hints.Next(nil, raw, equippedPotions).textId, "ThrowAim")
 Check(Hints.Next(nil, nil, storedPotions).textId, "EquipPotion")
 for _,case in {
 	{"Pool",nil,potion,"PoolUnfinishedOnly"},{"Pool",nil,painted,"PoolUnfinishedOnly"},
@@ -44,7 +44,7 @@ for _,case in {
 } do Check(Hints.Action(case[1],case[2],case[3],1,case[5]).textId,case[4]) end
 Check(Hints.Action("Pool",nil,nil,1,nil,{painted,raw}).textId,"StoreBody")
 Check(Hints.Action("Altar",nil,raw,1,nil,{raw,painted}).textId,"InsertRuneBody")
-Check(Hints.Next(nil,nil,nil,{painted,raw}).textId,"TakeBody")
+Check(Hints.Next(nil,nil,nil,{painted,raw}).textId,"ThrowAim")
 Check(Hints.Next(nil,nil,equippedPotions).args[1],"237")
 Check(Hints.Action("Sigil",nil,nil,1,equippedPotions).args[1],"237")
 Check(Hints.Next(nil,nil).args[1],"5")

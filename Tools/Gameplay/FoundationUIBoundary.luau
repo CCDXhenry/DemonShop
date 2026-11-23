@@ -110,6 +110,13 @@ attackFrame:SetAttribute('JumpGap',8)
 attackFrame:SetAttribute('JumpSizeRatio',0.9)
 attackFrame.Parent=U.templates
 local attackButton=U.Node('AttackButton','ImageButton');attackButton.Parent=attackFrame
+local throwStick=U.Node('ThrowStick','Frame')
+throwStick.Visible=false
+throwStick.Position=Roblox.UDim2.fromOffset(0,0)
+throwStick.AbsolutePosition=Roblox.Vector2.zero
+throwStick.Parent=U.templates
+local stickButton=U.Node('StickButton','ImageButton');stickButton.Parent=throwStick
+local knob=U.Node('KnobImage','ImageLabel');knob.Parent=stickButton
 attackButton:SetAttribute('PressedScale',0.86)
 attackButton:SetAttribute('PressTweenSeconds',0.1)
 local attackScale=U.Node('UIScale','UIScale');attackScale.Scale=1;attackScale.Parent=attackButton

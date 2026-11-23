@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local GameConfig = require(script.Parent.Parent.Shared.GameConfig)
 local Physics = require(script.Parent.Parent.Shared.PhysicsConfig)
+local ThrowArc = require(script.Parent.Parent.Shared.ThrowArc)
 local HitRules = require(script.Parent.Parent.Shared.HitFeedbackRules)
 local Types = require(script.Parent.Parent.Shared.GameTypes)
 local Adapter = require(script.Parent.JointAdapter)
@@ -775,19 +776,43 @@ local function DrivePoolToss(item: Types.ItemView, now: number): ()
 	if not toss or not player or toss.owner ~= player.UserId or not model or not model.Parent then return end
 	local root = model.PrimaryPart
 	if root and root.Anchored then return end
-	local duration = Physics.PoolTossSeconds
-	local alpha = if duration <= 0 then 1 else math.clamp((now - toss.started) / duration, 0, 1)
-	if alpha < 1 then
-		local rotation = toss.from.Rotation:Lerp(toss.target.Rotation, alpha)
-		model:PivotTo(CFrame.new(ArcPosition(toss.from.Position, toss.target.Position, alpha)) * rotation)
+	local launchOrigin = toss.origin
+	local launchVelocity = toss.velocity
+	local manual = toss.kind == "Manual" and launchOrigin ~= nil and launchVelocity ~= nil
+	local duration = if manual then (toss.duration or Physics.ManualThrow.PreviewDurationSeconds) else Physics.PoolTossSeconds
+	local elapsed = now - toss.started
+	if elapsed < duration then
+		local rotation = toss.from.Rotation
+		local position: Vector3
+		if manual and launchOrigin and launchVelocity then
+			position = ThrowArc.Position(launchOrigin, launchVelocity, workspace.Gravity, math.max(elapsed, 0))
+			local floor = toss.target.Position.Y
+			if position.Y < floor then
+				position = Vector3.new(position.X, floor, position.Z)
+			end
+		else
+			local alpha = if duration <= 0 then 1 else elapsed / duration
+			position = ArcPosition(toss.from.Position, toss.target.Position, alpha)
+			rotation = toss.from.Rotation:Lerp(toss.target.Rotation, alpha)
+		end
+		model:PivotTo(CFrame.new(position) * rotation)
 		return
 	end
 	if model:GetAttribute("PoolTossLaunched") == toss.started then return end
 	model:SetAttribute("PoolTossLaunched", toss.started)
 	model:PivotTo(toss.target)
 	local velocity = Vector3.new(0, -Physics.PoolDropSpeed, 0)
-	local limit = Physics.PoolSpin
-	local spin = Vector3.new((math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit)
+	local spin = Vector3.zero
+	if manual and launchVelocity then
+		velocity = ThrowArc.Velocity(launchVelocity, workspace.Gravity, duration)
+		if velocity.Magnitude > Physics.MaximumLinearSpeed then
+			velocity = velocity.Unit * Physics.MaximumLinearSpeed
+		end
+		velocity = ThrowArc.LimitDrop(velocity)
+	else
+		local limit = Physics.PoolSpin
+		spin = Vector3.new((math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit)
+	end
 	for _, part in model:GetDescendants() do
 		if part:IsA("BasePart") and not part.Anchored then
 			part.AssemblyLinearVelocity = velocity

@@ -30,6 +30,8 @@ local PaintCamera = require(script.Parent.PaintCamera)
 local PaintBrush = require(script.Parent.PaintBrushContact)
 local VisualUpload = require(script.Parent.VisualUpload)
 local WorldInteractionManager = require(script.Parent.WorldInteractionManager)
+local ManualThrow = require(script.Parent.ManualThrowController)
+local ThrowArc = require(Shared.ThrowArc)
 local AltarSacrifice = require(script.Parent.AltarSacrificeView)
 local PotionShelf = require(script.Parent.PotionShelfView)
 local Client = {}
@@ -103,6 +105,7 @@ export type Client = typeof(setmetatable(
 		completeFlash: { id: string, started: number }?,
 		flipFlash: { id: string, started: number }?,
 		initialized: boolean,
+		throw: ManualThrow.Controller?,
 	},
 	Client
 ))
@@ -121,6 +124,7 @@ local interactionAnchors: {[string]: BasePart} = {
 	Shelf = Anchor("SoulCrystalDisplay", "StockPickupAnchor"),
 	Sigil = submitAnchor,
 }
+local poolFloor = district:WaitForChild("SoulHoldingPool"):WaitForChild("PoolFloor") :: BasePart
 local positions: { [string]: Vector3 } = {
 	Pool = Anchor("SoulHoldingPool", "PickupPointAnchor").Position,
 	Table = tableInteract.Position,
@@ -204,6 +208,7 @@ function Client.new(): Client
 			completeFlash = nil,
 			flipFlash = nil,
 			initialized = false,
+			throw = nil,
 		},
 		Client
 	)
@@ -587,6 +592,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		for id,item in nextItems do
 			if item.location~="Street" or item.hits>=Config.StunHits then self.hitView:Remove(id) end
 		end
+		local previousItems = self.items
 		self.items = nextItems
 		local currentHeld = self:Held()
 		local currentHeldId = currentHeld and currentHeld.id
@@ -606,12 +612,15 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			elseif lastId and not currentHeld then
 				if lastKind == "Body" then
 					local released = nextItems[lastId]
-					if snapshot.pool > lastPool then
-						Sound.Play("PoolDeposit", positions.Pool)
-					elseif released and released.location == "Altar" then
-						Sound.Play("AltarPlace", positions.Altar)
-					else
-						Sound.Play("BodyDrop")
+					-- 出手瞬间位置是 Thrown，落地或入池音效等落稳后再播。
+					if not released or released.location ~= "Thrown" then
+						if snapshot.pool > lastPool then
+							Sound.Play("PoolDeposit", positions.Pool)
+						elseif released and released.location == "Altar" then
+							Sound.Play("AltarPlace", positions.Altar)
+						else
+							Sound.Play("BodyDrop")
+						end
 					end
 				end
 			end
@@ -619,6 +628,17 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			self.lastHeldKind = currentHeldKind
 		end
 		self.lastPoolCount = snapshot.pool
+		for id, item in nextItems do
+			local previous = previousItems[id]
+			if previous and previous.location == "Thrown" and item.location ~= "Thrown" and item.kind == "Body" then
+				if item.location == "Pool" then
+					Sound.Play("PoolDeposit", positions.Pool)
+				elseif item.location == "Ground" then
+					local model = item.model
+					Sound.Play("BodyDrop", if model then model:GetPivot().Position else nil)
+				end
+			end
+		end
 		local waiting=self.waitingHits
 		self.waitingHits={}
 		for _,hit in waiting do self:OnHit(hit) end
@@ -756,15 +776,11 @@ function Client.RequestPaintEnd(self: Client): ()
 	self.rotationAnchor=nil
 	self.angularSpeed=0
 end
-function Client.Drop(self: Client): ()
-	if self.paintId then
+function Client.TakeTable(self: Client): ()
+	if self.paintId or self:Held() or not self.nearTable then
 		return
 	end
-	if not self:Held() and self.nearTable then
-		Net.FireRequest({ action = "TakeTable" })
-	else
-		Net.FireRequest({ action = "Drop" })
-	end
+	Net.FireRequest({ action = "TakeTable" })
 end
 function Client.Attack(self: Client, inputTime: number?): ()
 	local now = workspace:GetServerTimeNow()
@@ -1121,6 +1137,9 @@ end
 
 function Client.Update(self: Client, dt: number): ()
 	local now = os.clock()
+	if self.throw then
+		self.throw:Update(workspace:GetServerTimeNow())
+	end
 	if self.worldInteraction then self.worldInteraction:Refresh() end
 	local missingModel = false
 	for _, item in self.items do
@@ -1243,7 +1262,8 @@ function Client.Update(self: Client, dt: number): ()
 		end
 		self:Text("StockText", stock)
 	end
-	self.ui:Refresh({painting=self.paintId~=nil,hasTarget=false,windowOpen=UIManager.HasShowingWindow()})
+	local carryingBody = #self:Carried() > 0
+	self.ui:Refresh({painting=self.paintId~=nil,hasTarget=false,windowOpen=UIManager.HasShowingWindow(),carryingBody=carryingBody})
 	if self.paintId then
 		SyncHiddenPlayers(self)
 		self:Text("HintText", { textId = if Config.PaintRotationEnabled then "Painting" else "PaintingFlat" })
@@ -1271,7 +1291,6 @@ function Client.Update(self: Client, dt: number): ()
 			self.target = name
 		end
 	end
-	local carryingBody = #carried > 0
 	if not held or carryingBody then
 		for _, item in self.items do
 			local model = item.model
@@ -1293,7 +1312,7 @@ function Client.Update(self: Client, dt: number): ()
 	end
 	self.lastPotionCount = potions.stored
 	self:Text("HintText", if target then Hints.Action(target, snapshot, held, player.UserId, potions, carried) else Hints.Next(snapshot, held, potions, carried));
-	self.ui:Refresh({painting=false,hasTarget=target~=nil,windowOpen=UIManager.HasShowingWindow()})
+	self.ui:Refresh({painting=false,hasTarget=target~=nil,windowOpen=UIManager.HasShowingWindow(),carryingBody=#carried>0})
 end
 function Client.OnInput(self: Client, input: InputObject, processed: boolean): ()
 	if self.visualClosing then return end
@@ -1316,8 +1335,11 @@ function Client.OnInput(self: Client, input: InputObject, processed: boolean): (
 		self.finishPaint = false
 		self:SamplePaint(os.clock())
 	elseif input.KeyCode == Enum.KeyCode.Q then
-		self:Drop()
+		self:TakeTable()
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if self.throw and self.throw:OnMouseBegan(input) then
+			return
+		end
 		-- 先记录输入时间，原生提示仲裁占用的帧计入本地前摇。
 		local inputTime=workspace:GetServerTimeNow()
 		self.scope:Spawn(function(): ()
@@ -1327,6 +1349,9 @@ function Client.OnInput(self: Client, input: InputObject, processed: boolean): (
 	end
 end
 function Client.OnMove(self: Client, input: InputObject): ()
+	if self.throw and self.throw:OnInputChanged(input) then
+		return
+	end
 	if self.visualClosing then return end
 	if input ~= self.touch and (self.touch ~= nil or input.UserInputType ~= Enum.UserInputType.MouseMovement) then
 		return
@@ -1338,6 +1363,9 @@ function Client.OnMove(self: Client, input: InputObject): ()
 	self.pointer = if input == self.touch then hardware else PointerFromHardware(self, hardware)
 end
 function Client.OnRelease(self: Client, input: InputObject): ()
+	if self.throw and self.throw:OnInputEnded(input) then
+		return
+	end
 	if self.visualClosing then return end
 	if input == self.touch or (not self.touch and input.UserInputType == Enum.UserInputType.MouseButton1) then
 		local hardware = Vector2.new(input.Position.X, input.Position.Y)
@@ -1483,6 +1511,53 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		return {snapshot=self.snapshot, items=self.items, held=self:Held(), carried=self:Carried(), potions=self:Potions(), enabled=self.initialized and self.synced and not self.paintId and humanoid ~= nil and humanoid.Health > 0 and not (modal and modal.Visible)}
 	end)
 	UIManager.GetTargetGuiManager():Init()
+	local stick = self.ui:GetThrowStick()
+	if stick then
+		self.throw = ManualThrow.new(stick, {
+			TopBody = function(): Types.ItemView?
+				return self:Carried()[1]
+			end,
+			CanAim = function(): boolean
+				local character = player.Character
+				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+				if not self.initialized or self.paintId ~= nil or not humanoid or humanoid.Health <= 0 then
+					return false
+				end
+				if UIManager.HasShowingWindow() then
+					return false
+				end
+				local modal = gui:FindFirstChild("ModalButton")
+				if modal and modal:IsA("GuiObject") and modal.Visible then
+					return false
+				end
+				if self.worldInteraction and self.worldInteraction:IsInputBlocked() then
+					return false
+				end
+				return true
+			end,
+			CanStore = function(position: Vector3): boolean
+				local top = self:Carried()[1]
+				local snapshot = self.snapshot
+				if not top or top.stage == "Painted" or not snapshot or snapshot.pool >= Config.PoolCapacity then
+					return false
+				end
+				return ThrowArc.InsidePoolStrict(poolFloor.CFrame, poolFloor.Size, position, Physics.PoolWallHeight)
+			end,
+			Ignored = function(): { Instance }
+				local list: { Instance } = {}
+				local character = player.Character
+				if character then
+					table.insert(list, character)
+				end
+				for _, item in self:Carried() do
+					if item.model then
+						table.insert(list, item.model)
+					end
+				end
+				return list
+			end,
+		})
+	end
 	self.ui:BindActions({
 		attack=function(): () self:Attack() end,
 		exitPaint=function(): () self:RequestPaintEnd() end,
@@ -1518,12 +1593,20 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		self.rotationAnchor = nil
 		self.angularSpeed = 0
 	end
-	self.scope:Connect(UserInputService.WindowFocusReleased:Connect(OnPaintInputInterrupted))
+	self.scope:Connect(UserInputService.WindowFocusReleased:Connect(function(): ()
+		OnPaintInputInterrupted()
+		if self.throw then
+			self.throw:Cancel()
+		end
+	end))
 	self.scope:Connect(GuiService.MenuOpened:Connect(OnPaintInputInterrupted))
 	self.scope:Connect(player.CharacterAdded:Connect(function(): ()
 		self:CancelHitFeedback()
 		self:ExitView()
 		self.paintCamera:Exit(true)
+		if self.throw then
+			self.throw:Cancel()
+		end
 	end))
 	local animationPhase = RunService.PreAnimation:Connect(function(): ()
 		self.bodies:Restore()
@@ -1567,6 +1650,10 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 	end))
 end
 function Client.Destroy(self: Client): ()
+	if self.throw then
+		self.throw:Destroy()
+		self.throw = nil
+	end
 	RunService:UnbindFromRenderStep("DemonShopHitCameraRestore")
 	RunService:UnbindFromRenderStep("DemonShopHitCamera")
 	self.hitView:Clear()

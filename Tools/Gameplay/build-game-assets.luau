@@ -137,6 +137,47 @@ local function touchAttack()
  frame.Parent=ui
 end
 touchAttack()
+local function throwStick()
+ if ui:FindFirstChild("ThrowStick") then return end
+ local frame=Instance.new("Frame");frame.Name="ThrowStick";frame.BackgroundTransparency=1;frame.BorderSizePixel=0
+ frame.AnchorPoint=Vector2.zero;frame.Position=UDim2.fromOffset(0,0);frame.Size=UDim2.fromOffset(76,76)
+ frame.Visible=false;frame.Active=false;frame.Selectable=false;frame.ZIndex=10
+ frame:SetAttribute("MinimumTouchSize",64);frame:SetAttribute("JumpGap",8);frame:SetAttribute("JumpSizeRatio",0.9)
+ local stick=Instance.new("ImageButton");stick.Name="StickButton";stick.AnchorPoint=Vector2.new(.5,.5)
+ stick.Position=UDim2.fromScale(.5,.5);stick.Size=UDim2.fromScale(1,1);stick.BackgroundColor3=Color3.fromRGB(23,16,36)
+ stick.BackgroundTransparency=.25;stick.Image="";stick.BorderSizePixel=0;stick.AutoButtonColor=false
+ stick.Active=true;stick.Selectable=true;stick.ZIndex=10;stick.Parent=frame
+ local corner=Instance.new("UICorner");corner.CornerRadius=UDim.new(1,0);corner.Parent=stick
+ local stroke=Instance.new("UIStroke");stroke.StrokeSizingMode=Enum.StrokeSizingMode.ScaledSize;stroke.Thickness=.02
+ stroke.Color=Color3.fromRGB(180,85,255);stroke.Parent=stick
+ local knob=Instance.new("ImageLabel");knob.Name="KnobImage";knob.AnchorPoint=Vector2.new(.5,.5)
+ knob.Position=UDim2.fromScale(.5,.5);knob.Size=UDim2.fromScale(.42,.42);knob.BackgroundColor3=Color3.fromRGB(245,238,255)
+ knob.BackgroundTransparency=.05;knob.Image="";knob.BorderSizePixel=0;knob.ZIndex=11;knob.Parent=stick
+ local knobCorner=Instance.new("UICorner");knobCorner.CornerRadius=UDim.new(1,0);knobCorner.Parent=knob
+ frame.Parent=ui
+end
+throwStick()
+local function throwAim()
+ if models:FindFirstChild("ThrowAim") then return end
+ local root=Instance.new("Model");root.Name="ThrowAim"
+ local arc=Instance.new("Model");arc.Name="AimArc";arc.Parent=root
+ local host=Instance.new("Part");host.Name="ArcHost";host.Anchored=true;host.CanCollide=false;host.CanQuery=false;host.CanTouch=false
+ host.Transparency=1;host.CastShadow=false;host.Size=Vector3.new(.2,.2,.2);host.Parent=arc;arc.PrimaryPart=host
+ local function beam(name)
+  local start=Instance.new("Attachment");start.Name=name.."Start";start.Parent=host
+  local finish=Instance.new("Attachment");finish.Name=name.."Finish";finish.Parent=host
+  local node=Instance.new("Beam");node.Name=name;node.Attachment0=start;node.Attachment1=finish
+  node.FaceCamera=true;node.LightEmission=.4;node.Width0=.12;node.Width1=.12;node.Segments=16;node.Enabled=false;node.Parent=host
+ end
+ beam("BeamA");beam("BeamB")
+ local ring=Instance.new("Model");ring.Name="Ring";ring.Parent=root
+ local disc=Instance.new("Part");disc.Name="RingPart";disc.Shape=Enum.PartType.Cylinder
+ disc.Size=Vector3.new(.15,3.2,3.2);disc.Color=Color3.fromRGB(255,196,64);disc.Material=Enum.Material.Neon
+ disc.Anchored=true;disc.CanCollide=false;disc.CanQuery=false;disc.CanTouch=false;disc.CastShadow=false
+ disc.CFrame=CFrame.Angles(0,0,math.rad(90));disc.Parent=ring;ring.PrimaryPart=disc
+ root.PrimaryPart=host;root.Parent=models
+end
+throwAim()
 gui.Parent=ui
 if not ui:FindFirstChild("PaintFaceGui") then
  local surface=Instance.new("SurfaceGui");surface.Name="PaintFaceGui";surface.CanvasSize=Vector2.new(256,256);surface.SizingMode=Enum.SurfaceGuiSizingMode.FixedSize;surface.AlwaysOnTop=false;surface.LightInfluence=0;surface.Brightness=2;surface.ZOffset=.015;surface.Parent=ui

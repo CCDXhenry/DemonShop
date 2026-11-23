@@ -299,7 +299,7 @@ function Carry.BeginToss(item: Types.Item, target: CFrame, thrower: Player?, res
 		end
 	end
 	if character then ReleaseContacts(item, character) end
-	item.poolToss = { from = from, target = target, started = workspace:GetServerTimeNow(), owner = thrower.UserId }
+	item.poolToss = { kind = "Pool", from = from, target = target, started = workspace:GetServerTimeNow(), owner = thrower.UserId }
 	item.motionState = "PoolToss"
 	item.model:SetAttribute("MotionState", "PoolToss")
 	return false
@@ -311,18 +311,85 @@ function Carry.TossIntoPool(item: Types.Item, restoreTool: boolean?): ()
 		AnchorPool(item)
 	end
 end
-local function AdvanceToss(item: Types.Item, now: number, bed: BasePart, contains: (Vector3) -> boolean, anchor: (Types.Item) -> (), settledMotion: string): boolean
+function Carry.BeginManualToss(item: Types.Item, origin: Vector3, velocity: Vector3, duration: number, target: CFrame, thrower: Player?, restoreTool: boolean?): boolean
+	-- 飞行由抛掷客户端按共享抛物线驱动。没有抛掷者时直接放到落点，由调用方判定入池。
+	local character = thrower and thrower.Character
+	local rotation = item.model:GetPivot().Rotation
+	Carry.Detach(item, restoreTool)
+	NPC.StopMotion(item)
+	item.location = "Thrown"
+	item.streetSlot = false
+	item.version += 1
+	item.model:SetAttribute("MotionState", "PoolToss")
+	if not thrower then
+		item.model:PivotTo(target)
+		return true
+	end
+	Ragdoll.SetMode(item.model, "Loose", thrower)
+	SetFlightCollision(item.model, false)
+	for _, part in item.model:GetDescendants() do
+		if part:IsA("BasePart") and not part.Anchored then
+			part.AssemblyLinearVelocity = Vector3.zero
+			part.AssemblyAngularVelocity = Vector3.zero
+		end
+	end
+	if character then ReleaseContacts(item, character) end
+	item.poolToss = {
+		kind = "Manual",
+		from = CFrame.new(origin) * rotation,
+		target = target,
+		started = workspace:GetServerTimeNow(),
+		owner = thrower.UserId,
+		origin = origin,
+		velocity = velocity,
+		duration = duration,
+	}
+	item.motionState = "PoolToss"
+	return false
+end
+function Carry.FinishPool(item: Types.Item): ()
+	AnchorPool(item)
+end
+function Carry.FinishGround(item: Types.Item): ()
+	item.poolToss = nil
+	item.location = "Ground"
+	item.motionState = "Down"
+	item.model:SetAttribute("MotionState", "Down")
+	item.version += 1
+end
+local function FlightLimit(toss: Types.PoolToss): number
+	if toss.duration and (toss.duration > 0 or toss.kind == "Manual") then
+		return toss.duration
+	end
+	return Config.PoolTossSeconds
+end
+local function NearLanding(item: Types.Item, toss: Types.PoolToss, bed: BasePart): boolean
+	local torso = item.model:FindFirstChild("UpperTorso")
+	if not torso or not torso:IsA("BasePart") then
+		return false
+	end
+	if toss.kind == "Manual" then
+		return torso.Position.Y <= toss.target.Position.Y + Config.ManualThrow.LandingClearanceStuds
+	end
+	return bed.CFrame:PointToObjectSpace(torso.Position).Y <= bed.Size.Y * 0.5 + 3
+end
+local function AdvanceToss(item: Types.Item, now: number, bed: BasePart, contains: (Vector3) -> boolean, anchor: (Types.Item) -> (), settledMotion: string, onSettled: ((Types.Item) -> ())?): boolean
 	local toss = item.poolToss
 	if not toss or item.model.Parent == nil then
 		item.poolToss = nil
 		return false
 	end
-	local flightDone = now >= toss.started + Config.PoolTossSeconds
+	local flight = FlightLimit(toss)
+	local flightDone = now >= toss.started + flight
 	local player = Players:GetPlayerByUserId(toss.owner)
 	if not player then
-		if not flightDone then item.model:PivotTo(toss.target) end
-		PlaceInside(item, toss.target, contains)
-		anchor(item)
+		item.model:PivotTo(toss.target)
+		if onSettled then
+			onSettled(item)
+		else
+			PlaceInside(item, toss.target, contains)
+			anchor(item)
+		end
 		return true
 	end
 	if not flightDone then return false end
@@ -332,11 +399,7 @@ local function AdvanceToss(item: Types.Item, now: number, bed: BasePart, contain
 		item.motionState = settledMotion
 		item.model:SetAttribute("MotionState", settledMotion)
 	end
-	local torso = item.model:FindFirstChild("UpperTorso")
-	local nearFloor = false
-	if torso and torso:IsA("BasePart") then
-		nearFloor = bed.CFrame:PointToObjectSpace(torso.Position).Y <= bed.Size.Y * 0.5 + 3
-	end
+	local nearFloor = NearLanding(item, toss, bed)
 	local asleep = nearFloor
 	if asleep then
 		for _, part in item.model:GetDescendants() do
@@ -346,16 +409,23 @@ local function AdvanceToss(item: Types.Item, now: number, bed: BasePart, contain
 			end
 		end
 	end
-	local settle = toss.started + Config.PoolTossSeconds + Config.PoolSettleSeconds
-	if now >= settle or (asleep and now >= toss.started + Config.PoolTossSeconds + Config.PoolAsleepDelay) then
-		PlaceInside(item, toss.target, contains)
-		anchor(item)
+	local settle = toss.started + flight + Config.PoolSettleSeconds
+	if now >= settle or (asleep and now >= toss.started + flight + Config.PoolAsleepDelay) then
+		if onSettled then
+			onSettled(item)
+		else
+			PlaceInside(item, toss.target, contains)
+			anchor(item)
+		end
 		return true
 	end
 	return false
 end
 function Carry.AdvancePoolToss(item: Types.Item, now: number): boolean
 	return AdvanceToss(item, now, Scene.PoolFloor, Scene.PoolContains, AnchorPool, "Pool")
+end
+function Carry.AdvanceManualToss(item: Types.Item, now: number, onSettled: (Types.Item) -> ()): boolean
+	return AdvanceToss(item, now, Scene.PoolFloor, Scene.PoolContainsStrict, AnchorPool, "Thrown", onSettled)
 end
 local function AltarRestOffset(part: BasePart, model: Model, pivot: CFrame): CFrame
 	if part == model.PrimaryPart then return CFrame.identity end

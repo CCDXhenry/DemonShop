@@ -1,8 +1,8 @@
 -- 场景契约：静态锚点、街道路面采样、工位放置、存放池边界与安全地面回收
 --!strict
-local PhysicsService = game:GetService("PhysicsService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Physics = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
+local ThrowArc = require(ReplicatedStorage.Scripts.Shared.ThrowArc)
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local PaintRotation = require(ReplicatedStorage.Scripts.Shared.PaintRotation)
 local Scene = {}
@@ -111,6 +111,10 @@ function Scene.PoolDropTarget(random: Random): CFrame
 		* CFrame.new(x, floor.Size.Y * 0.5 + Physics.PoolTossClearance, z)
 		* CFrame.Angles(random:NextNumber(-0.4, 0.4), yaw, random:NextNumber(-0.4, 0.4))
 end
+function Scene.PoolContainsStrict(position: Vector3): boolean
+	local floor = Scene.PoolFloor
+	return ThrowArc.InsidePoolStrict(floor.CFrame, floor.Size, position, Physics.PoolWallHeight)
+end
 function Scene.PoolContains(position: Vector3): boolean
 	local floor = Scene.PoolFloor
 	local localPosition = floor.CFrame:PointToObjectSpace(position)
@@ -120,52 +124,6 @@ function Scene.PoolContains(position: Vector3): boolean
 		and math.abs(localPosition.Z) <= half.Z + pad
 		and localPosition.Y >= -2
 		and localPosition.Y <= half.Y + Physics.PoolWallHeight + 2
-end
-function Scene.EnsurePoolContainment(): ()
-	local existing = pool:FindFirstChild("PoolContainment")
-	if existing then
-		existing:Destroy()
-	end
-	local floor = Scene.PoolFloor
-	local height = Physics.PoolWallHeight
-	local thickness = 0.5
-	local centerY = floor.Size.Y * 0.5 + height * 0.5
-	local folder = Instance.new("Folder")
-	folder.Name = "PoolContainment"
-	folder.Parent = pool
-	local function Wall(name: string, offset: Vector3, size: Vector3): ()
-		local part = Instance.new("Part")
-		part.Name = name
-		part.Anchored = true
-		part.CanCollide = true
-		part.CanQuery = false
-		part.CanTouch = false
-		part.AudioCanCollide = false
-		part.Transparency = 1
-		part.CastShadow = false
-		part.Size = size
-		part.CFrame = floor.CFrame * CFrame.new(offset)
-		part.Parent = folder
-	end
-	local halfX, halfZ = floor.Size.X * 0.5, floor.Size.Z * 0.5
-	Wall("WallX", Vector3.new(halfX - thickness * 0.5, centerY, 0), Vector3.new(thickness, height, floor.Size.Z))
-	Wall("WallNegX", Vector3.new(-halfX + thickness * 0.5, centerY, 0), Vector3.new(thickness, height, floor.Size.Z))
-	Wall("WallZ", Vector3.new(0, centerY, halfZ - thickness * 0.5), Vector3.new(floor.Size.X, height, thickness))
-	Wall("WallNegZ", Vector3.new(0, centerY, -halfZ + thickness * 0.5), Vector3.new(floor.Size.X, height, thickness))
-end
-function Scene.BindPoolCollision(): ()
-	local folder = pool:FindFirstChild("PoolContainment")
-	local sceneryReady = PhysicsService:IsCollisionGroupRegistered(Physics.SceneryGroup)
-	if folder and sceneryReady then
-		for _, child in folder:GetChildren() do
-			if child:IsA("BasePart") then
-				child.CollisionGroup = Physics.SceneryGroup
-			end
-		end
-	end
-	if sceneryReady and PhysicsService:IsCollisionGroupRegistered(Physics.BodyGroup) then
-		PhysicsService:CollisionGroupSetCollidable(Physics.BodyGroup, Physics.SceneryGroup, true)
-	end
 end
 function Scene.ShelfPose(quality: number, slot: number): CFrame
 	local point = potionPoints[math.clamp(quality, 1, #potionPoints)]

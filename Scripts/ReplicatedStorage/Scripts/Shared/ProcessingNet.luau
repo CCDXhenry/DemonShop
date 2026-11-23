@@ -48,6 +48,13 @@ function Net.Validate(value: unknown): boolean
 		if count~=#segments then return false end
 	end
 	if r.action == "EndPaint" and r.sequence ~= nil and (not Surface.IsFinite(r.sequence) or (r.sequence :: number) < 0 or (r.sequence :: number) % 1 ~= 0) then return false end
+	if r.action == "Throw" then
+		if typeof(r.target) ~= "string" or not Surface.IsFinite(r.version) or (r.version :: number) % 1 ~= 0 then return false end
+		if typeof(r.direction) ~= "Vector3" then return false end
+		local direction = r.direction :: Vector3
+		if direction.X ~= direction.X or direction.Y ~= direction.Y or direction.Z ~= direction.Z then return false end
+		if math.abs(direction.X) > 4 or math.abs(direction.Y) > 4 or math.abs(direction.Z) > 4 then return false end
+	end
 	if r.action == "Paint" then
 		if not ValidOrientation(r.orientation) then return false end
 		if not Surface.IsFinite(r.sequence) or (r.sequence :: number) % 1 ~= 0 or (r.sequence :: number) < 1 then return false end

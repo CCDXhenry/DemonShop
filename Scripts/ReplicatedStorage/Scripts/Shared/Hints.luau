@@ -38,8 +38,7 @@ local function ReadCarry(held: Types.ItemView?, stack: { Types.ItemView }?): Car
 end
 function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?, potions: Potions?, stack: { Types.ItemView }?): GameTexts.Description
 	local load = ReadCarry(held, stack)
-	if load.unfinished then return Describe("TakeBody") end
-	if load.painted then return Describe("TakeRuneBody") end
+	if load.body then return Describe("ThrowAim") end
 	if potions and potions.equipped then return Describe("TakePotion", { tostring(Config.PotionReward) }) end
 	if potions and potions.stored > 0 then return Describe("EquipPotion") end
 	if snapshot then

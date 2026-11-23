@@ -11,9 +11,19 @@ export type Sample = { part: string, face: number, u: number, v: number, breakBe
 export type Stroke = { key: string, samples: { Sample } }
 export type VisualSegment = { key: string, version: number, gesture: number, part: string, face: number, u: number, v: number, glyph: number, angle: number, scale: number, triangle: number?, surfaceVersion: number? }
 export type VisualState = { segments: { [string]: VisualSegment }, count: number, revision: number }
-export type Request = { action: string, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, orientation: CFrame?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose? }
+export type Request = { action: string, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, orientation: CFrame?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose?, direction: Vector3? }
 export type GroundFall = {target: CFrame, started: number, velocity: Vector3}
-export type PoolToss = { from: CFrame, target: CFrame, started: number, owner: number, collision: boolean? }
+export type PoolToss = {
+	from: CFrame,
+	target: CFrame,
+	started: number,
+	owner: number,
+	collision: boolean?,
+	kind: ("Pool" | "Manual")?,
+	origin: Vector3?,
+	velocity: Vector3?,
+	duration: number?,
+}
 export type AltarToss = {
 	from: CFrame,
 	rest: CFrame,

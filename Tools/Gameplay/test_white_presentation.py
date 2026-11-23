@@ -18,7 +18,7 @@ def module(name, path, start, prefix, replacements=()):
     (OUT / (name + ".luau")).write_text(source, encoding="utf-8")
 
 
-roblox = "local R=require('@lune/roblox')\nlocal Vector3,CFrame,Instance=R.Vector3,R.CFrame,R.Instance"
+roblox = "local R=require('@lune/roblox')\nlocal Vector3,CFrame,Instance,Color3=R.Vector3,R.CFrame,R.Instance,R.Color3"
 module("PhysicsConfig", SHARED, "export type Joint", roblox)
 module("JointAdapter", CLIENT, "local Adapter =", "local Physics=require('./PhysicsConfig')")
 module("PresentationTuning", CLIENT, "local Tuning =", "local Physics=require('./PhysicsConfig')\nlocal RunService=require('./Boundary').run")
