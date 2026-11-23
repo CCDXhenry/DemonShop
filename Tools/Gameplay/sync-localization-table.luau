@@ -383,6 +383,13 @@ local entries: { Entry } = {
 	},
 	{
 		Key = "",
+		Source = "HOLD AND DRAG TO PAINT RUNES",
+		Context = "",
+		Example = "",
+		Values = {["ar"] = "اضغط مطولًا واسحب لرسم الرون", ["de"] = "HALTEN UND ZIEHEN, UM RUNEN ZU MALEN", ["es"] = "MANTÉN Y ARRASTRA PARA PINTAR RUNAS", ["fr"] = "MAINTENEZ ET GLISSEZ POUR PEINDRE LES RUNES", ["id"] = "TAHAN DAN GESER UNTUK MELUKIS RUNE", ["it"] = "TIENI PREMUTO E TRASCINA PER DIPINGERE LE RUNE", ["ja"] = "長押し＆ドラッグで体にルーンを描く", ["ko"] = "길게 누르고 드래그하여 신체에 룬을 그리세요", ["pl"] = "PRZYTRZYMAJ I PRZECIĄGNIJ, ABY MALOWAĆ RUNY", ["pt"] = "SEGURE E ARRASTE PARA PINTAR RUNAS", ["ru"] = "УДЕРЖИВАЙТЕ И ВЕДИТЕ, ЧТОБЫ РИСОВАТЬ РУНЫ", ["th"] = "กดค้างแล้วลากเพื่อวาดรูน", ["tr"] = "RÜN ÇİZMEK İÇİN BASILI TUTUP SÜRÜKLE", ["vi"] = "NHẤN GIỮ VÀ KÉO ĐỂ VẼ PHÙ VĂN", ["zh-cn"] = "按住并拖动以在躯体上绘制符文", ["zh-hans"] = "按住并拖动以在躯体上绘制符文", ["zh-hant"] = "按住並拖曳以在軀體上繪製符文", ["zh-tw"] = "按住並拖曳以在軀體上繪製符文"},
+	},
+	{
+		Key = "",
 		Source = "TAKE TABLE BODY",
 		Context = "",
 		Example = "",
@@ -505,7 +512,7 @@ local entries: { Entry } = {
 		Source = "Rune complete. The body flies to the altar.",
 		Context = "",
 		Example = "",
-		Values = {["ar"] = "اكتمل الرون. خذ الجسد.", ["de"] = "Rune vollständig. Nimm den Körper.", ["es"] = "Runa completada. Recoge el cuerpo.", ["fr"] = "Rune terminée. Ramassez le corps.", ["id"] = "Rune selesai. Ambil tubuh.", ["it"] = "Runa completata. Prendi il corpo.", ["ja"] = "ルーン完了。体を回収してください。", ["ko"] = "룬 완료. 신체를 가져가세요.", ["pl"] = "Runa ukończona. Podnieś ciało.", ["pt"] = "Runa concluída. Pegue o corpo.", ["ru"] = "Руна завершена. Заберите тело.", ["th"] = "รูนเสร็จสิ้น เก็บกู้ร่าง", ["tr"] = "Rün tamamlandı. Gövdeyi al.", ["vi"] = "Phù văn hoàn tất. Hãy lấy thân thể.", ["zh-cn"] = "符文绘制完成，请取走躯体。", ["zh-hans"] = "符文绘制完成，请取走躯体。", ["zh-hant"] = "符文繪製完成，請取走軀體。", ["zh-tw"] = "符文繪製完成，請取走軀體。"},
+		Values = {["ar"] = "اكتمل الرون. يطير الجسد إلى المذبح.", ["de"] = "Rune vollständig. Der Körper fliegt zum Altar.", ["es"] = "Runa completada. El cuerpo vuela hacia el altar.", ["fr"] = "Rune terminée. Le corps vole vers l'autel.", ["id"] = "Rune selesai. Tubuh terbang menuju altar.", ["it"] = "Runa completata. Il corpo vola verso l'altare.", ["ja"] = "ルーン完了。体が祭壇へ飛びます。", ["ko"] = "룬 완성. 신체가 제단으로 날아갑니다.", ["pl"] = "Runa ukończona. Ciało leci do ołtarza.", ["pt"] = "Runa concluída. O corpo voa para o altar.", ["ru"] = "Руна завершена. Тело летит к алтарю.", ["th"] = "รูนเสร็จสมบูรณ์ ร่างกำลังลอยไปยังแท่นบูชา", ["tr"] = "Rün tamamlandı. Gövde sunağa uçuyor.", ["vi"] = "Phù văn hoàn tất. Thân thể bay về phía bàn thờ.", ["zh-cn"] = "符文绘制完成，躯体飞向祭坛。", ["zh-hans"] = "符文绘制完成，躯体飞向祭坛。", ["zh-hant"] = "符文繪製完成，軀體飛向祭壇。", ["zh-tw"] = "符文繪製完成，軀體飛向祭壇。"},
 	},
 	{
 		Key = "",
@@ -709,6 +716,27 @@ local entries: { Entry } = {
 		Context = "",
 		Example = "",
 		Values = {["ar"] = "وصف الوظيفة", ["de"] = "Funktionsbeschreibung", ["es"] = "Descripción de función", ["fr"] = "Description de fonction", ["id"] = "Deskripsi Fungsi", ["it"] = "Descrizione della funzione", ["ja"] = "機能説明", ["ko"] = "기능 설명", ["pl"] = "Opis funkcji", ["pt"] = "Descrição da função", ["ru"] = "Описание функции", ["th"] = "คำอธิบายฟังก์ชัน", ["tr"] = "İşlev Açıklaması", ["vi"] = "Mô tả chức năng", ["zh-cn"] = "功能说明", ["zh-hans"] = "功能说明", ["zh-hant"] = "功能說明", ["zh-tw"] = "功能說明"},
+	},
+	{
+		Key = "",
+		Source = "SOUL ALTAR  /  10s",
+		Context = "",
+		Example = "",
+		Values = {["ar"] = "مذبح الأرواح  /  10ث", ["de"] = "SEELENALTAR  /  10s", ["es"] = "ALTAR DE ALMAS  /  10s", ["fr"] = "AUTEL DES ÂMES  /  10s", ["id"] = "ALTAR JIWA  /  10d", ["it"] = "ALTARE DELLE ANIME  /  10s", ["ja"] = "魂の祭壇  /  10秒", ["ko"] = "영혼 제단  /  10초", ["pl"] = "OŁTARZ DUSZ  /  10s", ["pt"] = "ALTAR DE ALMAS  /  10s", ["ru"] = "АЛТАРЬ ДУШ  /  10с", ["th"] = "แท่นบูชาวิญญาณ  /  10วินาที", ["tr"] = "RUH SUNAĞI  /  10sn", ["vi"] = "BÀN THỜ LINH HỒN  /  10giây", ["zh-cn"] = "灵魂祭坛  /  10秒", ["zh-hans"] = "灵魂祭坛  /  10秒", ["zh-hant"] = "靈魂祭壇  /  10秒", ["zh-tw"] = "靈魂祭壇  /  10秒"},
+	},
+	{
+		Key = "",
+		Source = "SOUL HOLDING POOL",
+		Context = "",
+		Example = "",
+		Values = {["ar"] = "حوض الأرواح", ["de"] = "SEELENBECKEN", ["es"] = "POZO DE ALMAS", ["fr"] = "BASSIN DES ÂMES", ["id"] = "KOLAM JIWA", ["it"] = "VASCA DELLE ANIME", ["ja"] = "魂の保管プール", ["ko"] = "영혼 보관소", ["pl"] = "ZBIORNIK DUSZ", ["pt"] = "POÇO DE ALMAS", ["ru"] = "ПУЛ ДУШ", ["th"] = "บ่อเก็บวิญญาณ", ["tr"] = "RUH HAVUZU", ["vi"] = "HỒ LINH HỒN", ["zh-cn"] = "灵魂存放池", ["zh-hans"] = "灵魂存放池", ["zh-hant"] = "靈魂存放池", ["zh-tw"] = "靈魂存放池"},
+	},
+	{
+		Key = "",
+		Source = "SOUL CRYSTALS",
+		Context = "",
+		Example = "",
+		Values = {["ar"] = "بلورات الأرواح", ["de"] = "SEELENKRISTALLE", ["es"] = "CRISTALES DE ALMA", ["fr"] = "CRISTAUX D'ÂME", ["id"] = "KRISTAL JIWA", ["it"] = "CRISTALLI DELL'ANIMA", ["ja"] = "ソウルクリスタル", ["ko"] = "영혼 수정", ["pl"] = "KRYSZTAŁY DUSZ", ["pt"] = "CRISTAIS DA ALMA", ["ru"] = "КРИСТАЛЛЫ ДУШ", ["th"] = "ผลึกวิญญาณ", ["tr"] = "RUH KRİSTALLERİ", ["vi"] = "TINH THỂ LINH HỒN", ["zh-cn"] = "灵魂药水架", ["zh-hans"] = "灵魂药水架", ["zh-hant"] = "靈魂藥水架", ["zh-tw"] = "靈魂藥水架"},
 	}
 }
 

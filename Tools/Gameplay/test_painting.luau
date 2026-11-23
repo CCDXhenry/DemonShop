@@ -149,6 +149,39 @@ item.area, item.covered, item.strokePoints = 0, {}, 0
 Painting.Apply(session, item, { sequence = 14, orientation = C.identity, samples = { rotA, rotB } }, pose, origin, 1.4)
 check(item.area > expectedArea, 'rotating consecutive samples keep server segment interpolation instead of resetting previous')
 Config.PaintRotationEnabled = false
+check(Config.BrushRadius == 0.18 and Config.PaintTarget == 0.4 and Config.PaintFlatTarget == 0.30,
+	'paint coverage parameters match updated brush radius and flat/rotation targets')
+do
+	World.visible = true
+	World.part = part
+	part.CFrame = C.identity
+	local flatSession = { token = 'flat-session', sequence = 0, last = 0, orientation = C.identity }
+	local flatItem = { model = model, covered = {}, area = 0, totalArea = 100, paintSeconds = 0, progress = 0, strokes = {}, strokePoints = 0 }
+	local flatRes = Painting.Apply(flatSession, flatItem, {
+		sequence = 1,
+		samples = { { part = 'UpperTorso', face = 1, u = .5, v = .5 } },
+	}, pose, origin, .1)
+	check(flatRes and flatRes.stroke and #flatRes.stroke.samples == 1 and flatRes.stroke.samples[1].orientation == nil,
+		'flat mode accepts samples without orientation')
+	check(math.abs(flatItem.progress - math.min(flatItem.area / (flatItem.totalArea * Config.PaintFlatTarget), 1)) < 1e-6,
+		'flat mode computes progress against PaintFlatTarget = 0.30')
+
+	flatItem.totalArea = flatItem.area / 0.15
+	local halfFlat = Painting.Apply(flatSession, flatItem, { sequence = 2, samples = {} }, pose, origin, .2)
+	check(halfFlat and not halfFlat.complete and math.abs(flatItem.progress - 0.5) < 1e-6,
+		'flat mode reports 50% progress at half of PaintFlatTarget')
+
+	flatItem.totalArea = flatItem.area / Config.PaintFlatTarget
+	local doneFlat = Painting.Apply(flatSession, flatItem, { sequence = 3, samples = {} }, pose, origin, .3)
+	check(doneFlat and doneFlat.complete and flatItem.progress == 1,
+		'flat mode completes when area reaches PaintFlatTarget = 0.30')
+
+	Config.PaintRotationEnabled = true
+	local rotCheck = Painting.Apply(flatSession, flatItem, { sequence = 4, orientation = C.identity, samples = {} }, pose, origin, .4)
+	check(rotCheck and not rotCheck.complete and math.abs(flatItem.progress - (Config.PaintFlatTarget / Config.PaintTarget)) < 1e-6,
+		'rotation mode switches threshold back to PaintTarget = 0.40')
+	Config.PaintRotationEnabled = false
+end
 local sourceInk=Curve.CopyInk(nil)
 Curve.MarkInk(sourceInk,.2,.2)
 local mergedInk=Curve.MergeInk(nil,sourceInk)

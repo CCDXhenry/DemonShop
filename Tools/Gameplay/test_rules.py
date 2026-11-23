@@ -8,9 +8,9 @@ OUT.mkdir(parents=True,exist_ok=True)
 shared=ROOT/"Scripts/ReplicatedStorage/Scripts/Shared"
 server=ROOT/"Scripts/ServerStorage/Scripts"
 (OUT/"FoundationDateBoundary.luau").write_text((ROOT/"Tools/Gameplay/FoundationDateBoundary.luau").read_text(encoding="utf-8"),encoding="utf-8")
-for name in ("GameConfig","GameTexts","GameTypes","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneGlyphData","RuneStampRules"):
+for name in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneGlyphData","RuneStampRules"):
     text=(shared/(name+".luau")).read_text(encoding="utf-8")
-    for dep in ("GameConfig","GameTexts","GameTypes","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","RuneGlyphData","RuneStampRules"):
+    for dep in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","RuneGlyphData","RuneStampRules"):
         text=text.replace("require(script.Parent."+dep+")", "require('./"+dep+"')")
     if name == "GameConfig":
         start=text.index('local replicatedStorage:')
@@ -180,12 +180,37 @@ for fps in (30, 60):
 
 # Exercise production client lifecycle methods with input/camera/network boundaries.
 source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientProcessingManager.luau").read_text(encoding="utf-8")
-methods=[source[source.index("local function PaintControl("):source.index("function Client.Paint(")]]
-for name in ("ExitView","OnNotice","RequestPaintEnd","Paint","StepPaintRotation","Update","OnInput","OnMove","OnRelease","ResetPaintView"):
+methods=[
+    source[source.index("local function ActivePaintTarget("):source.index("function Client.new(")],
+    source[source.index("function Client.Carried("):source.index("local function HidePlayerCharactersForPaint(")],
+    source[source.index("local function PaintControl("):source.index("function Client.Paint(")],
+]
+for name in ("ExitView","OnNotice","RequestPaintEnd","Paint","StepPaintRotation","Update","OnInput","OnMove","OnRelease","ResetPaintView","UpdateAltar"):
     start=source.index("function Client."+name+"(")
     end=source.find("\nfunction Client.",start+1)
     methods.append(source[start:end])
-prefix="local R=require('@lune/roblox')\nlocal Vector2,Vector3,Enum,CFrame=R.Vector2,R.Vector3,R.Enum,R.CFrame\nlocal B=require('./PaintClientBoundary')\nlocal player,workspace,os,UserInputService=B.player,B.workspace,B.os,B.UserInputService\nlocal Config=require('./GameConfig')\nlocal Net=require('./VisualNet')\nlocal Rotation=require('./PaintRotation')\nlocal Surface=require('./PaintSurface')\nlocal Curve=require('./CurvedSurface')\nlocal PaintBrush=require('./PaintBrushContact')\nPaintBrush.Resolver=function() return B.resolve end\nlocal TablePose=function() return CFrame.identity end\nlocal Sound={Play=function() end}\nlocal Client={}\nClient.__index=Client\n"
+prefix=(
+    "local R=require('@lune/roblox')\n"
+    "local Vector2,Vector3,Enum,CFrame=R.Vector2,R.Vector3,R.Enum,R.CFrame\n"
+    "local B=require('./PaintClientBoundary')\n"
+    "local player,workspace,os,UserInputService=B.player,B.workspace,B.os,B.UserInputService\n"
+    "local Config=require('./GameConfig')\n"
+    "local Physics=require('./PhysicsConfig')\n"
+    "local Hints=require('./Hints')\n"
+    "local Net=require('./VisualNet')\n"
+    "local Rotation=require('./PaintRotation')\n"
+    "local Surface=require('./PaintSurface')\n"
+    "local Curve=require('./CurvedSurface')\n"
+    "local PaintBrush=require('./PaintBrushContact')\n"
+    "PaintBrush.Resolver=function() return B.resolve end\n"
+    "local TablePose=function() return CFrame.identity end\n"
+    "local positions={Pool=Vector3.new(100,0,0),Table=Vector3.new(100,0,0),Altar=Vector3.new(100,0,0),Shelf=Vector3.new(100,0,0),Sigil=Vector3.new(100,0,0)}\n"
+    "local Sound={Play=function() end}\n"
+    "local UIManager={GetTargetGuiManager=function() return {Refresh=function() end} end,HasShowingWindow=function() return false end}\n"
+    "local AltarSacrifice={new=function() return {Update=function() return nil end,Clear=function() end} end}\n"
+    "local Client={}\n"
+    "Client.__index=Client\n"
+)
 (OUT/"PaintClientLifecycle.luau").write_text(prefix+"\n".join(methods)+"\nreturn Client\n",encoding="utf-8")
 for name in ("PaintClientBoundary","test_paint_client_lifecycle"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")

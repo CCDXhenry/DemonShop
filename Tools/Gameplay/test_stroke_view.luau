@@ -61,17 +61,17 @@ check(counterpart.Position == orig2.Position and counterpart.Size == orig2.Size 
 remote:Apply('body', accepted)
 check(remote.counts.body == 3, 'duplicate delta creates no duplicate stamp')
 
--- 5. 边缘等比缩至 [0.5, 1]，仍放不下时跳过
-local edgeOk = (Config.RuneStampSize * 0.32) / 2 -- 距边界 0.32 * RuneStampSize，fit = 0.64 (>= 0.5)
+-- 5. 边缘等比缩至 [RuneMinScale, 1]，仍放不下时跳过
+local edgeOk = (Config.RuneStampSize * 0.32) / 2 -- 距边界 0.32 * RuneStampSize，fit = 0.64 (>= RuneMinScale)
 owner:DrawLocal('body', 'owner', 2, { sample(edgeOk, 0.5, true) })
 local edgeChange = owner:Drain('body')
 local _, edgeSeg = next(edgeChange)
 check(edgeSeg ~= nil and edgeSeg.scale >= Config.RuneMinScale and edgeSeg.scale < 1, 'edge stamp scales down proportionally to fit')
 
-local edgeSkip = 0.02 / 2 -- 距边界 0.02 stud，fit < 0.5 -> 跳过
+local edgeSkip = 0.02 / 2 -- 距边界 0.02 stud，fit < RuneMinScale -> 跳过
 local countBeforeSkip = owner.counts.body
 owner:DrawLocal('body', 'owner', 3, { sample(edgeSkip, 0.5, true) })
-check(owner.counts.body == countBeforeSkip and next(owner:Drain('body')) == nil, 'stamp skipped when even 0.5 scale does not fit')
+check(owner.counts.body == countBeforeSkip and next(owner:Drain('body')) == nil, 'stamp skipped when even RuneMinScale does not fit')
 
 -- 6. 跨部位重新起笔（正向落下）
 owner:DrawLocal('body', 'owner', 4, { sample(0.5, 0.5, false, 'Head') })

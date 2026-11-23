@@ -340,7 +340,7 @@ function Brush.SamplePath(
 	local tip = pointer
 	local brushWorld: Vector3? = nil
 	local clamped = false
-	if resolver.ellipsoidPoint then
+	if Config.PaintRotationEnabled and resolver.ellipsoidPoint then
 		tip, brushWorld, clamped = resolver.ellipsoidPoint(orientation, pointer)
 	end
 
@@ -360,7 +360,7 @@ function Brush.SamplePath(
 	local cameraLook = resolver.cameraLook
 
 	local function Emit(contact: Contact, pose: CFrame, breakBefore: boolean): ()
-		contact.sample.orientation = pose
+		contact.sample.orientation = if Config.PaintRotationEnabled then pose else nil
 		contact.sample.breakBefore = breakBefore
 		table.insert(samples, contact.sample)
 	end

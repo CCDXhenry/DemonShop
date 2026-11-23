@@ -61,6 +61,8 @@ check(math.abs(radii.X - Config.PaintEllipsoidScale) < 1e-5 and math.abs(radii.Y
 local neutralCenter = base:PointToWorldSpace(geometry.center)
 check(base.Position == placement and (Rotation.CameraPose(placement).Position - placement - V3.yAxis * Config.PaintCameraHeight).Magnitude < 1e-5,
 	'table and camera use the workspace placement anchor')
+check(Config.PaintCameraHeight == 10.5 and Config.BrushRadius == 0.18,
+	'paint camera height clears overhead slab and brush radius matches rune stamp size')
 for _, angles in { V.new(0, math.pi / 2), V.new(math.pi / 2, 0), V.new(-2.4, 1.8), V.new(math.pi, math.pi) } do
 	local turnedPose = Rotation.Pose(base, geometry, C.Angles(angles.Y, angles.X, 0.4))
 	check((turnedPose:PointToWorldSpace(geometry.center) - neutralCenter).Magnitude < 1e-5,
@@ -323,6 +325,55 @@ check(spiralParts.Head and spiralParts.UpperTorso and (spiralParts.LeftUpperLeg 
 	'sliding brush along the rotation axis inside the ellipsoid paints continuously from head through torso to legs')
 
 Config.PaintRotationEnabled = false
+-- 5e. 非旋转模式关闭椭圆体钳制（解除头部/脚部/上臂 0.96 盲区）且不附带 sample.orientation；动态切换开关即刻生效。
+do
+	setBodyPose(C.identity)
+	local flatRes = Brush.Resolver(bodyModel, perspCam, flatBase, bodyGeometry, C.identity)
+	local headEdgeWorld = bodyParts.Head.CFrame:PointToWorldSpace(V3.new(0, bodyParts.Head.Size.Y * 0.4, -bodyParts.Head.Size.Z * 0.42))
+	local headEdgePtr = projectToScreen(headEdgeWorld)
+	assert(headEdgePtr, 'head edge projection fixture')
+	local _, _, wouldClamp = flatRes.ellipsoidPoint(C.identity, headEdgePtr)
+	check(wouldClamp and flatRes.cast(C.identity, headEdgePtr) ~= nil,
+		'fixture point on head edge lies outside 0.96 ellipsoid while still hitting head mesh')
+
+	local flatSamples, flatFrame = Brush.SamplePath(nil, headEdgePtr, C.identity, bodyGeometry.radius, flatRes, viewport, nil)
+	check(not flatFrame.clamped and flatFrame.tip == headEdgePtr and flatFrame.brushWorld == nil,
+		'PaintRotationEnabled == false never clamps pointer outside ellipsoid')
+	check(#flatSamples == 1 and flatSamples[1].part == 'Head' and flatSamples[1].orientation == nil,
+		'flat mode hits blind-spot head area and omits redundant sample.orientation')
+
+	local headDragPtr = V.new(headEdgePtr.X + 8, headEdgePtr.Y)
+	local flatDragSamples, flatDragFrame = Brush.SamplePath(flatFrame, headDragPtr, C.identity, bodyGeometry.radius, flatRes, viewport, nil)
+	check(not flatDragFrame.clamped and flatDragFrame.tip == headDragPtr and #flatDragSamples > 0,
+		'flat mode drag continues un-clamped across mesh')
+	for _, sample in flatDragSamples do
+		check(sample.orientation == nil, 'flat mode drag samples omit sample.orientation')
+	end
+
+	local _, outerFlatFrame = Brush.SamplePath(nil, outerPtr, C.identity, bodyGeometry.radius, flatRes, viewport, nil)
+	check(not outerFlatFrame.clamped and outerFlatFrame.tip == outerPtr,
+		'far outer pointer stays un-clamped when PaintRotationEnabled == false')
+
+	-- 动态开启旋转：不重加载模块，同一点立刻被椭圆体钳制并携带 sample.orientation。
+	Config.PaintRotationEnabled = true
+	local rotSamples, rotFrame = Brush.SamplePath(nil, headEdgePtr, C.identity, bodyGeometry.radius, flatRes, viewport, nil)
+	check(rotFrame.clamped and (rotFrame.tip - headEdgePtr).Magnitude > 1 and rotFrame.brushWorld ~= nil,
+		'PaintRotationEnabled == true dynamically restores ellipsoid clamping')
+	check(#rotSamples == 1 and rotSamples[1].orientation == C.identity,
+		'PaintRotationEnabled == true attaches sample.orientation on first hit')
+
+	local insideBodyPtr = V.new(chestScreen.X, chestScreen.Y)
+	local _, insideStartFrame = Brush.SamplePath(nil, insideBodyPtr, C.identity, bodyGeometry.radius, flatRes, viewport, nil)
+	local turnedPose = C.Angles(0, 0.08, 0)
+	setBodyPose(turnedPose)
+	local turnedRes = Brush.Resolver(bodyModel, perspCam, flatBase, bodyGeometry, turnedPose)
+	local rotDragSamples, rotDragFrame = Brush.SamplePath(insideStartFrame, insideBodyPtr + V.new(0, 24), turnedPose, bodyGeometry.radius, turnedRes, viewport, V3.new(-1, 0, 0))
+	check(not rotDragFrame.clamped and #rotDragSamples > 0, 'rotated drag produces samples')
+	for _, sample in rotDragSamples do
+		check(sample.orientation ~= nil, 'PaintRotationEnabled == true attaches sample.orientation on drag/slice samples')
+	end
+	Config.PaintRotationEnabled = false
+end
 bodyModel:Destroy()
 
 -- 6. 工作台零重力物理生命周期与服务端动态姿态重建校验。

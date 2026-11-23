@@ -151,7 +151,8 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 		item.paintSeconds += math.min(elapsed, 0.15)
 	end
 	Painting.SetPose(session, item, pose, orientation)
-	item.progress = math.min(item.area / math.max(item.totalArea * Config.PaintTarget, 0.001), 1)
+	local targetRatio = if Config.PaintRotationEnabled then Config.PaintTarget else (Config.PaintFlatTarget or Config.PaintTarget)
+	item.progress = math.min(item.area / math.max(item.totalArea * targetRatio, 0.001), 1)
 	local stroke: Types.Stroke? = nil
 	if #accepted > 0 and item.strokePoints + #accepted <= Config.PaintStrokePointBudget then
 		local recorded: Types.Stroke = { key = session.token .. ":" .. tostring(sequence), samples = accepted }

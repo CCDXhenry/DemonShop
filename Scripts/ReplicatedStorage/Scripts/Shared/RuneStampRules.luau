@@ -6,10 +6,10 @@ local Curve = require(script.Parent.CurvedSurface)
 
 local Rules = {}
 
-local NormalDotThreshold = 0.45
+local NormalDotThreshold = 0.35
 local PlaneDepthFactor = 0.65
 local TangentReachFactor = 1.35
-local ScaleSteps = { 1, 0.75, 0.5 }
+local ScaleSteps = { 1, 0.75, 0.5, 0.38 }
 local CardinalProbes = {
 	{ 1, 0 },
 	{ -1, 0 },

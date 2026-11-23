@@ -755,6 +755,29 @@ ENTRIES = [
         }
     ),
     (
+        "", "HOLD AND DRAG TO PAINT RUNES", "", "",
+        {
+            "zh-hans": "按住并拖动以在躯体上绘制符文",
+            "zh-hant": "按住並拖曳以在軀體上繪製符文",
+            "zh-cn": "按住并拖动以在躯体上绘制符文",
+            "zh-tw": "按住並拖曳以在軀體上繪製符文",
+            "ja": "長押し＆ドラッグで体にルーンを描く",
+            "ko": "길게 누르고 드래그하여 신체에 룬을 그리세요",
+            "es": "MANTÉN Y ARRASTRA PARA PINTAR RUNAS",
+            "fr": "MAINTENEZ ET GLISSEZ POUR PEINDRE LES RUNES",
+            "de": "HALTEN UND ZIEHEN, UM RUNEN ZU MALEN",
+            "it": "TIENI PREMUTO E TRASCINA PER DIPINGERE LE RUNE",
+            "pt": "SEGURE E ARRASTE PARA PINTAR RUNAS",
+            "ru": "УДЕРЖИВАЙТЕ И ВЕДИТЕ, ЧТОБЫ РИСОВАТЬ РУНЫ",
+            "pl": "PRZYTRZYMAJ I PRZECIĄGNIJ, ABY MALOWAĆ RUNY",
+            "tr": "RÜN ÇİZMEK İÇİN BASILI TUTUP SÜRÜKLE",
+            "vi": "NHẤN GIỮ VÀ KÉO ĐỂ VẼ PHÙ VĂN",
+            "th": "กดค้างแล้วลากเพื่อวาดรูน",
+            "id": "TAHAN DAN GESER UNTUK MELUKIS RUNE",
+            "ar": "اضغط مطولًا واسحب لرسم الرون"
+        }
+    ),
+    (
         "", "TAKE TABLE BODY", "", "",
         {
             "zh-hans": "取走台面躯体", "zh-hant": "取走台面軀體", "zh-cn": "取走台面躯体", "zh-tw": "取走台面軀體",
@@ -948,12 +971,12 @@ ENTRIES = [
     (
         "", "Rune complete. The body flies to the altar.", "", "",
         {
-            "zh-hans": "符文绘制完成，请取走躯体。", "zh-hant": "符文繪製完成，請取走軀體。", "zh-cn": "符文绘制完成，请取走躯体。", "zh-tw": "符文繪製完成，請取走軀體。",
-            "ja": "ルーン完了。体を回収してください。", "ko": "룬 완료. 신체를 가져가세요.", "es": "Runa completada. Recoge el cuerpo.",
-            "fr": "Rune terminée. Ramassez le corps.", "de": "Rune vollständig. Nimm den Körper.", "it": "Runa completata. Prendi il corpo.",
-            "pt": "Runa concluída. Pegue o corpo.", "ru": "Руна завершена. Заберите тело.", "pl": "Runa ukończona. Podnieś ciało.",
-            "tr": "Rün tamamlandı. Gövdeyi al.", "vi": "Phù văn hoàn tất. Hãy lấy thân thể.", "th": "รูนเสร็จสิ้น เก็บกู้ร่าง",
-            "id": "Rune selesai. Ambil tubuh.", "ar": "اكتمل الرون. خذ الجسد."
+            "zh-hans": "符文绘制完成，躯体飞向祭坛。", "zh-hant": "符文繪製完成，軀體飛向祭壇。", "zh-cn": "符文绘制完成，躯体飞向祭坛。", "zh-tw": "符文繪製完成，軀體飛向祭壇。",
+            "ja": "ルーン完了。体が祭壇へ飛びます。", "ko": "룬 완성. 신체가 제단으로 날아갑니다.", "es": "Runa completada. El cuerpo vuela hacia el altar.",
+            "fr": "Rune terminée. Le corps vole vers l'autel.", "de": "Rune vollständig. Der Körper fliegt zum Altar.", "it": "Runa completata. Il corpo vola verso l'altare.",
+            "pt": "Runa concluída. O corpo voa para o altar.", "ru": "Руна завершена. Тело летит к алтарю.", "pl": "Runa ukończona. Ciało leci do ołtarza.",
+            "tr": "Rün tamamlandı. Gövde sunağa uçuyor.", "vi": "Phù văn hoàn tất. Thân thể bay về phía bàn thờ.", "th": "รูนเสร็จสมบูรณ์ ร่างกำลังลอยไปยังแท่นบูชา",
+            "id": "Rune selesai. Tubuh terbang menuju altar.", "ar": "اكتمل الرون. يطير الجسد إلى المذبح."
         }
     ),
     (
@@ -1278,6 +1301,50 @@ ENTRIES = [
             "de": "Funktionsbeschreibung", "it": "Descrizione della funzione", "pt": "Descrição da função", "ru": "Описание функции",
             "pl": "Opis funkcji", "tr": "İşlev Açıklaması", "vi": "Mô tả chức năng", "th": "คำอธิบายฟังก์ชัน",
             "id": "Deskripsi Fungsi", "ar": "وصف الوظيفة"
+        }
+    ),
+
+    # --- 8. Station Plaques (3 items) ---
+    (
+        "", "SOUL ALTAR  /  10s", "", "",
+        {
+            "zh-hans": "灵魂祭坛  /  10秒", "zh-hant": "靈魂祭壇  /  10秒",
+            "zh-cn": "灵魂祭坛  /  10秒", "zh-tw": "靈魂祭壇  /  10秒",
+            "ja": "魂の祭壇  /  10秒", "ko": "영혼 제단  /  10초",
+            "es": "ALTAR DE ALMAS  /  10s", "fr": "AUTEL DES ÂMES  /  10s",
+            "de": "SEELENALTAR  /  10s", "it": "ALTARE DELLE ANIME  /  10s",
+            "pt": "ALTAR DE ALMAS  /  10s", "ru": "АЛТАРЬ ДУШ  /  10с",
+            "pl": "OŁTARZ DUSZ  /  10s", "tr": "RUH SUNAĞI  /  10sn",
+            "vi": "BÀN THỜ LINH HỒN  /  10giây", "th": "แท่นบูชาวิญญาณ  /  10วินาที",
+            "id": "ALTAR JIWA  /  10d", "ar": "مذبح الأرواح  /  10ث"
+        }
+    ),
+    (
+        "", "SOUL HOLDING POOL", "", "",
+        {
+            "zh-hans": "灵魂存放池", "zh-hant": "靈魂存放池",
+            "zh-cn": "灵魂存放池", "zh-tw": "靈魂存放池",
+            "ja": "魂の保管プール", "ko": "영혼 보관소",
+            "es": "POZO DE ALMAS", "fr": "BASSIN DES ÂMES",
+            "de": "SEELENBECKEN", "it": "VASCA DELLE ANIME",
+            "pt": "POÇO DE ALMAS", "ru": "ПУЛ ДУШ",
+            "pl": "ZBIORNIK DUSZ", "tr": "RUH HAVUZU",
+            "vi": "HỒ LINH HỒN", "th": "บ่อเก็บวิญญาณ",
+            "id": "KOLAM JIWA", "ar": "حوض الأرواح"
+        }
+    ),
+    (
+        "", "SOUL CRYSTALS", "", "",
+        {
+            "zh-hans": "灵魂药水架", "zh-hant": "靈魂藥水架",
+            "zh-cn": "灵魂药水架", "zh-tw": "靈魂藥水架",
+            "ja": "ソウルクリスタル", "ko": "영혼 수정",
+            "es": "CRISTALES DE ALMA", "fr": "CRISTAUX D'ÂME",
+            "de": "SEELENKRISTALLE", "it": "CRISTALLI DELL'ANIMA",
+            "pt": "CRISTAIS DA ALMA", "ru": "КРИСТАЛЛЫ ДУШ",
+            "pl": "KRYSZTAŁY DUSZ", "tr": "RUH KRİSTALLERİ",
+            "vi": "TINH THỂ LINH HỒN", "th": "ผลึกวิญญาณ",
+            "id": "KRISTAL JIWA", "ar": "بلورات الأرواح"
         }
     ),
 ]

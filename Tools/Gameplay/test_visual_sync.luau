@@ -22,7 +22,7 @@ local function stamp(index, version)
 	}
 end
 
-check(Config.PaintTarget == 0.7, 'server completion target is 70% of paintable area')
+check(Config.PaintTarget == 0.4 and Config.PaintFlatTarget == 0.30, 'server completion targets are 40% (rotated) and 30% (flat) of paintable area')
 local state = Rules.New()
 local first = stamp(1)
 check(Rules.Validate(first), 'valid rune stamp accepted')
@@ -40,7 +40,9 @@ check(not Rules.Validate(invalid), 'out-of-range glyph rejected')
 invalid = stamp(2); invalid.glyph = 1.5
 check(not Rules.Validate(invalid), 'fractional glyph rejected')
 invalid = stamp(2); invalid.scale = 0.4
-check(not Rules.Validate(invalid), 'scale below 0.5 rejected')
+check(Rules.Validate(invalid), 'scale at or above RuneMinScale accepted')
+invalid = stamp(2); invalid.scale = Config.RuneMinScale - 0.05
+check(not Rules.Validate(invalid), 'scale below RuneMinScale rejected')
 invalid = stamp(2); invalid.scale = 1.2
 check(not Rules.Validate(invalid), 'scale above 1 rejected')
 invalid = stamp(2); invalid.angle = 4

@@ -68,7 +68,7 @@ function Scene.AltarPilePose(id: string, layer: number): CFrame
 	local rest = Scene.AltarRest
 	local x = (Unit(id, 1) - 0.5) * 2 * math.clamp(rest.Size.X / 2 - 1.5, 0, Config.AltarPileSpread)
 	local z = (Unit(id, 4) - 0.5) * 2 * math.clamp(rest.Size.Z / 2 - 1.2, 0, Config.AltarPileSpread * 0.45)
-	local yaw = math.pi / 2 + (Unit(id, 2) - 0.5) * math.pi / 4
+	local yaw = -math.pi / 2 + (Unit(id, 2) - 0.5) * math.pi / 4
 	local pitch = (Unit(id, 3) - 0.5) * 2 * Config.AltarPilePitch
 	local height = rest.Size.Y / 2 + layer * Config.AltarPileStep
 	return rest.CFrame * CFrame.new(x, height, z)

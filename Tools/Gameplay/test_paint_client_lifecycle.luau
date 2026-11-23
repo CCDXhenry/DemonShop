@@ -11,20 +11,39 @@ local count=0
 local function check(v,m) assert(v,m);count+=1 end
 local function client()
  local log={}
- local view={curved=nil,budgetReached=false}
+ local textLog={}
+ local sacrificed={}
+ local view={curved=nil,budgetReached=false,sacrifices=sacrificed}
  function view:Update() table.insert(log,'raster') end
  function view:Drain() return {} end
  function view:IsReady() return true end
+ function view:DrawLocal() end
+ function view:SetSacrifice(id,brightness,fade) sacrificed[id]={brightness=brightness,fade=fade} end
+ function view:ClearSacrifice(id) sacrificed[id]=nil; table.insert(log,'clear-sacrifice:'..tostring(id)) end
  local c=setmetatable({
   paintId='body',session='session',visualClosing=false,visualUpload=Upload.new(),
   drawing=false,finishPaint=false,pointer=R.Vector2.new(800,900),paintSamples={},
   angularSpeed=1,lastPaint=B.time,paintSequence=0,lastPaintSound=0,visualGesture=0,
   orientation=C.Angles(.3,.2,0),sentOrientation=C.identity,touch=nil,
-  bodies={GetPaintModel=function() return nil end},view=view,items={},synced=true,lastFrame=B.time,lastHint=B.time,messageEnds=100,
+  bodies={
+   GetPaintModel=function() return nil end,
+   GetVisualPart=function() return nil end,
+   GetAltarModel=function() return nil end,
+   IsAltarTossing=function() return false end,
+   Fly=function() end,
+  },
+  view=view,items={},synced=true,lastFrame=B.time,lastSync=B.time,lastHint=B.time,messageEnds=100,
+  localProgress=0,localArea=0,localTotalArea=0,
+  hiddenPlayerParts={},altarViews={},altarView={Clear=function() end},
   presentation={CapturePose=function() return nil end},
-  paintCamera={ready=true,Exit=function() table.insert(log,'camera-exit') end},
-  Text=function() end,
-  ui={SetPainting=function() end,UpdatePointer=function() end,SetProgress=function() end},
+  paintCamera={
+   ready=true,follow=nil,
+   Exit=function(cam) cam.follow=nil; table.insert(log,'camera-exit') end,
+   FollowToss=function(cam,ends,target) cam.follow={ends=ends,target=target}; table.insert(log,'camera-follow') end,
+  },
+  textLog=textLog,
+  Text=function(_,name,desc) textLog[name]=desc end,
+  ui={SetPainting=function() end,UpdatePointer=function() end,SetProgress=function() end,Refresh=function() end},
  },Client)
  c.visualUpload:Begin('session')
  function c:Paint() table.insert(log,'sample');self.finishPaint=false end
@@ -373,4 +392,224 @@ Config.PaintRotationEnabled = false
 observer:OnNotice({kind='PaintPose',id='body',session='current',orientation=C.Angles(1,1,1),progress=.4})
 check(observer.presentation.targetOrientation==C.identity and observer.items.body.progress==.4,
 	'disabled PaintRotationEnabled locks observer targetOrientation to identity')
+
+-- 非旋转模式下鼠标松手不重基指针/不调 SnapPointerToBrush，并清空 pointerOrigin/hardwareOrigin 保持 1:1。
+do
+	B.workspace.CurrentCamera = {
+		CFrame = C.identity,
+		WorldToScreenPoint = function(_, p) return R.Vector3.new(p.X * 100, p.Y * 100, 10) end,
+		ViewportSize = R.Vector2.new(1920, 1080),
+	}
+	B.resolve = {
+		ellipsoidPoint = function(_orientation, point)
+			local nx, ny = point.X / ellipsoidRx, point.Y / ellipsoidRy
+			local r = math.sqrt(nx * nx + ny * ny)
+			if r <= 1 then
+				return point, R.Vector3.new(point.X / 100, point.Y / 100, 0), false
+			end
+			local clampedTip = R.Vector2.new(point.X / r, point.Y / r)
+			return clampedTip, R.Vector3.new(clampedTip.X / 100, clampedTip.Y / 100, 0), true
+		end,
+		cast = function(_orientation, point)
+			return { point = point, localPoint = R.Vector3.new(point.X / 300, point.Y / 300, 0), sample = { part = 'UpperTorso', face = 1, u = 0.5, v = 0.5 } }
+		end,
+	}
+	local flatMouse = client()
+	flatMouse.Paint = nil
+	flatMouse.orientation = C.identity
+	flatMouse.bodies.GetPaintModel = function() return model end
+	flatMouse.presentation.model = model
+	flatMouse.presentation.geometry = { radius = 3, halfExtents = R.Vector3.new(1.5, 1, 0.8) }
+	flatMouse.presentation.orientation = C.identity
+	local pressMouse = { UserInputType = R.Enum.UserInputType.MouseButton1, Position = R.Vector3.new(230, 0, 0) }
+	local moveMouse = { UserInputType = R.Enum.UserInputType.MouseMovement, Position = R.Vector3.new(235, 0, 0) }
+	flatMouse:OnInput(pressMouse, false)
+	flatMouse:OnMove(moveMouse)
+	flatMouse:OnRelease({ UserInputType = R.Enum.UserInputType.MouseButton1, Position = R.Vector3.new(235, 0, 0) })
+	check(flatMouse.pointer == R.Vector2.new(235, 0) and flatMouse.pointerOrigin == nil and flatMouse.hardwareOrigin == nil,
+		'non-rotation mouse release keeps raw pointer without SnapPointerToBrush rebase')
+	moveMouse.Position = R.Vector3.new(250, 0, 0)
+	flatMouse:OnMove(moveMouse)
+	check(flatMouse.pointer == R.Vector2.new(250, 0), 'mouse motion after non-rotation release stays 1:1 with system pointer')
+
+	-- 即使存在残留偏移/钳制帧，关闭旋转松手时也会直接清零而不重基到笔尖。
+	flatMouse.drawing = true
+	flatMouse.pointerOrigin = R.Vector2.new(10, 10)
+	flatMouse.hardwareOrigin = R.Vector2.new(50, 50)
+	flatMouse.brushFrame = {
+		orientation = C.identity,
+		pointer = R.Vector2.new(230, 0),
+		tip = R.Vector2.new(ellipsoidRx, 0),
+		clamped = true,
+	}
+	flatMouse:OnRelease({ UserInputType = R.Enum.UserInputType.MouseButton1, Position = R.Vector3.new(230, 0, 0) })
+	check(flatMouse.pointerOrigin == nil and flatMouse.hardwareOrigin == nil and flatMouse.pointer ~= R.Vector2.new(ellipsoidRx, 0),
+		'non-rotation release clears stale pointer origins instead of snapping to clamped brush tip')
+	B.workspace.CurrentCamera = nil
+end
+
+-- 非旋转模式覆盖目标采用 PaintFlatTarget，且近距离跳过重叠点不冗余插入 breakBefore 锚点。
+do
+	local flatCov = client()
+	flatCov.Paint = nil
+	flatCov.orientation = C.identity
+	flatCov.presentation.orientation = C.identity
+	local flatTorso = R.Instance.new('Part')
+	flatTorso.Name, flatTorso.Size = 'UpperTorso', R.Vector3.new(2, 2, 1)
+	flatTorso:SetAttribute('Paintable', true)
+	flatTorso.CFrame = C.identity
+	local flatModel = R.Instance.new('Model')
+	flatTorso.Parent = flatModel
+	flatCov.bodies.GetPaintModel = function() return flatModel end
+	flatCov.presentation.model = flatModel
+	flatCov.presentation.geometry = { radius = 3, halfExtents = R.Vector3.new(1, 1, 0.5) }
+	flatCov.items.body = { id = 'body', model = flatModel, progress = 0 }
+	B.workspace.CurrentCamera = {
+		CFrame = C.identity,
+		WorldToScreenPoint = function(_, p) return R.Vector3.new(p.X * 100, p.Y * 100, 10) end,
+		ViewportSize = R.Vector2.new(1920, 1080),
+	}
+	local seqSamples = {
+		{ point = R.Vector2.new(0, 0), localPoint = R.Vector3.new(-0.5, 0, -0.5), sample = { part = 'UpperTorso', face = 1, u = 0.25, v = 0.5 } },
+		{ point = R.Vector2.new(10, 0), localPoint = R.Vector3.new(-0.499, 0, -0.5), sample = { part = 'UpperTorso', face = 1, u = 0.2505, v = 0.5 } },
+		{ point = R.Vector2.new(20, 0), localPoint = R.Vector3.new(-0.44, 0, -0.5), sample = { part = 'UpperTorso', face = 1, u = 0.28, v = 0.5 } },
+	}
+	local idx = 0
+	B.resolve = {
+		cast = function()
+			idx += 1
+			local item = seqSamples[math.min(idx, #seqSamples)]
+			return { point = item.point, localPoint = item.localPoint, sample = table.clone(item.sample) }
+		end,
+	}
+	Config.PaintRotationEnabled = false
+	flatCov.drawing = true
+	flatCov.pointer = R.Vector2.new(0, 0)
+	flatCov:SamplePaint(B.time)
+	flatCov.pointer = R.Vector2.new(4, 0)
+	flatCov:SamplePaint(B.time)
+	-- 第 1 笔在 u=0.25 落墨，第 2 笔 u=0.2505 无新增面积，第 3 笔 u=0.28（距离 0.059 studs < BrushRadius*1.25）；非旋转不插入 anchor。
+	check(#flatCov.paintSamples == 2 and not flatCov.paintSamples[2].breakBefore,
+		'non-rotation FilterNewCoverageSamples skips redundant breakBefore anchor within 1.25*BrushRadius')
+
+	-- 对比开启旋转时相同短距跳转仍插入 breakBefore 锚点。
+	local rotCov = client()
+	rotCov.Paint = nil
+	rotCov.orientation = C.identity
+	rotCov.presentation.orientation = C.identity
+	rotCov.bodies.GetPaintModel = function() return flatModel end
+	rotCov.presentation.model = flatModel
+	rotCov.presentation.geometry = { radius = 3, halfExtents = R.Vector3.new(1, 1, 0.5) }
+	rotCov.items.body = { id = 'body', model = flatModel, progress = 0 }
+	idx = 0
+	Config.PaintRotationEnabled = true
+	rotCov.drawing = true
+	rotCov.pointer = R.Vector2.new(0, 0)
+	rotCov:SamplePaint(B.time)
+	rotCov.pointer = R.Vector2.new(4, 0)
+	rotCov:SamplePaint(B.time)
+	check(#rotCov.paintSamples == 3 and rotCov.paintSamples[2].breakBefore == true,
+		'rotation mode preserves breakBefore anchor clone before new sample')
+
+	-- ActivePaintTarget 在非旋转下按 PaintFlatTarget 同步 PaintPose 面积。
+	Config.PaintRotationEnabled = false
+	flatCov.localTotalArea = 100
+	flatCov.localArea = 0
+	flatCov.localProgress = 0
+	flatCov:OnNotice({ kind = 'PaintPose', id = 'body', session = 'session', progress = 0.5 })
+	local expectedTarget = (Config :: any).PaintFlatTarget or Config.PaintTarget
+	check(math.abs(flatCov.localArea - 100 * expectedTarget * 0.5) < 1e-6,
+		'ActivePaintTarget uses PaintFlatTarget in non-rotation mode')
+	B.workspace.CurrentCamera = nil
+	flatModel:Destroy()
+end
+
+-- UpdateAltar 在 tossing 分支中不抹除活跃的 completeFlash 高光，过期后由 Update 清理。
+do
+	local flashClient, flashLog = client()
+	flashClient:OnNotice({ kind = 'FinishPaint', session = 'session' })
+	check(flashClient.completeFlash ~= nil and flashClient.completeFlash.id == 'body' and flashClient.view.sacrifices.body ~= nil,
+		'FinishPaint starts completeFlash sacrifice highlight')
+	flashClient.items.body = { id = 'body', kind = 'Body', location = 'Altar', flyEnds = B.time + 1 }
+	flashClient.items.other = { id = 'other', kind = 'Body', location = 'Altar', flyEnds = B.time + 1 }
+	flashClient.bodies.GetAltarModel = function() return {} end
+	flashClient.bodies.IsAltarTossing = function() return true end
+	flashClient.bodies.Fly = function() end
+	flashClient.snapshot = { pool = 0, shelf = 0, items = {}, altarEnds = 0, stationVersions = {} }
+	flashClient:UpdateAltar(B.time + 0.05)
+	check(flashClient.view.sacrifices.body ~= nil and table.find(flashLog, 'clear-sacrifice:body') == nil,
+		'UpdateAltar preserves active completeFlash during altar toss')
+	check(table.find(flashLog, 'clear-sacrifice:other') ~= nil,
+		'UpdateAltar still clears sacrifice on tossing items without active completeFlash')
+	B.time += Config.RuneCompleteFlashSeconds + 0.05
+	flashClient:Update(1 / 60)
+	check(flashClient.completeFlash == nil and flashClient.view.sacrifices.body == nil and table.find(flashLog, 'clear-sacrifice:body') ~= nil,
+		'Update clears completeFlash sacrifice after RuneCompleteFlashSeconds')
+end
+
+-- 绘画提示随旋转开关切换 PaintingFlat / Painting；带跟随退出先清 HintText 且延后恢复玩家显隐。
+do
+	local hintClient = client()
+	Config.PaintRotationEnabled = false
+	hintClient.lastHint = 0
+	hintClient:Update(1 / 60)
+	check(hintClient.textLog.HintText ~= nil and hintClient.textLog.HintText.textId == 'PaintingFlat',
+		'non-rotation paint hint uses PaintingFlat')
+	Config.PaintRotationEnabled = true
+	hintClient.lastHint = 0
+	hintClient:Update(1 / 60)
+	check(hintClient.textLog.HintText ~= nil and hintClient.textLog.HintText.textId == 'Painting',
+		'rotation paint hint uses Painting')
+	Config.PaintRotationEnabled = false
+
+	local charModel = R.Instance.new('Model')
+	local hrp = R.Instance.new('Part')
+	hrp.Name = 'HumanoidRootPart'
+	hrp.Position = R.Vector3.zero
+	hrp.Parent = charModel
+	B.player.Character = charModel
+
+	local followClient = client()
+	local hiddenPart = R.Instance.new('Part')
+	hiddenPart.LocalTransparencyModifier = 1
+	followClient.hiddenPlayerParts = { [hiddenPart] = true }
+	followClient.textLog.HintText = { textId = 'PaintingFlat' }
+	followClient.lastHint = B.time
+	followClient:ExitView(B.time)
+	check(followClient.paintId == nil and followClient.paintCamera.follow ~= nil,
+		'ExitView with altarTossStarted enters camera toss follow')
+	check(followClient.textLog.HintText == nil and followClient.lastHint == 0,
+		'ExitView clears HintText immediately and resets lastHint')
+	check(hiddenPart.LocalTransparencyModifier == 1 and next(followClient.hiddenPlayerParts) ~= nil,
+		'ExitView with active camera follow defers restoring hidden players')
+
+	followClient.snapshot = { pool = 0, shelf = 0, items = {}, altarEnds = 0, stationVersions = {} }
+	followClient:Update(1 / 60)
+	check(hiddenPart.LocalTransparencyModifier == 1 and next(followClient.hiddenPlayerParts) ~= nil,
+		'Update keeps players hidden while paintCamera.follow is active')
+	check(followClient.textLog.HintText == nil,
+		'Update skips regular HintText refresh while paintCamera.follow is active')
+
+	followClient.paintCamera.follow = nil
+	B.time += 0.2
+	followClient:Update(1 / 60)
+	check(hiddenPart.LocalTransparencyModifier == 0 and next(followClient.hiddenPlayerParts) == nil,
+		'Update restores hidden players immediately after paintCamera.follow ends')
+	check(followClient.textLog.HintText ~= nil,
+		'Update resumes regular HintText after paintCamera.follow ends')
+
+	local plainExit = client()
+	local hiddenPart2 = R.Instance.new('Part')
+	hiddenPart2.LocalTransparencyModifier = 1
+	plainExit.hiddenPlayerParts = { [hiddenPart2] = true }
+	plainExit.textLog.HintText = { textId = 'PaintingFlat' }
+	plainExit:ExitView()
+	check(plainExit.paintCamera.follow == nil and hiddenPart2.LocalTransparencyModifier == 0 and next(plainExit.hiddenPlayerParts) == nil,
+		'ExitView without camera follow restores hidden players immediately')
+	check(plainExit.textLog.HintText == nil and plainExit.lastHint == 0,
+		'ExitView without camera follow also clears HintText and resets lastHint')
+
+	B.player.Character = nil
+	charModel:Destroy()
+end
 print('PASS: '..count..' production paint client lifecycle assertions')

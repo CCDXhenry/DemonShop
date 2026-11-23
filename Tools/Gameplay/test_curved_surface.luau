@@ -1,10 +1,12 @@
 -- 曲面规则回归：重心坐标、真实面积、接缝去重、协议拒绝及渲染数据映射
 local Roblox=require('@lune/roblox')
-local Vector3=Roblox.Vector3
+local Vector2,Vector3=Roblox.Vector2,Roblox.Vector3
+local Config=require('./GameConfig')
 local Curve=require('./CurvedSurface')
 local Data=require('./BodySurfaceData')
 local Surface=require('./PaintSurface')
 local Rules=require('./VisualRules')
+local RuneRules=require('./RuneStampRules')
 local count=0
 local function check(value,message) assert(value,message);count+=1 end
 local allArea=0
@@ -72,4 +74,51 @@ invalid=table.clone(segment);invalid.triangle=0/0
 check(not Rules.Validate(invalid),'reject NaN triangle')
 invalid=table.clone(segment);invalid.u=.9;invalid.v=.9
 check(not Rules.Validate(invalid),'reject barycentric outside triangle')
+check(Config.BrushRadius == 0.18 and Config.RuneMinScale == 0.38,'brush radius and rune min scale match updated config')
+local minScaled = table.clone(segment); minScaled.scale = 0.38
+check(Rules.Validate(minScaled),'accept rune stamp at RuneMinScale = 0.38')
+local tooSmall = table.clone(segment); tooSmall.scale = 0.37
+check(not Rules.Validate(tooSmall),'reject rune stamp below RuneMinScale = 0.38')
+
+local sampleTorso = Roblox.Instance.new('Part')
+sampleTorso.Name, sampleTorso.Size = 'UpperTorso', Data.Parts.UpperTorso.size
+sampleTorso:SetAttribute('SurfaceVersion', Curve.Version)
+sampleTorso:SetAttribute('Paintable', true)
+local centerSample = Curve.ProjectLocal(sampleTorso, Vector3.new(0, 0, -sampleTorso.Size.Z * 0.5))
+local _, stampArea = Surface.Stamp(sampleTorso, centerSample, {})
+local _, legacyArea = Curve.Stamp(sampleTorso, centerSample, {}, 0.08)
+check(stampArea > 0.08 and stampArea > legacyArea * 3,'0.18 brush radius covers full rune footprint without thin-brush gaps')
+sampleTorso:Destroy()
+
+local maskedPart = Roblox.Instance.new('Part')
+maskedPart.Name, maskedPart.Size = 'LeftHand', Vector3.new(0.6, 0.6, 0.6)
+local maskRows = {}
+for x = 0, 7 do
+	for y = 0, 7 do
+		table.insert(maskRows, if x >= 3 and x <= 4 and y >= 3 and y <= 4 then '1' else '0')
+	end
+end
+maskedPart:SetAttribute('PaintMask1', table.concat(maskRows))
+check(RuneRules.FitFlatScale(maskedPart, 1, 0.5, 0.5, Vector2.new(0.6, 0.6)) == 0.38,'masked flat edge falls back to 0.38 scale step')
+maskedPart:Destroy()
+
+local edgePart = Roblox.Instance.new('Part')
+edgePart.Name, edgePart.Size = 'LeftHand', Vector3.new(0.54, 0.32, 0.67)
+local fit40 = RuneRules.FitFlatScale(edgePart, 1, (Config.RuneStampSize * 0.2) / 0.54, 0.5, Vector2.new(0.54, 0.32))
+check(fit40 ~= nil and math.abs(fit40 - 0.40) < 1e-4,'flat edge accepts 0.40 scale above 0.38 RuneMinScale')
+check(RuneRules.FitFlatScale(edgePart, 1, 0.05 / 0.54, 0.5, Vector2.new(0.54, 0.32)) == nil,'flat edge skips below 0.38 RuneMinScale')
+edgePart:Destroy()
+
+for _, name in { 'Head', 'LeftHand', 'LeftFoot', 'LowerTorso' } do
+	local p = Roblox.Instance.new('Part')
+	p.Name, p.Size = name, Data.Parts[name].size
+	p:SetAttribute('SurfaceVersion', Curve.Version)
+	p:SetAttribute('Paintable', true)
+	local rim = Curve.ProjectLocal(p, Vector3.new(p.Size.X * 0.35, p.Size.Y * 0.35, -p.Size.Z * 0.45))
+	local rimPoint = Curve.Point(p, rim)
+	local rimNormal = Curve.Geometry(p).triangles[rim.triangle].normal
+	local sc = RuneRules.FitCurvedScale(p, rimPoint, rimNormal, 0)
+	check(sc ~= nil and sc >= Config.RuneMinScale,'curved limb rim fits rune without returning nil: ' .. name)
+	p:Destroy()
+end
 print('PASS: '..count..' curved surface assertions (production geometry and protocol)')

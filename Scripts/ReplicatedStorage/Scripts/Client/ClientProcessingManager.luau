@@ -130,6 +130,10 @@ end
 local function CameraPose(): CFrame
 	return Rotation.CameraPose(tablePlacement.Position)
 end
+local function ActivePaintTarget(): number
+	local flatTarget: number? = (Config :: any).PaintFlatTarget
+	return if Config.PaintRotationEnabled then Config.PaintTarget else (flatTarget or Config.PaintTarget)
+end
 function Client.new(): Client
 	local tableView, hitView, paint = Presentation.new(), HitPresentation.new(), PaintView.new()
 	local bodies = WhiteBodies.new(tableView, hitView, function(id, model)
@@ -300,21 +304,6 @@ function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	if not id then
 		return
 	end
-	if self.hidePlayersScope then
-		self.hidePlayersScope:Destroy()
-		self.hidePlayersScope = nil
-	end
-	local hidden = self.hiddenPlayerParts
-	if hidden then
-		for instance in hidden do
-			if instance:IsA("BasePart") then
-				instance.LocalTransparencyModifier = 0
-			elseif instance:IsA("Decal") then
-				instance.LocalTransparencyModifier = 0
-			end
-		end
-		table.clear(hidden)
-	end
 	self.paintId = nil
 	self.visualUpload:Clear()
 	self.visualClosing = false
@@ -339,6 +328,11 @@ function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	else
 		self.paintCamera:Exit()
 	end
+	if not self.paintCamera.follow then
+		RestoreHiddenPlayers(self)
+	end
+	self:Text("HintText", nil)
+	self.lastHint = 0
 	local touchGui = player:WaitForChild("PlayerGui"):FindFirstChild("TouchGui")
 	if touchGui and touchGui:IsA("ScreenGui") and self.touchGuiEnabled ~= nil then
 		touchGui.Enabled = self.touchGuiEnabled
@@ -373,7 +367,7 @@ function Client.EnterView(self: Client, id: string, session: string, frames: Typ
 	end
 	self.localTotalArea = totalArea
 	self.localProgress = initialProgress
-	self.localArea = initialProgress * math.max(totalArea * Config.PaintTarget, 0.001)
+	self.localArea = initialProgress * math.max(totalArea * ActivePaintTarget(), 0.001)
 	if self.view and self.view.Warmup then
 		self.view:Warmup(id)
 	end
@@ -594,7 +588,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		if item then
 			item.progress = notice.progress or item.progress
 			if isOperator then
-				local targetArea = math.max((self.localTotalArea or 0) * Config.PaintTarget, 0.001)
+				local targetArea = math.max((self.localTotalArea or 0) * ActivePaintTarget(), 0.001)
 				if item.progress >= 1 then
 					self.localProgress = 1
 					self.localArea = math.max(self.localArea or 0, targetArea)
@@ -893,11 +887,13 @@ local function FilterNewCoverageSamples(
 			ink.u, ink.v = Curve.InkCenter(sample.u, sample.v)
 		end
 		local _, added = Surface.Stamp(part, ink, covered)
+		local sampleDistance: number? = nil
 		if previous and not previous.packedInk and not sample.packedInk and previous.part == sample.part and previous.face == sample.face then
 			if curved then
 				local start = Curve.Point(part, previous)
 				local finish = Curve.Point(part, sample)
 				local distance = (finish - start).Magnitude
+				sampleDistance = distance
 				if distance < Config.BrushRadius * 3 then
 					local steps = math.ceil(distance / (Config.BrushRadius * 0.5))
 					for index = 1, steps - 1 do
@@ -909,6 +905,7 @@ local function FilterNewCoverageSamples(
 			else
 				local dimensions = Surface.Dimensions(part.Size, sample.face)
 				local distance = Vector2.new((sample.u - previous.u) * dimensions.X, (sample.v - previous.v) * dimensions.Y).Magnitude
+				sampleDistance = distance
 				if distance < Config.BrushRadius * 3 then
 					local steps = math.ceil(distance / (Config.BrushRadius * 0.5))
 					for index = 1, steps - 1 do
@@ -927,9 +924,12 @@ local function FilterNewCoverageSamples(
 		if added > 0 then
 			totalAdded += added
 			if previous and not sample.breakBefore and previous.part == sample.part and previous.face == sample.face and previous ~= lastQueued then
-				local anchor = table.clone(previous)
-				anchor.breakBefore = true
-				table.insert(filtered, anchor)
+				local skipAnchor = not Config.PaintRotationEnabled and sampleDistance ~= nil and sampleDistance < Config.BrushRadius * 1.25
+				if not skipAnchor then
+					local anchor = table.clone(previous)
+					anchor.breakBefore = true
+					table.insert(filtered, anchor)
+				end
 			end
 			table.insert(filtered, sample)
 			lastQueued = sample
@@ -984,11 +984,11 @@ function Client.SamplePaint(self: Client, now: number): Vector2?
 				local item = self.items[id]
 				local baseProgress = if item then math.clamp(item.progress, 0, 1) else 0
 				self.localProgress = math.max(self.localProgress or 0, baseProgress)
-				self.localArea = math.max(self.localArea or 0, self.localProgress * math.max(total * Config.PaintTarget, 0.001))
+				self.localArea = math.max(self.localArea or 0, self.localProgress * math.max(total * ActivePaintTarget(), 0.001))
 			end
 			if (self.localTotalArea or 0) > 0 then
 				self.localArea = (self.localArea or 0) + addedArea
-				local targetArea = math.max(self.localTotalArea * Config.PaintTarget, 0.001)
+				local targetArea = math.max(self.localTotalArea * ActivePaintTarget(), 0.001)
 				local predicted = math.min(self.localArea / targetArea, 0.99)
 				self.localProgress = math.max(self.localProgress or 0, predicted)
 			end
@@ -1108,6 +1108,9 @@ function Client.Update(self: Client, dt: number): ()
 			self.view.budgetReached=false
 		end
 	end
+	if not self.paintId and not self.paintCamera.follow and self.hiddenPlayerParts and next(self.hiddenPlayerParts) ~= nil then
+		RestoreHiddenPlayers(self)
+	end
 	if now - self.lastHint < 0.1 then
 		return
 	end
@@ -1171,7 +1174,10 @@ function Client.Update(self: Client, dt: number): ()
 				end
 			end
 		end
-		self:Text("HintText", {textId = "Painting"})
+		self:Text("HintText", { textId = if Config.PaintRotationEnabled then "Painting" else "PaintingFlat" })
+		return
+	end
+	if self.paintCamera.follow ~= nil then
 		return
 	end
 	local character = player.Character
@@ -1270,15 +1276,20 @@ function Client.OnRelease(self: Client, input: InputObject): ()
 			self:SamplePaint(os.clock())
 			self.finishPaint = true
 			if mouseRelease then
-				SnapPointerToBrush(self, hardware)
-				local tip = self.pointer
-				if tip and WarpMouseToTip(tip) then
-					self.pointer = tip
-					self.pointerOrigin = tip
-					self.hardwareOrigin = tip
-				elseif tip then
-					self.hardwareOrigin = HardwareNow(hardware)
-					catchHardwareOrigin = true
+				if Config.PaintRotationEnabled then
+					SnapPointerToBrush(self, hardware)
+					local tip = self.pointer
+					if tip and WarpMouseToTip(tip) then
+						self.pointer = tip
+						self.pointerOrigin = tip
+						self.hardwareOrigin = tip
+					elseif tip then
+						self.hardwareOrigin = HardwareNow(hardware)
+						catchHardwareOrigin = true
+					end
+				else
+					self.pointerOrigin, self.hardwareOrigin = nil, nil
+					catchHardwareOrigin = false
 				end
 			end
 		end
@@ -1341,7 +1352,9 @@ function Client.UpdateAltar(self: Client, now: number): ()
 		local tossing = self.bodies.IsAltarTossing and self.bodies:IsAltarTossing(item.id, now)
 		if (item.flyEnds and now < item.flyEnds) or tossing then
 			self.bodies:Fly(item.id, now)
-			self.view:ClearSacrifice(item.id)
+			if self.completeFlash == nil or self.completeFlash.id ~= item.id then
+				self.view:ClearSacrifice(item.id)
+			end
 			local flying = self.altarViews[item.id]
 			if flying then flying:Clear(); self.altarViews[item.id] = nil end
 			continue
@@ -1402,11 +1415,14 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		if not self.drawing then return end
 		if self.touch then
 			self.pointer = nil
-		else
+		elseif Config.PaintRotationEnabled then
 			local hardware = HardwareFromPointer(self)
 			if hardware then
 				SnapPointerToBrush(self, hardware)
 			end
+		else
+			self.pointerOrigin, self.hardwareOrigin = nil, nil
+			catchHardwareOrigin = false
 		end
 		self.drawing, self.finishPaint, self.touch = false, true, nil
 		self.brushFrame = nil

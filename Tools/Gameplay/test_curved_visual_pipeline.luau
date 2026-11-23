@@ -49,7 +49,7 @@ for _, segment in accepted do
 	check(string.sub(segment.key, 1, #session + 1) == session .. ':', 'session owns generated rune key')
 	check(segment.surfaceVersion == Curve.Version and segment.triangle ~= nil, 'server retains curve triangle coordinate')
 	check(segment.glyph >= 1 and segment.glyph <= Config.RuneGlyphCount, 'glyph index valid')
-	check(segment.scale >= Config.RuneMinScale and segment.scale <= 1, 'scale within [0.5, 1]')
+	check(segment.scale >= Config.RuneMinScale and segment.scale <= 1, 'scale within [RuneMinScale, 1]')
 end
 check(firstStamp.angle == 0, 'first stamp of stroke is upright')
 
