@@ -102,7 +102,7 @@ subprocess.run(["lune","run",str(OUT/"test_painting.luau")],cwd=ROOT,check=True)
 
 # Exercise the complete production request dispatcher with real painting rules.
 source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
-prefix="local CFrame=require('@lune/roblox').CFrame\nlocal Config=require('./GameConfig')\nlocal Painting=require('./Painting')\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\nlocal Random={new=function() return {} end}\n"
+prefix="local CFrame=require('@lune/roblox').CFrame\nlocal Config=require('./GameConfig')\nlocal Painting=require('./Painting')\nlocal PaintRotation=require('./PaintRotation')\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\nlocal Random={new=function() return {} end}\n"
 (OUT/"PaintRequestManager.luau").write_text(prefix+source[source.index('type PlayerData ='):],encoding="utf-8")
 for name in ("PaintRequestBoundary","test_paint_requests"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -185,7 +185,7 @@ methods=[
     source[source.index("function Client.Carried("):source.index("local function HidePlayerCharactersForPaint(")],
     source[source.index("local function PaintControl("):source.index("function Client.Paint(")],
 ]
-for name in ("ExitView","OnNotice","RequestPaintEnd","Paint","StepPaintRotation","Update","OnInput","OnMove","OnRelease","ResetPaintView","UpdateAltar"):
+for name in ("TriggerAutoFlip","ExitView","OnNotice","RequestPaintEnd","Paint","StepPaintRotation","Update","OnInput","OnMove","OnRelease","ResetPaintView","UpdateAltar"):
     start=source.index("function Client."+name+"(")
     end=source.find("\nfunction Client.",start+1)
     methods.append(source[start:end])

@@ -51,9 +51,15 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 		item.poseBody = table.clone(request.bodyPose)
 		poseChanged = true
 	end
+	local targetRatio = if Config.PaintRotationEnabled then Config.PaintTarget else (Config.PaintFlatTarget or Config.PaintTarget)
+	local targetArea = math.max(item.totalArea * targetRatio, 0.001)
+	local requestFlipped = not Config.PaintRotationEnabled and request.orientation ~= nil and Rotation.IsFlipped(request.orientation)
+	if requestFlipped and not item.paintFlipped and item.progress >= Config.PaintAutoFlipProgress * 0.85 then
+		item.paintFlipped = true
+	end
 	local orientation = if Config.PaintRotationEnabled
 		then (request.orientation or session.orientation).Rotation
-		else CFrame.identity
+		else Rotation.FlatOrientation(item.paintFlipped == true)
 	local current = Rotation.Pose(pose, session.geometry, session.orientation)
 	if poseChanged and item.poseBody then
 		BodyPose.Apply(item.model, current, item.poseBody)
@@ -72,9 +78,18 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 		local part = item.model:FindFirstChild(sample.part)
 		if not part or not part:IsA("BasePart") or not Surface.IsBody(part) or not Surface.IsPaintSample(part, sample) then previous = nil; continue end
 		local curved=Curve.IsPart(part)
-		local sampledOrientation = if Config.PaintRotationEnabled
-			then (sample.orientation or orientation).Rotation
-			else CFrame.identity
+		local sampledOrientation: CFrame
+		if Config.PaintRotationEnabled then
+			sampledOrientation = (sample.orientation or orientation).Rotation
+		else
+			local sampleFlipped = if sample.orientation ~= nil then Rotation.IsFlipped(sample.orientation) else (item.paintFlipped == true)
+			local currentProgress = math.min(item.area / targetArea, 1)
+			if not item.paintFlipped and sampleFlipped and currentProgress >= Config.PaintAutoFlipProgress * 0.85 then
+				item.paintFlipped = true
+				orientation = Rotation.FlipOrientation
+			end
+			sampledOrientation = Rotation.FlatOrientation(sampleFlipped and item.paintFlipped == true)
+		end
 		if sampledOrientation ~= rayOrientation then
 			-- 将历史视点换算到当前模型姿态，每批只移动实体一次；保留连续笔划 previous 供同面线段补采样。
 			local sampled = Rotation.Pose(pose, session.geometry, sampledOrientation)
@@ -150,9 +165,14 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 	if #accepted > 0 then
 		item.paintSeconds += math.min(elapsed, 0.15)
 	end
+	item.progress = math.min(item.area / targetArea, 1)
+	if not Config.PaintRotationEnabled and not item.paintFlipped then
+		if item.progress >= Config.PaintAutoFlipProgress or (requestFlipped and item.progress >= Config.PaintAutoFlipProgress * 0.85) then
+			item.paintFlipped = true
+			orientation = Rotation.FlipOrientation
+		end
+	end
 	Painting.SetPose(session, item, pose, orientation)
-	local targetRatio = if Config.PaintRotationEnabled then Config.PaintTarget else (Config.PaintFlatTarget or Config.PaintTarget)
-	item.progress = math.min(item.area / math.max(item.totalArea * targetRatio, 0.001), 1)
 	local stroke: Types.Stroke? = nil
 	if #accepted > 0 and item.strokePoints + #accepted <= Config.PaintStrokePointBudget then
 		local recorded: Types.Stroke = { key = session.token .. ":" .. tostring(sequence), samples = accepted }

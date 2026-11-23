@@ -33,9 +33,14 @@ local function client()
    Fly=function() end,
   },
   view=view,items={},synced=true,lastFrame=B.time,lastSync=B.time,lastHint=B.time,messageEnds=100,
-  localProgress=0,localArea=0,localTotalArea=0,
+  localProgress=0,localArea=0,localTotalArea=0,paintFlipped=false,flipFlash=nil,
   hiddenPlayerParts={},altarViews={},altarView={Clear=function() end},
-  presentation={CapturePose=function() return nil end},
+  presentation={
+   flipped=false,flipping=false,
+   CapturePose=function() return nil end,
+   IsFlipping=function(p) return p.flipping==true end,
+   SetFlipped=function(p,f,anim) p.flipped=f; p.flipping=(f and anim==true); if not p.flipping then p.targetOrientation=Rotation.FlatOrientation(f) end end,
+  },
   paintCamera={
    ready=true,follow=nil,
    Exit=function(cam) cam.follow=nil; table.insert(log,'camera-exit') end,
@@ -611,5 +616,27 @@ do
 
 	B.player.Character = nil
 	charModel:Destroy()
+end
+do
+	local autoFlipClient = client()
+	autoFlipClient.Paint = nil
+	autoFlipClient.orientation = C.identity
+	autoFlipClient.sentOrientation = C.identity
+	autoFlipClient.drawing = true
+	autoFlipClient.brushFrame = { orientation = C.identity, pointer = R.Vector2.zero, tip = R.Vector2.zero, clamped = false }
+	autoFlipClient:TriggerAutoFlip(true)
+	check(autoFlipClient.paintFlipped == true and autoFlipClient.orientation == Rotation.FlipOrientation,
+		'TriggerAutoFlip switches client orientation to flipped back side')
+	check(autoFlipClient.presentation.flipped == true and autoFlipClient.presentation:IsFlipping() == true,
+		'TriggerAutoFlip starts flip presentation animation')
+	check(autoFlipClient.textLog.NoticeText and autoFlipClient.textLog.NoticeText.textId == 'PaintFlipped',
+		'TriggerAutoFlip shows flip notice text')
+	check(autoFlipClient.flipFlash ~= nil and autoFlipClient.flipFlash.id == 'body',
+		'TriggerAutoFlip triggers flip flash highlight')
+	autoFlipClient.SamplePaint = function() error('must not sample while flipping') end
+	autoFlipClient.brushFrame = { orientation = C.identity, pointer = R.Vector2.zero, tip = R.Vector2.zero, clamped = false }
+	autoFlipClient:Paint(B.time)
+	check(autoFlipClient.brushFrame == nil and autoFlipClient.drawing == true,
+		'Paint pauses stroke sampling and breaks stroke while flipping while preserving drawing state')
 end
 print('PASS: '..count..' production paint client lifecycle assertions')

@@ -134,6 +134,7 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 			progress = item.progress,
 			holder = if item.holder then item.holder.UserId else nil,
 			visualCount = if item.visualState then item.visualState.count else 0,
+			paintFlipped = item.paintFlipped == true,
 			flyEnds = item.flyEnds,
 			convertEnds = item.convertEnds,
 			toss = if item.poolToss then { from = item.poolToss.from, target = item.poolToss.target, started = item.poolToss.started, owner = item.poolToss.owner } else nil,
@@ -153,6 +154,7 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 	return {
 		revision = self.revision,
 		paintOrientation = if body then body.paintOrientation else nil,
+		paintFlipped = if body then body.paintFlipped == true else false,
 		bodyPose = if body then body.poseBody else nil,
 		stationVersions = table.clone(self.stationVersions),
 		items = list,
@@ -361,7 +363,8 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 			}
 		end
 	elseif item then
-		Painting.SetPose(session, item, Scene.TablePose(), CFrame.identity)
+		local restOrientation = if Config.PaintRotationEnabled then CFrame.identity else PaintRotation.FlatOrientation(item.paintFlipped == true)
+		Painting.SetPose(session, item, Scene.TablePose(), restOrientation)
 		item.stage = "Painting"
 		item.version += 1
 	end
@@ -398,19 +401,21 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
 	if not character or not root or not hum then
 		return
 	end
+	local initialFlipped = not Config.PaintRotationEnabled and item.paintFlipped == true
+	local initialOrientation = PaintRotation.FlatOrientation(initialFlipped)
 	local session: PaintSession = {
 		player = player,
 		id = item.id,
 		token = HttpService:GenerateGUID(false),
 		last = workspace:GetServerTimeNow(),
 		sequence = 0,
-		orientation = CFrame.identity,
+		orientation = initialOrientation,
 		walkSpeed = hum.WalkSpeed,
 		jumpPower = hum.JumpPower,
 		jumpHeight = hum.JumpHeight,
 	}
 	self.paint = session
-	item.paintOrientation = CFrame.identity
+	item.paintOrientation = initialOrientation
 	item.poseBody=nil
 	item.stage = "Painting"
 	item.version += 1
@@ -429,10 +434,13 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): ()
 		item.exteriorMeasured = true
 	end
 	session.geometry = PaintRotation.Create(item.model, frames)
+	if initialFlipped then
+		Painting.SetPose(session, item, Scene.TablePose(), initialOrientation, true)
+	end
 	if keep then
 		self:Restack(player)
 	end
-	Net.FireNotify(player, { kind = "BeginPaint", id = item.id, session = session.token, bodyPose = frames })
+	Net.FireNotify(player, { kind = "BeginPaint", id = item.id, session = session.token, bodyPose = frames, orientation = initialOrientation, flipped = initialFlipped })
 end
 function Manager.Pool(self: Manager, player: Player): ()
 	local stack = self:Carried(player)
@@ -830,7 +838,7 @@ function Manager.Paint(self: Manager, player: Player, request: Types.Request): (
 	if not result then
 		return
 	end
-	Net.Broadcast({ kind = "PaintPose", id = item.id, session = session.token, sequence = request.sequence, orientation = session.orientation, bodyPose = item.poseBody, progress = item.progress, started=workspace:GetServerTimeNow() })
+	Net.Broadcast({ kind = "PaintPose", id = item.id, session = session.token, sequence = request.sequence, orientation = session.orientation, flipped = item.paintFlipped == true, bodyPose = item.poseBody, progress = item.progress, started=workspace:GetServerTimeNow() })
 	if result.complete then
 		session.finishing=true
 		Net.FireNotify(player,{kind="FinishPaint",session=session.token,id=item.id})
@@ -928,7 +936,7 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 	if request.action == "ResetView" then
 		local session = self.paint
 		local item = session and self.items[session.id]
-		if session and item and session.player == player and request.session == session.token and not session.finishing
+		if Config.PaintRotationEnabled and session and item and session.player == player and request.session == session.token and not session.finishing
 			and session.orientation ~= CFrame.identity then
 			Painting.SetPose(session, item, Scene.TablePose(), CFrame.identity)
 			Net.Broadcast({ kind = "PaintPose", id = item.id, session = session.token, orientation = CFrame.identity, progress = item.progress, started = now })

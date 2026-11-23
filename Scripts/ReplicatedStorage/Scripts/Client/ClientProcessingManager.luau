@@ -85,6 +85,7 @@ export type Client = typeof(setmetatable(
 		visualGesture: number,
 		orientation: CFrame,
 		sentOrientation: CFrame,
+		paintFlipped: boolean,
 		lastPaint: number,
 		paintSequence: number,
 		angularSpeed: number,
@@ -98,6 +99,7 @@ export type Client = typeof(setmetatable(
 		hiddenPlayerParts: { [Instance]: boolean }?,
 		hidePlayersScope: Lifecycle.Lifecycle?,
 		completeFlash: { id: string, started: number }?,
+		flipFlash: { id: string, started: number }?,
 		initialized: boolean,
 	},
 	Client
@@ -182,6 +184,7 @@ function Client.new(): Client
 			visualGesture = 0,
 			orientation = CFrame.identity,
 			sentOrientation = CFrame.identity,
+			paintFlipped = false,
 			lastPaint = 0,
 			paintSequence = 0,
 			angularSpeed = 0,
@@ -195,6 +198,7 @@ function Client.new(): Client
 			hiddenPlayerParts = {},
 			hidePlayersScope = nil,
 			completeFlash = nil,
+			flipFlash = nil,
 			initialized = false,
 		},
 		Client
@@ -299,12 +303,39 @@ local function HidePlayersForPaint(self: Client): ()
 	HidePlayerCharactersForPaint(self)
 end
 
+function Client.TriggerAutoFlip(self: Client, animate: boolean): ()
+	if Config.PaintRotationEnabled or self.paintFlipped then
+		return
+	end
+	self.paintFlipped = true
+	self.orientation = Rotation.FlipOrientation
+	self.brushFrame = nil
+	self.visualGesture += 1
+	self.presentation:SetFlipped(true, animate)
+	if animate then
+		self:Text("NoticeText", { textId = "PaintFlipped" })
+		self.messageEnds = os.clock() + 2.2
+		if self.paintId and Config.PaintFlipFlashSeconds > 0 then
+			self.flipFlash = { id = self.paintId, started = os.clock() }
+		end
+		if Sound then
+			Sound.Play("PaintFlip")
+		end
+	end
+end
 function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	local id = self.paintId
 	if not id then
 		return
 	end
 	self.paintId = nil
+	self.paintFlipped = false
+	if self.flipFlash then
+		if not self.completeFlash or self.completeFlash.id ~= self.flipFlash.id then
+			self.view:ClearSacrifice(self.flipFlash.id)
+		end
+		self.flipFlash = nil
+	end
 	self.visualUpload:Clear()
 	self.visualClosing = false
 	self.session = nil
@@ -340,7 +371,7 @@ function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	self.touchGuiEnabled = nil
 	self.ui:SetPainting(false)
 end
-function Client.EnterView(self: Client, id: string, session: string, frames: Types.BodyPose?): ()
+function Client.EnterView(self: Client, id: string, session: string, frames: Types.BodyPose?, initialFlipped: boolean?): ()
 	if self.paintId then
 		self:ExitView()
 	end
@@ -371,7 +402,11 @@ function Client.EnterView(self: Client, id: string, session: string, frames: Typ
 	if self.view and self.view.Warmup then
 		self.view:Warmup(id)
 	end
-	self.orientation, self.sentOrientation = CFrame.identity, CFrame.identity
+	local flipped = not Config.PaintRotationEnabled and (initialFlipped == true or (item ~= nil and item.paintFlipped == true))
+	local initialOrientation = if Config.PaintRotationEnabled then CFrame.identity else Rotation.FlatOrientation(flipped)
+	self.paintFlipped = flipped
+	self.orientation, self.sentOrientation = initialOrientation, initialOrientation
+	self.presentation:SetFlipped(flipped, false)
 	if UserInputService.MouseEnabled then
 		local inset = GuiService:GetGuiInset()
 		self.pointer = UserInputService:GetMouseLocation() - inset
@@ -499,9 +534,6 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		end
 		self.snapshot = snapshot
 		self.potionShelf:Apply(snapshot.shelfItems, notice.kind == "Delta" and self.synced, os.clock())
-		if snapshot.painter ~= player.UserId then
-			self.presentation.targetOrientation = if Config.PaintRotationEnabled then (snapshot.paintOrientation or CFrame.identity) else CFrame.identity
-		end
 		if snapshot.bodyPose and (self.paintId == nil or self.paintId == snapshot.tableId) then
 			self.presentation.targetBodyPose = snapshot.bodyPose
 		end
@@ -510,6 +542,19 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			nextItems[item.id] = item
 		end
 		self.bodies:UpdateState(nextItems,snapshot.bodyPose)
+		if snapshot.painter ~= player.UserId then
+			if Config.PaintRotationEnabled then
+				self.presentation.targetOrientation = snapshot.paintOrientation or CFrame.identity
+			else
+				local tableItem = if snapshot.tableId then nextItems[snapshot.tableId] else nil
+				local wantFlipped = snapshot.paintFlipped == true
+					or (tableItem ~= nil and tableItem.paintFlipped == true)
+					or (snapshot.paintOrientation ~= nil and Rotation.IsFlipped(snapshot.paintOrientation))
+				self.presentation:SetFlipped(wantFlipped, false)
+			end
+		elseif not Config.PaintRotationEnabled and self.paintId ~= nil and self.paintId == snapshot.tableId then
+			self.presentation:SetFlipped(self.paintFlipped, false)
+		end
 		for _,item in nextItems do
 			if item.kind ~= "Body" and item.model then self.view:Bind(item.id,item.model) end
 		end
@@ -596,11 +641,20 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 					self.localProgress = item.progress
 					self.localArea = math.max(self.localArea or 0, item.progress * targetArea)
 				end
+				if not Config.PaintRotationEnabled and not self.paintFlipped
+					and (notice.flipped == true or item.progress >= Config.PaintAutoFlipProgress) then
+					self:TriggerAutoFlip(true)
+				end
 			end
 		end
 		if isOperator and self.pendingCoverage and notice.sequence == self.pendingCoverage.sequence then self.pendingCoverage=nil end
 		if not isOperator then
-			self.presentation.targetOrientation = if Config.PaintRotationEnabled then (notice.orientation or CFrame.identity) else CFrame.identity
+			if Config.PaintRotationEnabled then
+				self.presentation.targetOrientation = notice.orientation or CFrame.identity
+			else
+				local wantFlipped = notice.flipped == true or (notice.orientation ~= nil and Rotation.IsFlipped(notice.orientation))
+				self.presentation:SetFlipped(wantFlipped, wantFlipped and not self.presentation.flipped)
+			end
 			if Config.PaintPhysicsEnabled and notice.bodyPose then
 				self.presentation.targetBodyPose = notice.bodyPose
 			end
@@ -632,6 +686,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		self:Notice(if notice.textId or notice.text then notice else {kind = "Message", textId = "PaintSyncFailed"})
 		self.messageEnds=os.clock()+10
 	elseif notice.kind == "FinishPaint" and notice.session == self.session then
+		self.flipFlash = nil
 		if self.paintId and Config.RuneCompleteFlashSeconds > 0 then
 			self.completeFlash = { id = self.paintId, started = os.clock() }
 			if self.view and self.view.SetSacrifice then
@@ -643,7 +698,8 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		self.sentOrientation=self.orientation
 		self:RequestPaintEnd()
 	elseif notice.kind == "BeginPaint" and notice.id and notice.session then
-		self:EnterView(notice.id, notice.session, notice.bodyPose)
+		local initialFlipped = notice.flipped == true or (notice.orientation ~= nil and Rotation.IsFlipped(notice.orientation))
+		self:EnterView(notice.id, notice.session, notice.bodyPose, initialFlipped)
 	elseif notice.kind == "EndPaint" and notice.session == self.session then
 		local id = notice.id or self.paintId
 		if id and (notice.altarToss or notice.started) then
@@ -993,7 +1049,15 @@ function Client.SamplePaint(self: Client, now: number): Vector2?
 				self.localProgress = math.max(self.localProgress or 0, predicted)
 			end
 		end
-		for _, sample in queued do table.insert(self.paintSamples,sample) end
+		for _, sample in queued do
+			if not Config.PaintRotationEnabled and not sample.orientation then
+				sample.orientation = display.orientation
+			end
+			table.insert(self.paintSamples,sample)
+		end
+		if not Config.PaintRotationEnabled and not self.paintFlipped and (self.localProgress or 0) >= Config.PaintAutoFlipProgress then
+			self:TriggerAutoFlip(true)
+		end
 		if now - self.lastPaintSound >= 0.12 then
 			self.lastPaintSound = now
 			Sound.Play("PaintStroke")
@@ -1005,7 +1069,11 @@ end
 function Client.Paint(self: Client, now: number): Vector2?
 	local session = self.session
 	if not self.paintId or not session then return nil end
-	local tip = if self.drawing then self:SamplePaint(now) else self.pointer
+	local flipping = self.presentation:IsFlipping()
+	if flipping then
+		self.brushFrame = nil
+	end
+	local tip = if self.drawing and not flipping then self:SamplePaint(now) else self.pointer
 	local moved = Rotation.Distance(self.sentOrientation, self.orientation) > 0.001
 
 	local pending = self.pendingCoverage
@@ -1035,7 +1103,7 @@ end
 
 function Client.StepPaintRotation(self: Client, dt: number): ()
 	if not Config.PaintRotationEnabled then
-		self.orientation = CFrame.identity
+		self.orientation = Rotation.FlatOrientation(self.paintFlipped)
 		self.angularSpeed = 0
 		return
 	end
@@ -1074,7 +1142,7 @@ function Client.Update(self: Client, dt: number): ()
 		local item = self.items[self.paintId]
 		if item and item.model then self.ui:SetProgress(math.max(item.progress, self.localProgress or 0)) end
 		local point = self:Paint(now)
-		self.ui:UpdatePointer(point, self.drawing)
+		self.ui:UpdatePointer(point, self.drawing and not self.presentation:IsFlipping())
 		ignoreMouseMove = false
 		if catchHardwareOrigin and not self.drawing and self.hardwareOrigin then
 			catchHardwareOrigin = false
@@ -1097,6 +1165,27 @@ function Client.Update(self: Client, dt: number): ()
 			local brightness = if elapsed <= hold then 1 else math.clamp(1 - (elapsed - hold) / (duration - hold), 0, 1)
 			if self.view and self.view.SetSacrifice then
 				self.view:SetSacrifice(completeFlash.id, brightness, 0)
+			end
+		end
+	end
+	local flipFlash = self.flipFlash
+	if flipFlash then
+		if completeFlash and completeFlash.id == flipFlash.id then
+			self.flipFlash = nil
+		else
+			local elapsed = now - flipFlash.started
+			local duration = math.max(Config.PaintFlipFlashSeconds, 0.05)
+			if elapsed >= duration then
+				if self.view and self.view.ClearSacrifice then
+					self.view:ClearSacrifice(flipFlash.id)
+				end
+				self.flipFlash = nil
+			else
+				local hold = duration * 0.25
+				local weight = if elapsed <= hold then 1 else math.clamp(1 - (elapsed - hold) / (duration - hold), 0, 1)
+				if self.view and self.view.SetSacrifice then
+					self.view:SetSacrifice(flipFlash.id, weight * Config.PaintFlipFlashBrightness, 0)
+				end
 			end
 		end
 	end
@@ -1302,7 +1391,7 @@ function Client.OnRelease(self: Client, input: InputObject): ()
 	end
 end
 function Client.ResetPaintView(self: Client): ()
-	if self.visualClosing or not self.paintId then return end
+	if not Config.PaintRotationEnabled or self.visualClosing or not self.paintId then return end
 	self.drawing = false
 	self.finishPaint = #self.paintSamples > 0
 	self.brushFrame, self.touch = nil, nil
@@ -1487,6 +1576,10 @@ function Client.Destroy(self: Client): ()
 	if self.completeFlash then
 		self.view:ClearSacrifice(self.completeFlash.id)
 		self.completeFlash = nil
+	end
+	if self.flipFlash then
+		self.view:ClearSacrifice(self.flipFlash.id)
+		self.flipFlash = nil
 	end
 	self.paintCamera:Destroy()
 	self.ui:UnbindActions()

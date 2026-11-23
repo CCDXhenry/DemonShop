@@ -7,6 +7,27 @@ local Rotation = {}
 local FullSpeedRadius = 0.45 -- 视口短边的比例
 export type Geometry = { center: Vector3, rest: CFrame, radius: number, halfExtents: Vector3? }
 
+Rotation.FlipOrientation = CFrame.Angles(0, math.pi, 0)
+
+function Rotation.FlatOrientation(flipped: boolean): CFrame
+	return if flipped then Rotation.FlipOrientation else CFrame.identity
+end
+
+function Rotation.IsFlipped(orientation: CFrame?): boolean
+	if not orientation then
+		return false
+	end
+	return Rotation.Distance(orientation, Rotation.FlipOrientation) < 0.1
+end
+
+function Rotation.FlipFrame(alpha: number): (CFrame, number)
+	local t = math.clamp(alpha, 0, 1)
+	local eased = if t < 0.5 then 2 * t * t else 1 - ((-2 * t + 2) ^ 2) / 2
+	local rot = CFrame.Angles(0, math.pi * eased, 0)
+	local lift = Config.PaintFlipLiftHeight * math.sin(math.pi * t)
+	return rot, lift
+end
+
 function Rotation.TablePose(position: Vector3): CFrame
 	-- 头朝俯视画面左侧，白膜面朝上。
 	return CFrame.fromMatrix(position, Vector3.zAxis, -Vector3.xAxis)

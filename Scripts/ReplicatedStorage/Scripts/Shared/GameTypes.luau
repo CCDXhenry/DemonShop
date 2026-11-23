@@ -55,6 +55,7 @@ export type Item = {
 	progress: number,
 	paintSeconds: number,
 	paintOrientation: CFrame?,
+	paintFlipped: boolean?,
 	poseBody: BodyPose?,
 	streetSlot: boolean,
 	nextWalk: number,
@@ -85,11 +86,12 @@ export type Item = {
 	altarHeld: boolean?,
 }
 export type ItemView =
-	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, progress: number, holder: number?, visualCount: number?, fall: GroundFall?, flyEnds: number?, convertEnds: number?, toss: PoolToss?, altarToss: AltarTossView?, altarTossStarted: number? }
+	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, progress: number, holder: number?, visualCount: number?, paintFlipped: boolean?, fall: GroundFall?, flyEnds: number?, convertEnds: number?, toss: PoolToss?, altarToss: AltarTossView?, altarTossStarted: number? }
 export type Snapshot = {
 	bodyPose: BodyPose?,
 	revision: number,
 	paintOrientation: CFrame?,
+	paintFlipped: boolean?,
 	stationVersions: { [string]: number },
 	items: { ItemView },
 	pool: number,
@@ -101,5 +103,5 @@ export type Snapshot = {
 	painter: number?,
 	session: string?,
 }
-export type Notice = { kind: string, attackSequence: number?, hit: boolean?, version: number?, hits: number?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
+export type Notice = { kind: string, attackSequence: number?, hit: boolean?, version: number?, hits: number?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, flipped: boolean?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
 return {}

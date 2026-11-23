@@ -88,4 +88,30 @@ check(model:GetAttribute("PhysicsMode") == "AltarAnchored", "final landing sets 
 local conversion = automatic.convertEnds
 step(tableLandedAt + 1)
 check(automatic.convertEnds == conversion and automatic.version == 2, "subsequent server ticks never restart conversion")
+
+do
+	local unflippedModel = R.Instance.new("Model")
+	local flippedModel = R.Instance.new("Model")
+	for _, m in {unflippedModel, flippedModel} do
+		local base = if m == flippedModel then F.new(4, 2, 1) * F.Angles(0, math.pi, 0) else F.new(4, 2, 1)
+		for _, name in {"HumanoidRootPart", "UpperTorso", "Head"} do
+			local part = R.Instance.new("Part")
+			part.Name, part.Size, part.Parent = name, V.new(1, 1, 1), m
+			local offset = if name == "Head" then F.new(0, 1, 0) else F.identity
+			part.CFrame = base * offset
+			part:SetAttribute("RestPose", offset)
+		end
+		m.PrimaryPart = m.HumanoidRootPart
+		m.Parent = B.world
+	end
+	local unflippedItem = {id = "same-flip-id", model = unflippedModel, version = 1, location = "Altar", paintFlipped = false}
+	local flippedItem = {id = "same-flip-id", model = flippedModel, version = 1, location = "Altar", paintFlipped = true}
+	Carry.BeginAltarToss(unflippedItem, 0, true, 0)
+	Carry.BeginAltarToss(flippedItem, 0, true, 0)
+	check(unflippedItem.altarToss.rest.LookVector:Dot(flippedItem.altarToss.rest.LookVector) < -0.9,
+		"flipped body lands face-down opposite to unflipped rest pose")
+	unflippedModel:Destroy()
+	flippedModel:Destroy()
+end
+
 print("PASS", count, "altar toss assertions (deterministic trajectory; zero loose server physics)")

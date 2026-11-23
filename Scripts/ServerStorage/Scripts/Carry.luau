@@ -384,9 +384,13 @@ function Carry.BeginAltarToss(item: Types.Item, layer: number, fromTable: boolea
 	FreezePose(item, false)
 	local flightStarts = now + (if fromTable then Altar.LiftSeconds else 0)
 	local landSeconds = Altar.LandSeconds or 0.32
+	local surface = Scene.AltarPilePose(item.id, layer)
+	if item.paintFlipped then
+		surface = surface * CFrame.Angles(0, math.pi, 0)
+	end
 	item.altarToss = {
 		from = from,
-		rest = AltarRestPose(item.model, from, Scene.AltarPilePose(item.id, layer)),
+		rest = AltarRestPose(item.model, from, surface),
 		started = now,
 		flightStarts = flightStarts,
 		landEnds = flightStarts + Altar.FlightSeconds + landSeconds,

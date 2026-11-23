@@ -281,7 +281,7 @@ local function noticeFixture()
 	function fx:UpgradeBurst() self.upgrades+=1 end
 	return setmetatable({bodies=Manager.new(tableView,fx,function() end),items={},waitingHits={},hitView=fx,
 		potionShelf={Apply=function() end},
-		hitState=Rules.New(),presentation={},characterView={carriers={}},attackSequence=5,HitFeedback=function() end,Held=function() return nil end},
+		hitState=Rules.New(),presentation={SetFlipped=function() end},characterView={carriers={}},attackSequence=5,HitFeedback=function() end,Held=function() return nil end},
 		{__index=Feedback})
 end
 local function hitNotice(h)

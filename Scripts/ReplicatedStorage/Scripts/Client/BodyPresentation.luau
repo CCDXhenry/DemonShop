@@ -14,6 +14,7 @@ export type Presentation=typeof(setmetatable({} :: {
 	antiGravity: {[BasePart]: VectorForce},aligners: {[BasePart]: AlignOrientation},
 	orientation: CFrame,targetOrientation: CFrame,
 	dynamic: boolean,spinning: boolean,
+	flipped: boolean,flipAnim: { started: number, duration: number }?,
 	targetBodyPose: Types.BodyPose?,restBodyPose: Types.BodyPose?,
 	geometry: Rotation.Geometry?, center: Vector3?,
 },Presentation))
@@ -21,7 +22,7 @@ function Presentation.new(): Presentation
 	return setmetatable({
 		model=nil,parts={},sockets={},baseFriction={},antiGravity={},aligners={},
 		orientation=CFrame.identity,targetOrientation=CFrame.identity,
-		dynamic=false,spinning=false,targetBodyPose=nil,restBodyPose=nil,
+		dynamic=false,spinning=false,flipped=false,flipAnim=nil,targetBodyPose=nil,restBodyPose=nil,
 	},Presentation)
 end
 function Presentation.Clear(self: Presentation): ()
@@ -45,6 +46,7 @@ function Presentation.Clear(self: Presentation): ()
 	self.model,self.targetBodyPose,self.restBodyPose=nil,nil,nil
 	self.geometry,self.center=nil,nil
 	self.dynamic,self.spinning=false,false
+	self.flipped,self.flipAnim=false,nil
 end
 local function ApplySocketFriction(self: Presentation,scale: number): ()
 	for _,socket in self.sockets do
@@ -117,19 +119,60 @@ function Presentation.Attach(self: Presentation,source: Model,model: Model,rootD
 	self.targetBodyPose=initialPose
 	self.restBodyPose=table.clone(initialPose)
 	self.orientation=CFrame.identity
+	self.flipped=false
+	self.flipAnim=nil
+end
+function Presentation.IsFlipping(self: Presentation): boolean
+	return self.flipAnim~=nil
+end
+function Presentation.SetFlipped(self: Presentation,flipped: boolean,animate: boolean): ()
+	if self.flipped==flipped and (not animate or not flipped) then
+		if not self.flipAnim then
+			local flat=Rotation.FlatOrientation(flipped)
+			self.orientation=flat
+			self.targetOrientation=flat
+		end
+		return
+	end
+	local wasFlipped=self.flipped
+	self.flipped=flipped
+	if flipped and animate and not wasFlipped then
+		self.flipAnim={started=os.clock(),duration=GameConfig.PaintFlipSeconds}
+	else
+		self.flipAnim=nil
+		local flat=Rotation.FlatOrientation(flipped)
+		self.orientation=flat
+		self.targetOrientation=flat
+	end
 end
 function Presentation.CapturePose(self: Presentation): Types.BodyPose?
 	if not self.dynamic or not self.model then return nil end
 	return Pose.Capture(self.model)
 end
 function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediate: boolean): ()
+	local effectivePose=pose
+	local animatingFlip=false
 	if not GameConfig.PaintRotationEnabled then
-		self.targetOrientation=CFrame.identity
-		self.orientation=CFrame.identity
+		local anim=self.flipAnim
+		if anim then
+			local alpha=math.clamp((os.clock()-anim.started)/math.max(anim.duration,0.01),0,1)
+			local flipRot,lift=Rotation.FlipFrame(alpha)
+			self.orientation=flipRot
+			self.targetOrientation=flipRot
+			effectivePose=pose+Vector3.yAxis*lift
+			animatingFlip=true
+			if alpha>=1 then
+				self.flipAnim=nil
+			end
+		else
+			local flat=Rotation.FlatOrientation(self.flipped)
+			self.orientation=flat
+			self.targetOrientation=flat
+		end
 	end
 	local prevOrientation=self.orientation
-	local alpha=if immediate then 1 else 1-math.exp(-Config.TableObserverResponse*dt)
-	self.orientation=if immediate then self.targetOrientation else self.orientation:Lerp(self.targetOrientation,alpha)
+	local alpha=if immediate or animatingFlip then 1 else 1-math.exp(-Config.TableObserverResponse*dt)
+	self.orientation=if immediate or animatingFlip then self.targetOrientation else self.orientation:Lerp(self.targetOrientation,alpha)
 	local model,frames=self.model,self.targetBodyPose
 	if not model or not frames then return end
 	local hadGeometry=self.geometry~=nil
@@ -140,7 +183,7 @@ function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediat
 		geometry=created
 	end
 	if not geometry then return end
-	local rotated=Rotation.Pose(pose,geometry,self.orientation)
+	local rotated=Rotation.Pose(effectivePose,geometry,self.orientation)
 	local pivotWorld=rotated:PointToWorldSpace(geometry.center)
 	self.center=pivotWorld
 	local support=rotated*geometry.rest
@@ -247,7 +290,7 @@ function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediat
 			local part=self.parts[name]
 			if part and name~="UpperTorso" then
 				local target=support*frame
-				part.CFrame=if not hadGeometry or immediate then target else part.CFrame:Lerp(target,alpha)
+				part.CFrame=if not hadGeometry or immediate or animatingFlip then target else part.CFrame:Lerp(target,alpha)
 			end
 		end
 	end

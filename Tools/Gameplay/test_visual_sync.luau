@@ -22,7 +22,7 @@ local function stamp(index, version)
 	}
 end
 
-check(Config.PaintTarget == 0.4 and Config.PaintFlatTarget == 0.30, 'server completion targets are 40% (rotated) and 30% (flat) of paintable area')
+check(Config.PaintTarget == 0.4 and Config.PaintFlatTarget == 0.48, 'server completion targets are 40% (rotated) and 48% (flat) of paintable area')
 local state = Rules.New()
 local first = stamp(1)
 check(Rules.Validate(first), 'valid rune stamp accepted')

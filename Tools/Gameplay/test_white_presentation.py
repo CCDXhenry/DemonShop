@@ -83,6 +83,7 @@ local HitRules=require('./HitFeedbackRules')
 local Config={StunHits=3,HitSecondPoseSeconds=0.45,HitEffectSeconds=0.12,HitFinalEffectSeconds=0.18}
 local workspace={GetServerTimeNow=function() return 0.04 end}
 local CFrame=require('@lune/roblox').CFrame
+local Rotation={IsFlipped=function() return false end}
 """+methods+"\nreturn Client",encoding="utf-8")
 test = (ROOT / "Tools/Gameplay/test_white_presentation.luau").read_text(encoding="utf-8")
 (OUT / "test.luau").write_text(test, encoding="utf-8")

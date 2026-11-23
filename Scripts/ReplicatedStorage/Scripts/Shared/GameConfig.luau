@@ -222,7 +222,7 @@ GameConfig.AltarRiseStuds = 1.2 -- 献祭过程中白膜上浮高度，studs
 GameConfig.AltarStrokeHighlight = Color3.fromRGB(255, 28, 198) -- 已画笔迹在完成闪烁及献祭中加亮到的高饱和霓虹品红
 GameConfig.PotionReward = 100 -- 每瓶售出时，当前服务器每位资料已就绪的玩家各得的金币
 GameConfig.PaintTarget = 0.4 -- 可涂表面面积的目标比例
-GameConfig.PaintFlatTarget = 0.30 -- 非旋转躺平模式的覆盖目标比例
+GameConfig.PaintFlatTarget = 0.6 -- 非旋转躺平模式的覆盖目标比例
 GameConfig.RuneGlyphCount = 3 -- AI 符文字形数量
 GameConfig.RuneStampSpacing = 0.27 -- 连续拖动时的表面落印间距，studs
 GameConfig.RuneStampSize = 0.38 -- 单枚符文标准落印宽度，studs
@@ -266,5 +266,10 @@ GameConfig.AltarPileSpread = 1.2 -- 祭坛石床上水平散开的半宽，studs
 GameConfig.AltarPilePitch = 0.2 -- 堆叠时额外俯仰的幅度，弧度
 GameConfig.PaintRotationEnabled = false -- 绘画台白膜旋转开关；关闭时保持仰卧躺平朝向不旋转
 GameConfig.PaintPhysicsEnabled = false -- 绘画台白膜物理开关；关闭时全身锚定固定身躯与四肢
+GameConfig.PaintAutoFlipProgress = 0.5 -- 躺平绘制模式触发自动翻面的总进度阈值
+GameConfig.PaintFlipSeconds = 0.55 -- 自动翻面动画时长，秒
+GameConfig.PaintFlipLiftHeight = 0.85 -- 自动翻面过程中的垂直抬升峰值，studs
+GameConfig.PaintFlipFlashSeconds = 0.24 -- 自动翻面时已画符文轻度高亮闪烁时长，秒
+GameConfig.PaintFlipFlashBrightness = 0.65 -- 自动翻面闪烁峰值亮度（0~1）
 
 return GameConfig
