@@ -27,6 +27,7 @@ local PaintRotation = require(Shared.PaintRotation)
 local CurvedSurface = require(Shared.CurvedSurface)
 local ThrowArc = require(Shared.ThrowArc)
 local AutomationRules = require(Shared.AutomationRules)
+local AutoRunePattern = require(Shared.AutoRunePattern)
 local AutomationAgents = require(script.Parent.AutomationAgents)
 type PlayerData = {
 	IsActive: (Player) -> boolean,
@@ -74,6 +75,9 @@ export type Manager = typeof(setmetatable(
 		autoOutputTakeSerial: number,
 		autoRuneItemId: string?,
 		autoRuneEnds: number,
+		autoRuneSegments: { Types.VisualSegment }?,
+		autoRuneCursor: number,
+		autoRuneVisualQueue: { { id: string, segments: { Types.VisualSegment }, revision: number } },
 		autoSmelterItemId: string?,
 		autoSmelterEnds: number,
 		autoShelfCount: number,
@@ -129,6 +133,9 @@ function Manager.new(data: PlayerData?): Manager
 		autoOutputTakeSerial = 0,
 		autoRuneItemId = nil,
 		autoRuneEnds = 0,
+		autoRuneSegments = nil,
+		autoRuneCursor = 0,
+		autoRuneVisualQueue = {},
 		autoSmelterItemId = nil,
 		autoSmelterEnds = 0,
 		autoShelfCount = 0,
@@ -174,19 +181,74 @@ local function IsAutomationLocation(location: string): boolean
 	return location == "Chute" or location == "AutoOutput" or location == "AutoRune" or location == "AutoSmelter" or location == "BruteCarried"
 end
 local function MarkAutoPaintedAppearance(item: Types.Item): ()
-	local model = item.model
-	model:SetAttribute("AutoPainted", true)
-	local color = Config.AutoPaintedColor
-	for _, child in model:GetChildren() do
-		if child:IsA("BodyColors") then
-			child.HeadColor3 = color
-			child.TorsoColor3 = color
-			child.LeftArmColor3 = color
-			child.RightArmColor3 = color
-			child.LeftLegColor3 = color
-			child.RightLegColor3 = color
-		elseif child:IsA("BasePart") and child.Name ~= "HumanoidRootPart" then
-			child.Color = color
+	item.model:SetAttribute("AutoPainted", true)
+end
+local function QueueAutoRuneSegments(self: Manager, item: Types.Item, segments: { Types.VisualSegment }): ()
+	if #segments == 0 then
+		return
+	end
+	local state = item.visualState or VisualRules.New()
+	item.visualState = state
+	local batch: { Types.VisualSegment } = {}
+	local function FlushBatch(): ()
+		if #batch == 0 then
+			return
+		end
+		state.revision += 1
+		local packet = batch
+		batch = {}
+		table.insert(self.autoRuneVisualQueue, { id = item.id, segments = packet, revision = state.revision })
+	end
+	for _, segment in segments do
+		if state.segments[segment.key] == nil then
+			local stored = table.clone(segment)
+			state.segments[stored.key] = stored
+			state.count += 1
+			table.insert(batch, stored)
+			if #batch >= Config.PaintVisualBatchSize then
+				FlushBatch()
+			end
+		end
+	end
+	FlushBatch()
+end
+local function AdvanceAutoRuneVisual(self: Manager, now: number): ()
+	local id = self.autoRuneItemId
+	local item = if id then self.items[id] else nil
+	local pattern = self.autoRuneSegments
+	if not item or not pattern then
+		return
+	end
+	local duration = math.max(Config.AutoRuneSeconds, 1e-3)
+	local alpha = 1
+	if now < self.autoRuneEnds then
+		alpha = math.clamp((now - (self.autoRuneEnds - duration)) / duration, 0, 1)
+	end
+	local target = if alpha >= 1 then #pattern else math.floor(alpha * #pattern + 1e-6)
+	if target <= self.autoRuneCursor then
+		return
+	end
+	local slice: { Types.VisualSegment } = {}
+	for index = self.autoRuneCursor + 1, target do
+		table.insert(slice, pattern[index])
+	end
+	self.autoRuneCursor = target
+	QueueAutoRuneSegments(self, item, slice)
+end
+local function FlushAutoRuneVisuals(self: Manager): ()
+	local queue = self.autoRuneVisualQueue
+	if #queue == 0 then
+		return
+	end
+	self.autoRuneVisualQueue = {}
+	for _, packet in queue do
+		if self.items[packet.id] then
+			Net.Broadcast({
+				kind = "VisualDelta",
+				id = packet.id,
+				segments = packet.segments,
+				visualRevision = packet.revision,
+			})
 		end
 	end
 end
@@ -259,6 +321,7 @@ function Manager.SpawnAutoPaintedBody(self: Manager): Types.Item?
 	if item then
 		MarkAutoPaintedAppearance(item)
 		Carry.Static(item, pose, false)
+		QueueAutoRuneSegments(self, item, AutoRunePattern.Build(item.model))
 	end
 	return item
 end
@@ -531,9 +594,12 @@ function Manager.StepAutomation(self: Manager, now: number): boolean
 	local changed = false
 	if self:IsFacilityUnlocked("A03") then
 		if self.autoRuneItemId ~= nil and now >= self.autoRuneEnds then
+			AdvanceAutoRuneVisual(self, now)
 			local doneId = self.autoRuneItemId
 			self.autoRuneItemId = nil
 			self.autoRuneEnds = 0
+			self.autoRuneSegments = nil
+			self.autoRuneCursor = 0
 			local doneItem = self.items[doneId]
 			if doneItem then
 				self:PushAutoPaintedItem(doneItem)
@@ -548,6 +614,8 @@ function Manager.StepAutomation(self: Manager, now: number): boolean
 				self.autoPaintedOverflowCount += 1
 			end
 			changed = true
+		elseif self.autoRuneItemId ~= nil then
+			AdvanceAutoRuneVisual(self, now)
 		end
 		if self.autoRuneItemId == nil and self:ChuteCount() > 0 then
 			local nextItem = self:PeekChuteItem()
@@ -560,11 +628,16 @@ function Manager.StepAutomation(self: Manager, now: number): boolean
 				nextItem.stage = "Painting"
 				nextItem.version += 1
 				Carry.Static(nextItem, Scene.AutoRunePose(), false)
+				self.autoRuneSegments = AutoRunePattern.Build(nextItem.model)
+				self.autoRuneCursor = 0
+				AdvanceAutoRuneVisual(self, now)
 				changed = true
 			elseif self.chuteOverflowCount > 0 then
 				self.chuteOverflowCount -= 1
 				self.autoRuneItemId = HttpService:GenerateGUID(false)
 				self.autoRuneEnds = now + Config.AutoRuneSeconds
+				self.autoRuneSegments = nil
+				self.autoRuneCursor = 0
 				changed = true
 			end
 		end
@@ -755,6 +828,7 @@ function Manager.Changed(self: Manager): ()
 	end
 	self.revision += 1
 	self.replication:Broadcast(self:Snapshot())
+	FlushAutoRuneVisuals(self)
 end
 function Manager.Tell(_self: Manager, player: Player, textId: GameTexts.TextId, args: {string}?): ()
 	Net.FireNotify(player, { kind = "Message", textId = textId, textArgs = args })
@@ -2080,6 +2154,8 @@ function Manager.Update(self: Manager): ()
 	if now < self.nextUpdate then
 		if changedMotion then
 			self:Changed()
+		else
+			FlushAutoRuneVisuals(self)
 		end
 		return
 	end
@@ -2161,6 +2237,8 @@ function Manager.Update(self: Manager): ()
 	end
 	if changed then
 		self:Changed()
+	else
+		FlushAutoRuneVisuals(self)
 	end
 	if self.players and Config.AutomationFacilityOrder then
 		for player in self.players do

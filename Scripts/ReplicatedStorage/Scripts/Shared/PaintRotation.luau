@@ -29,12 +29,14 @@ function Rotation.FlipFrame(alpha: number): (CFrame, number)
 end
 
 function Rotation.TablePose(position: Vector3): CFrame
-	-- 头朝俯视画面左侧，白膜面朝上。
-	return CFrame.fromMatrix(position, Vector3.zAxis, -Vector3.xAxis)
+	-- 头朝东（台面圆圈、画面左侧），脚朝西（腿线），胸口朝上。
+	return CFrame.fromMatrix(position, -Vector3.zAxis, Vector3.xAxis)
 end
 
 function Rotation.CameraPose(position: Vector3): CFrame
-	return CFrame.lookAt(position + Vector3.yAxis * Config.PaintCameraHeight, position, -Vector3.zAxis)
+	-- 正上方。画面右侧朝世界 -X，画面上方朝世界 +Z（台子远处、牌子在画面下方）。
+	local eye = position + Vector3.yAxis * Config.PaintCameraHeight
+	return CFrame.fromMatrix(eye, -Vector3.xAxis, Vector3.zAxis)
 end
 
 function Rotation.Distance(from: CFrame, to: CFrame): number

@@ -66,7 +66,7 @@ paint.BackgroundTransparency=.04
 -- 复用既有药水模板，只扩充层次，保留 Bottle 主部件与承载契约。
 local potion=rs.Models.Potion
 local bottle=potion.Bottle
-bottle.Color=Color3.fromRGB(157,141,181);bottle.Material=Enum.Material.Glass;bottle.Transparency=.35;bottle.Size=Vector3.new(.9,1.1,.9)
+bottle.Color=Color3.fromRGB(157,141,181);bottle.Material=Enum.Material.SmoothPlastic;bottle.Reflectance=.12;bottle.Transparency=.35;bottle.Size=Vector3.new(.9,1.1,.9)
 local stopper=potion.Stopper
 stopper.Color=Color3.fromRGB(222,180,107);stopper.Size=Vector3.new(.32,.28,.32);stopper.CFrame=bottle.CFrame*CFrame.new(0,.8,0)
 local function extra(name, size, offset, color, material, shape)
@@ -80,7 +80,7 @@ local function extra(name, size, offset, color, material, shape)
  return part
 end
 local core=extra("SoulCore",Vector3.new(.61,.74,.61),Vector3.new(0,-.1,0),Color3.fromRGB(154,55,222),Enum.Material.Neon,Enum.PartType.Ball)
-extra("Neck",Vector3.new(.29,.34,.29),Vector3.new(0,.56,0),Color3.fromRGB(157,141,181),Enum.Material.Glass,Enum.PartType.Block)
+extra("Neck",Vector3.new(.29,.34,.29),Vector3.new(0,.56,0),Color3.fromRGB(157,141,181),Enum.Material.SmoothPlastic,Enum.PartType.Block)
 extra("SealBand",Vector3.new(.4,.11,.4),Vector3.new(0,.65,0),Color3.fromRGB(222,180,107),Enum.Material.Metal,Enum.PartType.Block)
 local light=core:FindFirstChildOfClass("PointLight")
 if not light then light=Instance.new("PointLight");light.Parent=core end

@@ -9,16 +9,16 @@ OUT.mkdir(parents=True,exist_ok=True)
 shared=ROOT/"Scripts/ReplicatedStorage/Scripts/Shared"
 server=ROOT/"Scripts/ServerStorage/Scripts"
 (OUT/"FoundationDateBoundary.luau").write_text((ROOT/"Tools/Gameplay/FoundationDateBoundary.luau").read_text(encoding="utf-8"),encoding="utf-8")
-for name in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules"):
+for name in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","AutoRunePattern"):
     text=(shared/(name+".luau")).read_text(encoding="utf-8")
-    for dep in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules"):
+    for dep in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","VisualRules","AutoRunePattern"):
         text=text.replace("require(script.Parent."+dep+")", "require('./"+dep+"')")
     if name == "GameConfig":
         start=text.index('local replicatedStorage:')
         end=text.index('--游戏版本')
         text=text[:start]+"local D=require('./FoundationDateBoundary')\nlocal DateTimeExtension,DateTime=D.DateTimeExtension,D.DateTime\n"+text[end:]
         text="local Color3=require('@lune/roblox').Color3\nlocal game={GameId=0}\n"+text
-    if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneStampRules","ThrowArc","AutomationRules"):
+    if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneStampRules","ThrowArc","AutomationRules","AutoRunePattern"):
         text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame,Color3,Enum=roblox.Vector2,roblox.Vector3,roblox.CFrame,roblox.Color3,roblox.Enum\n"+text
     if name == "ThrowArc":
         text=text.replace("model:GetPivot()", "model.WorldPivot")
@@ -347,6 +347,7 @@ pm_prefix = (
     "local Surface=require('./PaintSurface')\n"
     "local ThrowArc=require('./ThrowArc')\n"
     "local AutomationRules=require('./AutomationRules')\n"
+    "local AutoRunePattern=require('./AutoRunePattern')\n"
     "local AutomationAgents=require('./AutomationAgents')\n"
     "local Lifecycle=require('./LifecycleTool')\n"
     "local B=require('./StationPotionBoundary')\n"

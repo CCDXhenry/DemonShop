@@ -312,12 +312,24 @@ do
 	B.now = 201.9
 	manager:Update()
 	check(manager:AutoPaintedCount() == 0, 'A03 does not finish before 2.0s')
+	local working = manager.items[manager.autoRuneItemId]
+	check(working ~= nil and working.location == 'AutoRune' and working.visualState ~= nil and working.visualState.count > 0, 'A03 stamps runes onto the membrane before completion')
+	local midCount = working.visualState.count
+	local sawStamp = false
+	for _, notice in B.broadcasts do
+		if notice.kind == 'VisualDelta' and notice.id == working.id and notice.segments and #notice.segments > 0 then
+			sawStamp = true
+		end
+	end
+	check(sawStamp, 'A03 broadcasts rune stamps for clients')
 
 	B.now = 202.0
 	manager:Update()
 	check(manager:AutoPaintedCount() == 1 and manager:ChuteCount() == 7, 'A03 completes 1 painted body at 2.0s and feeds next')
 	local firstOut = manager.items[manager.autoPaintedVisible[1]]
 	check(firstOut ~= nil and firstOut.stage == 'Painted' and firstOut.model:GetAttribute('AutoPainted') == true, 'autoPainted body has Painted stage & AutoPainted attribute')
+	check(firstOut.visualState ~= nil and firstOut.visualState.count > midCount, 'A03 finishes the remaining rune stamps')
+	check(firstOut.model.UpperTorso.Color ~= Config.AutoPaintedColor, 'auto rune keeps the membrane color')
 
 	-- 再推进 8 个 2.0s 节拍消化剩余 8 具（共 9 具全部画符完毕）-> autoPaintedQueue = 9 (6 实体 + 3 虚拟溢出)
 	for step = 1, 8 do
@@ -333,6 +345,8 @@ do
 	local outVerBefore = manager.stationVersions.AutoOutput
 	manager:OnRequest(emptyP, { action = 'Interact', target = 'AutoOutput', version = outVerBefore })
 	check(manager:AutoPaintedCount() == 8 and #manager.autoPaintedVisible == 6 and manager.autoPaintedOverflowCount == 2 and #manager:Carried(emptyP) == 1 and manager:Carried(emptyP)[1].stage == 'Painted', 'AutoOutput pickup gives Painted body & replenishes from overflow')
+	local replenished = manager.items[manager.autoPaintedVisible[#manager.autoPaintedVisible]]
+	check(replenished ~= nil and replenished.visualState ~= nil and replenished.visualState.count == firstOut.visualState.count and replenished.model:GetAttribute('AutoPainted') == true and replenished.model.UpperTorso.Color ~= Config.AutoPaintedColor, 'overflow respawn carries the full rune pattern')
 
 	-- 6. A04 自动炼化台 (2.5s/瓶) -> autoShelfCount (无限+6瓶渲染) + 站内不打断长按版本测试 + 整批领取变现
 	B.now = 300

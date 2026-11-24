@@ -145,6 +145,7 @@ local B=require('./Boundary')
 local workspace=B.world
 local Carry=require('./Carry')
 local Config={ConversionSeconds=5}
+local function FlushAutoRuneVisuals(_self) end
 local Manager={}
 """ + update.replace("workspace:GetServerTimeNow()", "B.now") + "\nreturn Manager", encoding="utf-8")
 for name in ("test_carry_stack", "test_altar_toss"):

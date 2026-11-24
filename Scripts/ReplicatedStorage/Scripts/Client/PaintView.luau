@@ -542,6 +542,27 @@ function View.Drain(self: View, id: string): { [string]: Types.VisualSegment }
 	return changed
 end
 
+local function ReplayCurved(self: View, id: string): ()
+	local curved = self.curved
+	local records = self.segments[id]
+	if not curved or not records then
+		return
+	end
+	local seen: { [string]: boolean } = {}
+	local queues = curved.queue
+	local queue = if queues then queues[id] else nil
+	if queue then
+		for _, segment in queue do
+			seen[segment.key] = true
+		end
+	end
+	for _, segment in records do
+		if not seen[segment.key] then
+			seen[segment.key] = true
+			curved:Apply(id, segment)
+		end
+	end
+end
 function View.Bind(self: View, id: string, model: Model): ()
 	if self.models[id] == model then
 		return
@@ -551,6 +572,7 @@ function View.Bind(self: View, id: string, model: Model): ()
 		local curved: CurvedView.View = self.curved or CurvedView.new()
 		self.curved = curved
 		curved:Bind(id, model, self.segments[id] or {})
+		ReplayCurved(self, id)
 		return
 	end
 	for _, segment in pairs(self.segments[id] or {}) do

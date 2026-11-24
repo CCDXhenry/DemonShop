@@ -587,7 +587,7 @@ local function DecorateClerk(model: Model, palette: Palette): ({ BasePart }, { P
 			Vector3.new(0.85, 1.05, 0.85),
 			baseCf,
 			Color3.fromRGB(157, 141, 181),
-			Enum.Material.Glass,
+			Enum.Material.SmoothPlastic,
 			Enum.PartType.Ball,
 			1
 		)

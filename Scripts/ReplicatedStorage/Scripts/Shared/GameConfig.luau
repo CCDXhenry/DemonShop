@@ -289,7 +289,7 @@ GameConfig.AutoSmelterSeconds = 2.5 -- A04 自动炼化台单具炼化节拍，�
 GameConfig.AutoQueueVisibleLimit = 6 -- 自动线三处断点（落料垫/符文出料垫/自动药水架）各自场景实体渲染上限
 GameConfig.UnlockPadTriggerRadius = 2.4 -- 踩踏解锁底盘水平判定半径，studs
 GameConfig.UnlockPadHeightTolerance = 5.5 -- 踩踏解锁底盘垂直高度容差，studs
-GameConfig.AutoPaintedColor = Color3.fromRGB(196, 152, 255) -- 自动符文台刻符完毕白膜提示色调
+GameConfig.AutoPaintedColor = Color3.fromRGB(196, 152, 255) -- 保留的自动符文色值；白膜本身不再整身染色，符文由落印笔段显示
 GameConfig.AutomationFacilityOrder = { "A00", "A01", "A02", "A03", "A04", "A05" }
 GameConfig.AutomationFacilities = {
 	A00 = { id = "A00", name = "FAST DROP CHUTE", desc = "OPENS AN IN-SHOP CHUTE TO THE BASEMENT", nameTextId = "PadNameA00", descTextId = "PadDescA00", cost = 250, prerequisite = nil, padName = "A00_FastChute" },

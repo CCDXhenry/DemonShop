@@ -61,6 +61,12 @@ check(math.abs(radii.X - Config.PaintEllipsoidScale) < 1e-5 and math.abs(radii.Y
 local neutralCenter = base:PointToWorldSpace(geometry.center)
 check(base.Position == placement and (Rotation.CameraPose(placement).Position - placement - V3.yAxis * Config.PaintCameraHeight).Magnitude < 1e-5,
 	'table and camera use the workspace placement anchor')
+local flatAtOrigin = Rotation.TablePose(V3.zero)
+check((flatAtOrigin.UpVector - V3.xAxis).Magnitude < 1e-5 and (flatAtOrigin.LookVector - V3.yAxis).Magnitude < 1e-5,
+	'table pose points the head east and the chest upward')
+local overhead = Rotation.CameraPose(V3.zero)
+check((overhead.UpVector - V3.zAxis).Magnitude < 1e-5 and (overhead.Position - V3.yAxis * Config.PaintCameraHeight).Magnitude < 1e-5,
+	'paint camera sits overhead with the far side at the top of the screen')
 check(Config.PaintCameraHeight == 10.5 and Config.BrushRadius == 0.18,
 	'paint camera height clears overhead slab and brush radius matches rune stamp size')
 for _, angles in { V.new(0, math.pi / 2), V.new(math.pi / 2, 0), V.new(-2.4, 1.8), V.new(math.pi, math.pi) } do
@@ -98,11 +104,11 @@ local perspCam = {
 		local depth = -rel.Y
 		if depth <= 0.01 then return V3.new(0, 0, -1) end
 		local focal = 1080 / (2 * math.tan(math.rad(45) * 0.5))
-		return V3.new(960 + rel.X * focal / depth, 540 + rel.Z * focal / depth, depth)
+		return V3.new(960 - rel.X * focal / depth, 540 - rel.Z * focal / depth, depth)
 	end,
 	ScreenPointToRay = function(_, sx, sy)
 		local focal = 1080 / (2 * math.tan(math.rad(45) * 0.5))
-		local dir = V3.new((sx - 960) / focal, -1, (sy - 540) / focal).Unit
+		local dir = V3.new(-(sx - 960) / focal, -1, -(sy - 540) / focal).Unit
 		return { Origin = camPos + dir * 0.1, Direction = dir }
 	end,
 }
