@@ -85,7 +85,7 @@ extra("SealBand",Vector3.new(.4,.11,.4),Vector3.new(0,.65,0),Color3.fromRGB(222,
 local light=core:FindFirstChildOfClass("PointLight")
 if not light then light=Instance.new("PointLight");light.Parent=core end
 light.Color=Color3.fromRGB(176,83,255);light.Brightness=.5;light.Range=4
--- 出生方向与最初验收的通道对齐；不改变街道和楼梯几何。
+-- 出生方向与最初验收的通道对齐；不改变街道和楼梯几何。M2 自动化设施与 UnlockPad 见 build-automation-assets.luau。
 local spawn=workspace.NeonContractDistrict.StreetSpawn
 spawn.CFrame=CFrame.new(55,spawn.Position.Y,29)
 -- 文案迁移与 update-processing-localization.luau 保持一致（离线测试校验）。

@@ -24,9 +24,9 @@ export type View = typeof(setmetatable({} :: {
 	departing: { [string]: Departure },
 }, View))
 
-function View.new(pickup: Vector3): View
+function View.new(pickup: Vector3, folderName: string?): View
 	local folder = Instance.new("Folder")
-	folder.Name = "PotionShelfPresentation"
+	folder.Name = folderName or "PotionShelfPresentation"
 	folder.Parent = workspace
 	return setmetatable({
 		folder = folder,

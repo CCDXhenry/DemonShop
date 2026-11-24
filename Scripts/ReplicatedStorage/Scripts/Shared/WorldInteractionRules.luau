@@ -63,6 +63,18 @@ function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[strin
 	elseif target == "Sigil" then
 		object = "PromptSigil"
 		if potions and (potions.equipped or potions.stored > 0) then action = "PromptOffer" end
+	elseif target == "Chute" then
+		object = "PromptChute"
+		if snapshot.unlockedFacilities and snapshot.unlockedFacilities.A00 and load.unfinished then action = "DepositBodies" end
+	elseif target == "ChutePickup" then
+		object = "PromptChuteLanding"
+		if not load.other and (snapshot.chuteQueue or 0) > 0 then action = "TakeChuteBody" end
+	elseif target == "AutoOutput" then
+		object = "PromptAutoOutput"
+		if not load.other and (snapshot.autoPaintedQueue or 0) > 0 then action = "TakeAutoRuneBody" end
+	elseif target == "AutoShelf" then
+		object = "PromptAutoShelf"
+		if not load.body and (snapshot.autoShelfCount or 0) > 0 then action = "CollectAutoPotion" end
 	else
 		local item = items[target]
 		local reachable = item and not item.holder and (item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits))

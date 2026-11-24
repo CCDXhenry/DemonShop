@@ -172,4 +172,39 @@ function Arc.Landing(inStrict: boolean, painted: boolean, count: number, capacit
 	return "Ground", false
 end
 
+-- 判定落点是否位于 NewShop_Noodles 井口竖井或地下 FastChuteLanding 缓冲垫内。
+function Arc.InsideChute(opening: CFrame, openingSize: Vector3, landing: CFrame, landingSize: Vector3, position: Vector3, wallHeight: number?): boolean
+	local openLocal = opening:PointToObjectSpace(position)
+	local openHalf = openingSize * 0.5
+	local relLandingY = opening:PointToObjectSpace(landing.Position).Y
+	local shaftBottom = math.clamp(relLandingY - landingSize.Y * 0.5 - 0.5, -30, -2)
+	if math.abs(openLocal.X) <= openHalf.X + 0.35
+		and math.abs(openLocal.Z) <= openHalf.Z + 0.35
+		and openLocal.Y >= shaftBottom
+		and openLocal.Y <= openHalf.Y + 3.5
+	then
+		return true
+	end
+	local landLocal = landing:PointToObjectSpace(position)
+	local landHalf = landingSize * 0.5
+	return math.abs(landLocal.X) <= landHalf.X + 0.45
+		and math.abs(landLocal.Z) <= landHalf.Z + 0.45
+		and landLocal.Y >= -landHalf.Y - 0.5
+		and landLocal.Y <= landHalf.Y + (wallHeight or Physics.ChuteWallHeight)
+end
+
+-- 统一斜抛落点分类：Pool（手动池） / Chute（A00 快速通道） / Ground。
+function Arc.CanStoreThrow(unlockedA00: boolean, inPool: boolean, inChute: boolean, painted: boolean, poolCount: number, poolCapacity: number?): (string, boolean)
+	if painted then
+		return "Ground", false
+	end
+	if inPool then
+		return Arc.Landing(true, false, poolCount, poolCapacity)
+	end
+	if unlockedA00 and inChute then
+		return "Chute", false
+	end
+	return "Ground", false
+end
+
 return Arc

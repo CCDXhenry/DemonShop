@@ -6,7 +6,7 @@ local Config=require('./GameConfig')
 local Texts=require('./GameTexts')
 local checks=0
 local function Check(value,message) assert(value,message);checks+=1 end
-local snapshot={stationVersions={Pool=1,Table=1,Altar=1,Shelf=1,Sigil=1},pool=0,shelf=0,items={}}
+local snapshot={stationVersions={Pool=1,Table=1,Altar=1,Shelf=1,Sigil=1,Chute=1,ChutePickup=1,AutoOutput=1,AutoShelf=1},pool=0,shelf=0,chuteQueue=0,autoPaintedQueue=0,autoShelfCount=0,unlockedFacilities={},items={}}
 local raw={id='raw',kind='Body',stage='Raw',location='Ground',version=1,hits=0}
 local painted={id='painted',kind='Body',stage='Painted',location='Ground',version=1,hits=0}
 local potion={id='potion',kind='Potion',stage='Ready',location='Ground',version=1,hits=0}
@@ -46,6 +46,19 @@ Check(Action('potion',raw)==nil,'potion pickup blocked while carrying a body')
 Check(Action('Pool',nil,nil,{painted,raw})=='StoreBody','pool matches a lower unfinished body')
 Check(Action('Altar',nil,nil,{raw,painted})=='InsertRuneBody','altar matches a lower rune body')
 Check(Action('Shelf',nil,nil,{raw})==nil,'shelf hidden while a body stack is carried')
+Check(Action('Chute',raw)==nil,'chute prompt hidden until A00 unlocked')
+snapshot.unlockedFacilities={A00=true}
+Check(Action('Chute',raw)=='DepositBodies' and Action('Chute',painted)==nil,'chute accepts unfinished bodies after A00 unlock')
+Check(Action('Chute',nil,nil,{painted,raw})=='DepositBodies','chute matches any unfinished body in carried stack')
+Check(Action('ChutePickup',nil)==nil,'empty chute pickup hidden')
+snapshot.chuteQueue=1
+Check(Action('ChutePickup',nil)=='TakeChuteBody' and Action('ChutePickup',raw)=='TakeChuteBody' and Action('ChutePickup',potion)==nil,'chute pickup takes unfinished body when no non-body held')
+Check(Action('AutoOutput',nil)==nil,'empty auto output hidden')
+snapshot.autoPaintedQueue=1
+Check(Action('AutoOutput',nil)=='TakeAutoRuneBody' and Action('AutoOutput',potion)==nil,'auto output pickup yields painted body')
+Check(Action('AutoShelf',nil)==nil,'empty auto shelf hidden')
+snapshot.autoShelfCount=2
+Check(Action('AutoShelf',nil)=='CollectAutoPotion' and Action('AutoShelf',raw)==nil,'auto shelf hidden while carrying body')
 items.other=nil
 raw.location='Street';raw.hits=Config.StunHits-1
 Check(Action('raw',nil)==nil,'awake body has no prompt')

@@ -274,5 +274,39 @@ GameConfig.PaintFlipFlashBrightness = 0.65 -- 自动翻面闪烁峰值亮度（0
 GameConfig.SessionOnlyEconomy = true -- 本局化经济：进服金币归零，写库时金币固定归零
 GameConfig.PoolVisibleLimit = 8 -- 存放池实体白膜渲染上限，超出转入虚拟计数
 GameConfig.ShelfVisibleLimit = 6 -- 手动药水架每档瓶身实体渲染上限，逻辑容量无限
+export type AutomationFacilityConfig = {
+	id: string,
+	name: string,
+	desc: string,
+	nameTextId: string,
+	descTextId: string,
+	cost: number,
+	prerequisite: string?,
+	padName: string,
+}
+GameConfig.AutoRuneSeconds = 2.0 -- A03 自动符文台单具画符节拍，秒
+GameConfig.AutoSmelterSeconds = 2.5 -- A04 自动炼化台单具炼化节拍，秒
+GameConfig.AutoQueueVisibleLimit = 6 -- 自动线三处断点（落料垫/符文出料垫/自动药水架）各自场景实体渲染上限
+GameConfig.UnlockPadTriggerRadius = 2.4 -- 踩踏解锁底盘水平判定半径，studs
+GameConfig.UnlockPadHeightTolerance = 5.5 -- 踩踏解锁底盘垂直高度容差，studs
+GameConfig.AutoPaintedColor = Color3.fromRGB(196, 152, 255) -- 自动符文台刻符完毕白膜提示色调
+GameConfig.AutomationFacilityOrder = { "A00", "A01", "A02", "A03", "A04", "A05" }
+GameConfig.AutomationFacilities = {
+	A00 = { id = "A00", name = "FAST DROP CHUTE", desc = "OPENS AN IN-SHOP CHUTE TO THE BASEMENT", nameTextId = "PadNameA00", descTextId = "PadDescA00", cost = 250, prerequisite = nil, padName = "A00_FastChute" },
+	A01 = { id = "A01", name = "HELL BRUTE #1", desc = "AUTO-STUNS CITIZENS AND DROPS INTO CHUTE", nameTextId = "PadNameA01", descTextId = "PadDescA01", cost = 1000, prerequisite = "A00", padName = "A01_Brute1" },
+	A02 = { id = "A02", name = "HELL BRUTE #2", desc = "ADDS A SECOND BRUTE TO DOUBLE SUPPLY", nameTextId = "PadNameA02", descTextId = "PadDescA02", cost = 2500, prerequisite = "A01", padName = "A02_Brute2" },
+	A03 = { id = "A03", name = "AUTO RUNE TABLE", desc = "AUTO-PULLS BODIES AND ENGRAVES RUNES", nameTextId = "PadNameA03", descTextId = "PadDescA03", cost = 2000, prerequisite = "A00", padName = "A03_AutoRune" },
+	A04 = { id = "A04", name = "AUTO SMELTER", desc = "AUTO-SMELTS RUNE BODIES INTO POTIONS", nameTextId = "PadNameA04", descTextId = "PadDescA04", cost = 4500, prerequisite = "A03", padName = "A04_AutoSmelter" },
+	A05 = { id = "A05", name = "AUTO CLERK", desc = "AUTO-DELIVERS POTIONS FOR COINS", nameTextId = "PadNameA05", descTextId = "PadDescA05", cost = 9000, prerequisite = nil, padName = "A05_AutoClerk" },
+} :: { [string]: AutomationFacilityConfig }
+GameConfig.BruteWalkSpeed = 20 -- A01/A02 地狱打手巡逻与搬运移动速度（studs/s）
+GameConfig.BruteHitInterval = 0.65 -- A01/A02 地狱打手近战击打节拍，秒
+GameConfig.BruteHitRange = 6.5 -- A01/A02 地狱打手近战攻击距离，studs
+GameConfig.BrutePickupRange = 5.5 -- A01/A02 地狱打手拾取已击晕白膜距离，studs
+GameConfig.BruteDropDuration = 0.3 -- A01/A02 地狱打手向快速通道井口投料时长，秒
+GameConfig.AutoClerkWalkSpeed = 20 -- A05 自动售货员搬运移动速度（studs/s）
+GameConfig.AutoClerkPickupRange = 4.0 -- A05 自动售货员在自动药水架取货距离，studs
+GameConfig.AutoClerkSubmitRange = 5.0 -- A05 自动售货员在召唤法阵提交距离，studs
+GameConfig.AgentRootHeight = 3.01 -- R15 AI 代理根节点相对地面的标准站立高度，studs
 
 return GameConfig

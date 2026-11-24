@@ -151,9 +151,13 @@ sequenceDiagram
   - `filter_type` (string, 可选): `"all"`, `"error"`, `"warning"`.
 
 #### `screen_capture`
-- **功能**：直接通过 Studio 内部渲染管线截取当前视口画面，返回图片临时路径或 Base64。
-- **参数**：
-  - `save_path` (string, 可选): 保存路径。
+- **功能**：截取当前视口静止画面。单帧检查继续用它，不把每次看图改成录像。Play 期间若实时 schema 含录像参数，按该 schema 录像；参数与文档不一致时以当次工具列表为准。
+- **参数**：调用前读取实时 schema。当前已知的截图参数是必需的 `capture_id`、`studio_id`，以及成对可选的 `camera_position` / `look_at_position`。不要为了截图或录像改 `CameraType`，也不要用 `camera_position` 锁视角。
+
+#### `video_capture`
+- **功能**：Play 录像的优先工具。有该工具就用它；没有时才看 `screen_capture` 是否带录像参数。两者都没有，或调用失败、超时、没有视频文件时，再走 OBS 后备。
+- **预期参数**（仅当实时 schema 仍是这一形）：`studio_id`、`datamodel_type: "Client"`、`is_start`。`true` 开始，动作结束后 `false` 停止。
+- **结果**：核验 `recording_id`、`status`，以及 `video` / `manifest` / `frame_times` 和 warnings。`status` 为 `partial` 或没有视频文件，不算通过。已报告的失败包括 `Target is not reachable`、VRAM 不足和超时；失败后说明原因，再进入 OBS，不得仍宣称 MCP 验收通过。
 
 #### `wait_job_finished`
 - **功能**：等待异步长时间任务（如大型网格导入或烘焙）完成。

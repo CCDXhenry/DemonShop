@@ -1,7 +1,7 @@
 -- 加工多语言文案：业务分组、TextId 查询、插件扁平采集及旧通知解析
 --!strict
-export type TextId = "PromptPickUp" | "PromptPool" | "PromptTable" | "PromptAltar" | "PromptShelf" | "PromptSigil" | "PromptBody" | "PromptPotion" | "PromptOffer" | "TakePotion" | "TakeRuneBody" | "TakeBody" | "PotionReady" | "AltarWorking" | "ReturnTable" | "FetchPool" | "StunNpc" | "PoolUnfinishedOnly" | "StoreBody" | "TakeSharedBody" | "PoolEmpty" | "TableOtherPainter" | "TableOccupied" | "PlaceBody" | "TableNeedsBody" | "CollectRuneBody" | "ContinuePainting" | "FetchAndPaint" | "TableEmpty" | "ShelfFull" | "AltarBusy" | "InsertRuneBody" | "AltarNeedsRuneBody" | "HandsFullHint" | "CollectPotion" | "NoPotion" | "OfferPotion" | "EquipPotion" | "BringPotion" | "CarryBody" | "TableInUse" | "StoreUnfinished" | "PoolFull" | "PoolIsEmpty" | "TableIsOccupied" | "BringUnfinished" | "BringStunned" | "AltarOccupied" | "AltarNeedsCompleted" | "HandsFull" | "PotionsNotReady" | "BringPotionSigil" | "CoinLimit" | "RuneComplete" | "StationChanged" | "StationTooFar" | "ItemChanged" | "ItemUnavailable" | "PaintOutOfSequence" | "PaintRateExceeded" | "InvalidPaintPart" | "PaintVersionMismatch" | "PaintRejected" | "InvalidVisualSegment" | "DuplicateVisualSegment" | "SegmentOriginChanged" | "PaintBudgetReached" | "Coins" | "Stock" | "AltarCountdown" | "AltarShelfFull" | "CarryingPotion" | "CarryingRuneBody" | "CarryingBody" | "CarryingBodies" | "HandsEmpty" | "Painting" | "PaintingFlat" | "PaintFlipped" | "TakeTableBody" | "ThrowAim" | "TargetStunned" | "HitCount" | "StunnedCarry" | "CoinsAwarded" | "PaintSyncFailed" | "PaintSurfaceUnavailable" | "PaintSegmentLimit" | "UnknownNotice"
-export type Description = { textId: TextId, args: {string}? }
+export type TextId = "PromptPickUp" | "PromptPool" | "PromptTable" | "PromptAltar" | "PromptShelf" | "PromptSigil" | "PromptBody" | "PromptPotion" | "PromptOffer" | "PromptChute" | "PromptChuteLanding" | "PromptAutoOutput" | "PromptAutoShelf" | "DepositBodies" | "TakeChuteBody" | "TakeAutoRuneBody" | "CollectAutoPotion" | "TakePotion" | "TakeRuneBody" | "TakeBody" | "PotionReady" | "AltarWorking" | "ReturnTable" | "FetchPool" | "StunNpc" | "PoolUnfinishedOnly" | "StoreBody" | "TakeSharedBody" | "PoolEmpty" | "TableOtherPainter" | "TableOccupied" | "PlaceBody" | "TableNeedsBody" | "CollectRuneBody" | "ContinuePainting" | "FetchAndPaint" | "TableEmpty" | "ShelfFull" | "AltarBusy" | "InsertRuneBody" | "AltarNeedsRuneBody" | "HandsFullHint" | "CollectPotion" | "NoPotion" | "OfferPotion" | "EquipPotion" | "BringPotion" | "CarryBody" | "ChuteLocked" | "ChuteUnfinishedOnly" | "ChuteNeedsBody" | "ChuteEmpty" | "AutoOutputEmpty" | "NoAutoPotion" | "TableInUse" | "StoreUnfinished" | "PoolFull" | "PoolIsEmpty" | "TableIsOccupied" | "BringUnfinished" | "BringStunned" | "AltarOccupied" | "AltarNeedsCompleted" | "HandsFull" | "PotionsNotReady" | "BringPotionSigil" | "CoinLimit" | "RuneComplete" | "StationChanged" | "StationTooFar" | "ItemChanged" | "ItemUnavailable" | "PaintOutOfSequence" | "PaintRateExceeded" | "InvalidPaintPart" | "PaintVersionMismatch" | "PaintRejected" | "InvalidVisualSegment" | "DuplicateVisualSegment" | "SegmentOriginChanged" | "PaintBudgetReached" | "Coins" | "Stock" | "AltarCountdown" | "AltarShelfFull" | "CarryingPotion" | "CarryingRuneBody" | "CarryingBody" | "CarryingBodies" | "HandsEmpty" | "Painting" | "PaintingFlat" | "PaintFlipped" | "TakeTableBody" | "ThrowAim" | "TargetStunned" | "HitCount" | "StunnedCarry" | "CoinsAwarded" | "FacilityUnlocked" | "PaintSyncFailed" | "PaintSurfaceUnavailable" | "PaintSegmentLimit" | "UnknownNotice" | "PadNameA00" | "PadNameA01" | "PadNameA02" | "PadNameA03" | "PadNameA04" | "PadNameA05" | "PadDescA00" | "PadDescA01" | "PadDescA02" | "PadDescA03" | "PadDescA04" | "PadDescA05" | "PadPrereqNone" | "PadPrereqUnlocked" | "PadPrereqRequires" | "PadPrice"
+export type Description = { textId: TextId, args: {string}?, argTextIds: {[number]: TextId}? }
 export type Entry = { source: string, key: string }
 
 -- UI 路径以 ReplicatedStorage.UI 唯一模板为准；屏幕界面和目标标牌运行时克隆至本地 PlayerGui。
@@ -17,6 +17,14 @@ local GameTexts = {
 		PromptBody = { source = "BODY", key = "" }, -- 用途：可搬运布娃娃的对象名称；UI：ReplicatedStorage.UI.WorldInteractionPrompt.ObjectText
 		PromptPotion = { source = "POTION", key = "" }, -- 用途：可拾取药水的对象名称；UI：ReplicatedStorage.UI.WorldInteractionPrompt.ObjectText
 		PromptOffer = { source = "OFFER POTION", key = "" }, -- 用途：向召唤法阵提交药水的动作；UI：ReplicatedStorage.UI.WorldInteractionPrompt.ActionText
+		PromptChute = { source = "FAST CHUTE", key = "" }, -- 用途：快速通道井口的对象名称；UI：ReplicatedStorage.UI.WorldInteractionPrompt.ObjectText
+		PromptChuteLanding = { source = "CHUTE LANDING", key = "" }, -- 用途：地下快速通道缓冲垫的对象名称；UI：ReplicatedStorage.UI.WorldInteractionPrompt.ObjectText
+		PromptAutoOutput = { source = "AUTO RUNE PAD", key = "" }, -- 用途：自动符文台出料断点垫的对象名称；UI：ReplicatedStorage.UI.WorldInteractionPrompt.ObjectText
+		PromptAutoShelf = { source = "AUTO POTION RACK", key = "" }, -- 用途：自动药水暂存架的对象名称；UI：ReplicatedStorage.UI.WorldInteractionPrompt.ObjectText
+		DepositBodies = { source = "DEPOSIT UNFINISHED BODIES", key = "" }, -- 用途：向快速通道井口整批倒入未画符白膜的动作；UI：ReplicatedStorage.UI.WorldInteractionPrompt.ActionText
+		TakeChuteBody = { source = "TAKE CHUTE BODY", key = "" }, -- 用途：从快速通道缓冲垫取走白膜的动作；UI：ReplicatedStorage.UI.WorldInteractionPrompt.ActionText
+		TakeAutoRuneBody = { source = "TAKE AUTO RUNE BODY", key = "" }, -- 用途：从自动符文台出料断点垫取走已画符白膜的动作；UI：ReplicatedStorage.UI.WorldInteractionPrompt.ActionText
+		CollectAutoPotion = { source = "COLLECT AUTO POTIONS", key = "" }, -- 用途：从自动药水架领走全部自动药水的动作；UI：ReplicatedStorage.UI.WorldInteractionPrompt.ActionText
 	},
 	Guidance = {
 		TakePotion = { source = "TAKE THE POTION TO THE SUMMONING SIGIL  (+{1} COINS)", key = "Processing.TakePotion" }, -- 用途：携带药水时引导前往召唤法阵；{1} 为提交奖励金币；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
@@ -53,6 +61,12 @@ local GameTexts = {
 		EquipPotion = { source = "EQUIP A POTION TO OFFER", key = "" }, -- 用途：提交药水前提示先装备药水；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
 		BringPotion = { source = "BRING A POTION TO OFFER", key = "" }, -- 用途：未携药水靠近召唤法阵时引导带来药水；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
 		CarryBody = { source = "SHOULDER CARRY BODY", key = "" }, -- 用途：靠近可搬运布娃娃时显示肩扛引导；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
+		ChuteLocked = { source = "UNLOCK FAST CHUTE FIRST", key = "" }, -- 用途：快速通道未解锁时的井口提示；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
+		ChuteUnfinishedOnly = { source = "FAST CHUTE ACCEPTS UNFINISHED BODIES ONLY", key = "" }, -- 用途：快速通道仅接收未画符白膜时的提示；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
+		ChuteNeedsBody = { source = "BRING AN UNFINISHED BODY TO THE FAST CHUTE", key = "" }, -- 用途：空手靠近快速通道井口时的引导；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
+		ChuteEmpty = { source = "CHUTE LANDING EMPTY", key = "" }, -- 用途：快速通道落料垫为空时的提示；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
+		AutoOutputEmpty = { source = "NO AUTO RUNE BODY READY", key = "" }, -- 用途：自动符文台出料断点垫为空时的提示；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
+		NoAutoPotion = { source = "NO AUTO POTION READY", key = "" }, -- 用途：自动药水架为空时的提示；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
 	},
 	Hud = {
 		Coins = { source = "COINS  {1}", key = "Processing.Coins" }, -- 用途：状态栏显示金币；{1} 为当前金币数；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CoinsText
@@ -102,11 +116,30 @@ local GameTexts = {
 		SegmentOriginChanged = { source = "Segment origin changed.", key = "" }, -- 用途：笔迹同步失败通知：笔段起点发生变化；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
 		PaintBudgetReached = { source = "Paint segment budget reached.", key = "" }, -- 用途：绘制上传失败通知：服务端笔段预算耗尽；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
 		CoinsAwarded = { source = "+{1} COINS", key = "Processing.CoinsAwarded" }, -- 用途：提交药水成功后显示所得金币；{1} 为奖励数量；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
+		FacilityUnlocked = { source = "{1} UNLOCKED {2}", key = "Processing.FacilityUnlocked" }, -- 用途：全房广播玩家解锁自动化设施横幅；{1} 为玩家名，{2} 为设施名；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
 		PaintSyncFailed = { source = "Paint sync failed. Please reconnect.", key = "" }, -- 用途：笔迹同步失败且无具体原因时提示重新连接；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
 		PaintSurfaceUnavailable = { source = "PAINT SURFACE UNAVAILABLE. PLEASE TRY AGAIN.", key = "" }, -- 用途：进入绘制失败时提示绘制表面不可用；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
 		PaintSegmentLimit = { source = "PAINT SEGMENT LIMIT REACHED", key = "" }, -- 用途：本地笔迹数量达到上限时提示停止追加；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
 		PaintFlipped = { source = "50% - FLIPPING BODY TO PAINT THE BACK", key = "" }, -- 用途：进度达到 50% 自动翻面白膜时的提示文案；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
 		UnknownNotice = { source = "Unable to complete this action. Please try again.", key = "" }, -- 用途：未知通知或未知文案 ID 的统一失败回退提示；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
+	},
+	Automation = {
+		PadNameA00 = { source = "FAST DROP CHUTE", key = "" }, -- 用途：A00 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
+		PadNameA01 = { source = "HELL BRUTE #1", key = "" }, -- 用途：A01 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
+		PadNameA02 = { source = "HELL BRUTE #2", key = "" }, -- 用途：A02 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
+		PadNameA03 = { source = "AUTO RUNE TABLE", key = "" }, -- 用途：A03 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
+		PadNameA04 = { source = "AUTO SMELTER", key = "" }, -- 用途：A04 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
+		PadNameA05 = { source = "AUTO CLERK", key = "" }, -- 用途：A05 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
+		PadDescA00 = { source = "OPENS AN IN-SHOP CHUTE TO THE BASEMENT", key = "" }, -- 用途：A00 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
+		PadDescA01 = { source = "AUTO-STUNS CITIZENS AND DROPS INTO CHUTE", key = "" }, -- 用途：A01 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
+		PadDescA02 = { source = "ADDS A SECOND BRUTE TO DOUBLE SUPPLY", key = "" }, -- 用途：A02 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
+		PadDescA03 = { source = "AUTO-PULLS BODIES AND ENGRAVES RUNES", key = "" }, -- 用途：A03 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
+		PadDescA04 = { source = "AUTO-SMELTS RUNE BODIES INTO POTIONS", key = "" }, -- 用途：A04 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
+		PadDescA05 = { source = "AUTO-DELIVERS POTIONS FOR COINS", key = "" }, -- 用途：A05 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
+		PadPrereqNone = { source = "PRE-REQ: NONE", key = "" }, -- 用途：无前置条件解锁底盘的前置状态标签；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.PrereqText
+		PadPrereqUnlocked = { source = "PRE-REQ: UNLOCKED", key = "" }, -- 用途：前置设施已解锁时显示的前置状态标签；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.PrereqText
+		PadPrereqRequires = { source = "REQUIRES: {1}", key = "Processing.PadPrereqRequires" }, -- 用途：前置未解锁时提示需先解锁的目标设施；{1} 为前置设施名称；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.PrereqText
+		PadPrice = { source = "{1} COINS", key = "Processing.PadPrice" }, -- 用途：解锁底盘价格胶囊文本；{1} 为格式化金币数值；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.PriceFrame.PriceText
 	},
 }
 
@@ -131,7 +164,7 @@ end
 
 local groups: {{[string]: Entry}} = {
 	GameTexts.Prompts, GameTexts.Guidance, GameTexts.Interactions,
-	GameTexts.Hud, GameTexts.Combat, GameTexts.Notices,
+	GameTexts.Hud, GameTexts.Combat, GameTexts.Notices, GameTexts.Automation,
 }
 for _, group in groups do
 	local names: {string} = {}

@@ -41,8 +41,19 @@ for _,case in {
 	{"Altar",nil,painted,"InsertRuneBody"},{"Altar",nil,raw,"AltarNeedsRuneBody"},
 	{"Shelf",Snapshot({shelf=1}),raw,"HandsFullHint"},{"Shelf",Snapshot({shelf=1}),nil,"CollectPotion"},
 	{"Shelf",nil,nil,"NoPotion"},{"Sigil",nil,nil,"OfferPotion",equippedPotions},{"Sigil",nil,nil,"OfferPotion",storedPotions},{"Sigil",nil,nil,"BringPotion"},
+	{"Chute",Snapshot({}),raw,"ChuteLocked"},
+	{"Chute",Snapshot({unlockedFacilities={A00=true}}),raw,"DepositBodies"},
+	{"Chute",Snapshot({unlockedFacilities={A00=true}}),painted,"ChuteUnfinishedOnly"},
+	{"Chute",Snapshot({unlockedFacilities={A00=true}}),nil,"ChuteNeedsBody"},
+	{"ChutePickup",Snapshot({chuteQueue=1}),nil,"TakeChuteBody"},
+	{"ChutePickup",Snapshot({chuteQueue=0}),nil,"ChuteEmpty"},
+	{"AutoOutput",Snapshot({autoPaintedQueue=1}),nil,"TakeAutoRuneBody"},
+	{"AutoOutput",Snapshot({autoPaintedQueue=0}),nil,"AutoOutputEmpty"},
+	{"AutoShelf",Snapshot({autoShelfCount=2}),nil,"CollectAutoPotion"},
+	{"AutoShelf",Snapshot({autoShelfCount=0}),nil,"NoAutoPotion"},
 	{"item-id",nil,nil,"CarryBody"},
 } do Check(Hints.Action(case[1],case[2],case[3],1,case[5]).textId,case[4]) end
+Check(Hints.Next(Snapshot({autoShelfCount=3}),nil).textId,"CollectAutoPotion")
 Check(Hints.Action("Pool",nil,nil,1,nil,{painted,raw}).textId,"StoreBody")
 Check(Hints.Action("Altar",nil,raw,1,nil,{raw,painted}).textId,"InsertRuneBody")
 Check(Hints.Next(nil,nil,nil,{painted,raw}).textId,"ThrowAim")
@@ -53,7 +64,7 @@ Check(Translation.FormatByKey(Texts.Hud.Stock.source,Texts.Hud.Stock.key,{"2","4
 Check(Texts.Entries,nil)
 Check(Texts.GetEntry("UnknownId"),nil)
 local expected, ordered, seen = {}, {}, {}
-local groups = {Texts.Prompts,Texts.Guidance,Texts.Interactions,Texts.Hud,Texts.Combat,Texts.Notices}
+local groups = {Texts.Prompts,Texts.Guidance,Texts.Interactions,Texts.Hud,Texts.Combat,Texts.Notices,Texts.Automation}
 for _, group in groups do
 	local names = {}
 	for textId, entry in group do
@@ -64,7 +75,7 @@ for _, group in groups do
 	table.sort(names)
 	for _, textId in names do table.insert(ordered,textId) end
 end
-Check(#ordered,89)
+Check(#ordered,120)
 local index = 0
 -- Match LocalizationExtension's generalized iteration, including nested independent cursors.
 for key, entry in Texts do
@@ -143,10 +154,41 @@ tool:Destroy()
 Check(changed.Count(),0)
 local old=label.Text
 B.localeChanged.Fire(); Check(label.Text,old)
-local billboard = B.Label({})
+local billboard, billboardChanged = B.Label({})
 local target = Tool.new(); local before=B.fits
 target:Bind(billboard,{textId="HitCount",args={"2","5"}})
 Check(B.fits,before); target:Destroy()
+
+local padCtrl = Tool.new()
+local titleLbl, titleChanged = B.Label({})
+local prereqLbl, prereqChanged = B.Label({})
+local priceLbl, priceChanged = B.Label({})
+local noticeLbl = B.Label(nil)
+padCtrl:Bind(titleLbl, {textId="PadNameA00"})
+Check(titleLbl.AutoLocalize, false)
+Check(titleLbl.Text, "fr:FAST DROP CHUTE")
+padCtrl:Bind(prereqLbl, {textId="PadPrereqRequires", args={"FAST DROP CHUTE"}, argTextIds={[1]="PadNameA00"}})
+Check(prereqLbl.AutoLocalize, false)
+Check(prereqLbl.Text, "fr:Processing.PadPrereqRequires:fr:FAST DROP CHUTE")
+padCtrl:Bind(priceLbl, {textId="PadPrice", args={"250"}})
+Check(priceLbl.Text, "fr:Processing.PadPrice:250")
+padCtrl:Notice(noticeLbl, "FacilityUnlocked", {"Alice", "FAST DROP CHUTE"})
+Check(noticeLbl.Text, "fr:Processing.FacilityUnlocked:Alice,fr:FAST DROP CHUTE")
+B.locale = "de"; B.localeChanged.Fire()
+Check(titleLbl.Text, "de:FAST DROP CHUTE")
+Check(prereqLbl.Text, "de:Processing.PadPrereqRequires:de:FAST DROP CHUTE")
+Check(priceLbl.Text, "de:Processing.PadPrice:250")
+Check(noticeLbl.Text, "de:Processing.FacilityUnlocked:Alice,de:FAST DROP CHUTE")
+Check(B.fits > before, true)
+local fitsAfterScreen = B.fits
+padCtrl:Bind(prereqLbl, {textId="PadPrereqUnlocked"})
+Check(prereqLbl.Text, "de:PRE-REQ: UNLOCKED")
+Check(B.fits, fitsAfterScreen)
+padCtrl:Destroy()
+Check(titleChanged.Count(), 0)
+Check(prereqChanged.Count(), 0)
+Check(priceChanged.Count(), 0)
+Check(billboardChanged.Count(), 0)
 
 -- Actual fitting code must measure localized ContentText while retaining the English source Text.
 local R = require('@lune/roblox')

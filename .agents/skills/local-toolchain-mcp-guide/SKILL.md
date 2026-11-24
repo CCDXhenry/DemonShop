@@ -26,10 +26,10 @@ description: 本机所有本地开发工具（CLI/脚本/无头程序/大型创�
 | **Node.js** | Node / npm | `C:\Program Files\nodejs\node.exe` | JS/TS 工具链运行与前端包管理 |
 | **终端 Shell** | PowerShell 7 (pwsh) | `C:\Program Files\PowerShell\7\pwsh.exe` | 现代化跨平台命令行脚本执行 |
 | **创意与建模** | Blender 5.4.0 | `D:\blender-5.4.0\blender-5.4.0\blender.exe` | 3D 建模、拓扑分析、Headless 无头 Python 渲染 |
-| **视口与录制** | OBS Studio 64bit | `D:\obs-studio\bin\64bit\obs64.exe` | 游戏视口自动化校准、高帧率原尺寸录像与截屏 |
+| **视口与录制** | Studio MCP 录像；OBS 后备 | `video_capture` / 含录像参数的 `screen_capture`；失败后 `D:\obs-studio\bin\64bit\obs64.exe` | Play 录像优先 Studio MCP；OBS 只做 MCP 不可用或失败后的 60 FPS 视口校准与截屏 |
 | **3D 协作设计** | Spline | `C:\Users\herong\AppData\Local\Programs\Spline\Spline.exe` | 实时 3D 协作、矢量排版与网页 3D 资产导出 |
 | **Roblox 引擎** | Roblox Studio | `C:\Users\herong\AppData\Local\Roblox\Versions\version-63eb6055af4e4688\RobloxStudioBeta.exe` | Roblox 游戏主创环境与场景编辑 |
-| **Roblox MCP** | Roblox_Studio MCP | `cmd.exe /c "%LOCALAPPDATA%\Roblox\mcp.bat"` | Studio 双向通信、实例树检索与调试执行 |
+| **Roblox MCP** | Roblox_Studio MCP | `cmd.exe /c "%LOCALAPPDATA%\Roblox\mcp.bat"` | Studio 双向通信、实例树检索、调试执行与 Play 录像 |
 | **Spline MCP** | Spline MCP | `Spline.exe spline-mcp.cjs` (env: `ELECTRON_RUN_AS_NODE=1`) | Spline 2D/3D 画布控制、生成与代码运行 |
 | **Blender MCP** | mcp-for-blender | `C:\Users\herong\.local\bin\uvx.exe mcp-for-blender` | Blender MCP 接口与脚本调用 |
 
@@ -44,8 +44,8 @@ flowchart TD
     Task["面对具体任务需求"] --> Route{"任务类别判断"}
     
     Route -- "通用 CLI / 语法工具 / 版本控制" --> Ref1["[通用 CLI 工具链指南](references/local-cli-toolchain.md)"]
-    Route -- "Blender 无头 / OBS 录屏 / 大型程序" --> Ref2["[大型创作软件路径与调用](references/creative-software-paths.md)"]
-    Route -- "Roblox Studio 交互 / 实例 / 调试" --> Ref3["[Roblox Studio MCP 工具全景指南](references/mcp-roblox-studio.md)"]
+    Route -- "Blender 无头 / OBS 后备录屏 / 大型程序" --> Ref2["[大型创作软件路径与调用](references/creative-software-paths.md)"]
+    Route -- "Roblox Studio 交互 / 实例 / 调试 / MCP 录像" --> Ref3["[Roblox Studio MCP 工具全景指南](references/mcp-roblox-studio.md)"]
     Route -- "Spline 2D 排版 / 3D 场景与代码" --> Ref4["[Spline 2D/3D MCP 工具手册](references/mcp-spline.md)"]
     Route -- "Blender MCP / 文件 / 记忆系统" --> Ref5["[Blender / Filesystem / Memory MCP 指南](references/mcp-blender-and-others.md)"]
     Route -- "项目脚本 / 音频上云 / 严格检查 / 配表" --> Ref6["[项目级自动化模式与脚本指南](references/project-automation-patterns.md)"]
@@ -58,11 +58,11 @@ flowchart TD
 
 ### 2. 大型创意创作软件与无头调用
 👉 查阅 [大型创作软件路径与调用](references/creative-software-paths.md)：
-包含 Blender 5.4.0 无头脚本模式（`--background --python`）、OBS 64-bit 自动化录屏启动约束、Spline 与 Roblox Studio 安装细节。
+包含 Blender 5.4.0 无头脚本模式（`--background --python`）、OBS 64-bit 作为 MCP 录像失败后的后备启动约束、Spline 与 Roblox Studio 安装细节。
 
 ### 3. Roblox Studio MCP 交互
 👉 查阅 [Roblox Studio MCP 工具全景指南](references/mcp-roblox-studio.md)：
-包含 27 个工具详细规范（会话管理、实例树搜索、Luau 执行、模拟输入、控制台日志、图像与网格生成等）、反向 WebSocket 守护架构及安全红线。
+包含会话管理、实例树搜索、Luau 执行、模拟输入、控制台日志、Play 录像（`video_capture` 优先）与网格生成等工具规范、反向 WebSocket 守护架构及安全红线。调用前以当次 schema 为准。
 
 ### 4. Spline 2D / 3D 创作 MCP
 👉 查阅 [Spline 2D/3D MCP 工具手册](references/mcp-spline.md)：
@@ -74,7 +74,7 @@ flowchart TD
 
 ### 6. 项目常用工作流自动化脚本
 👉 查阅 [项目级自动化模式与脚本指南](references/project-automation-patterns.md)：
-涵盖 Luau 严格模式一键检查（`check-strict.ps1`）、Roblox Open Cloud 音频上传与 Studio 模板自动部署、OBS 客户端视口自动化校准、Excel 转 JSON 配表工具。
+涵盖 Luau 严格模式一键检查（`check-strict.ps1`）、Roblox Open Cloud 音频上传与 Studio 模板自动部署、MCP 录像失败后的 OBS 客户端视口校准、Excel 转 JSON 配表工具。
 
 ### 7. 疑难排查与避坑大全
 👉 查阅 [常见报错与故障排除指南](references/troubleshooting-and-faq.md)：

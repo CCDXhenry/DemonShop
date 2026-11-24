@@ -34,6 +34,8 @@ local ManualThrow = require(script.Parent.ManualThrowController)
 local ThrowArc = require(Shared.ThrowArc)
 local AltarSacrifice = require(script.Parent.AltarSacrificeView)
 local PotionShelf = require(script.Parent.PotionShelfView)
+local AutomationRules = require(Shared.AutomationRules)
+local ProcessingText = require(script.Parent.ProcessingTextTool)
 local Client = {}
 Client.__index = Client
 local player = Players.LocalPlayer
@@ -42,6 +44,7 @@ export type Client = typeof(setmetatable(
 		scope: Lifecycle.Lifecycle,
 		worldInteraction: WorldInteractionManager.Manager?,
 		ui: GameScreenGuiManager.Manager,
+		padTexts: ProcessingText.Controller,
 		view: PaintView.View,
 		presentation: Presentation.Presentation,
 		characterView: CharacterPresentation.Presentation,
@@ -61,9 +64,11 @@ export type Client = typeof(setmetatable(
 		altarBodyId: string?,
 		altarLoopSound: Sound?,
 		potionShelf: PotionShelf.View,
+		autoPotionShelf: PotionShelf.View?,
 		lastHeldId: string?,
 		lastHeldKind: string?,
 		lastPoolCount: number?,
+		lastChuteCount: number?,
 		lastPotionCount: number?,
 		lastPaintSound: number,
 		snapshot: Types.Snapshot?,
@@ -132,6 +137,44 @@ local positions: { [string]: Vector3 } = {
 	Shelf = Anchor("SoulCrystalDisplay", "StockPickupAnchor").Position,
 	Sigil = submitAnchor.Position,
 }
+local function OptionalPart(root: Instance?, ...: string): BasePart?
+	local current: Instance? = root
+	for i = 1, select("#", ...) do
+		if not current then
+			return nil
+		end
+		local name = select(i, ...)
+		current = current:FindFirstChild(name)
+	end
+	return if current and current:IsA("BasePart") then current else nil
+end
+local autoLine = district:FindFirstChild("AutomationLine")
+local fastChuteCover = if autoLine then autoLine:FindFirstChild("FastChuteCover") else nil
+local fastChuteOpening = OptionalPart(autoLine, "FastChuteOpening")
+local chutePrompt = OptionalPart(autoLine, "ChutePromptAnchor")
+local chuteDropZone = OptionalPart(autoLine, "FastChuteLanding", "DropZone")
+local chutePickup = OptionalPart(autoLine, "FastChuteLanding", "ChutePickupAnchor")
+local autoOutputPrompt = OptionalPart(autoLine, "AutoRuneMachine", "OutputPromptAnchor")
+local autoShelfPickup = OptionalPart(autoLine, "AutoSmelterMachine", "AutoPotionRack", "AutoShelfPickupAnchor")
+local autoRuneMachine = if autoLine then autoLine:FindFirstChild("AutoRuneMachine") else nil
+local autoSmelterMachine = if autoLine then autoLine:FindFirstChild("AutoSmelterMachine") else nil
+local padsFolder = if autoLine then autoLine:FindFirstChild("UnlockPads") else nil
+if chutePrompt then
+	interactionAnchors.Chute = chutePrompt
+	positions.Chute = chutePrompt.Position
+end
+if chutePickup then
+	interactionAnchors.ChutePickup = chutePickup
+	positions.ChutePickup = chutePickup.Position
+end
+if autoOutputPrompt then
+	interactionAnchors.AutoOutput = autoOutputPrompt
+	positions.AutoOutput = autoOutputPrompt.Position
+end
+if autoShelfPickup then
+	interactionAnchors.AutoShelf = autoShelfPickup
+	positions.AutoShelf = autoShelfPickup.Position
+end
 local function TablePose(): CFrame
 	return Rotation.TablePose(tablePlacement.Position)
 end
@@ -151,6 +194,7 @@ function Client.new(): Client
 		{
 			scope = Lifecycle.new(),
 			ui = UIManager.GetGameScreenGuiManager(),
+			padTexts = ProcessingText.new(),
 			view = paint,
 			presentation = tableView,
 			characterView = CharacterPresentation.new(),
@@ -169,9 +213,11 @@ function Client.new(): Client
 			altarBodyId = nil,
 			altarLoopSound = nil,
 			potionShelf = PotionShelf.new(positions.Shelf),
+			autoPotionShelf = PotionShelf.new(positions.AutoShelf or Vector3.new(10.0, 2.0, -27.2), "AutoPotionShelfPresentation"),
 			lastHeldId = nil,
 			lastHeldKind = nil,
 			lastPoolCount = nil,
+			lastChuteCount = nil,
 			lastPotionCount = nil,
 			lastPaintSound = 0,
 			snapshot = nil,
@@ -565,6 +611,12 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		end
 		self.snapshot = snapshot
 		self.potionShelf:Apply(snapshot.shelfItems, notice.kind == "Delta" and self.synced, os.clock())
+		if self.autoPotionShelf then
+			self.autoPotionShelf:Apply(snapshot.autoShelfItems or {}, notice.kind == "Delta" and self.synced, os.clock())
+		end
+		if self.UpdateAutomationViews then
+			self:UpdateAutomationViews(snapshot)
+		end
 		if snapshot.bodyPose and (self.paintId == nil or self.paintId == snapshot.tableId) then
 			self.presentation.targetBodyPose = snapshot.bodyPose
 		end
@@ -607,6 +659,8 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		local lastId = self.lastHeldId
 		local lastKind = self.lastHeldKind
 		local lastPool = self.lastPoolCount or snapshot.pool
+		local lastChute = self.lastChuteCount or (snapshot.chuteQueue or 0)
+		local currentChute = snapshot.chuteQueue or 0
 		if lastId ~= currentHeldId then
 			if not lastId and currentHeld then
 				if currentHeldKind == "Body" then
@@ -623,6 +677,8 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 					if not released or released.location ~= "Thrown" then
 						if snapshot.pool > lastPool then
 							Sound.Play("PoolDeposit", positions.Pool)
+						elseif currentChute > lastChute then
+							Sound.Play("PoolDeposit", positions.Chute or positions.Pool)
 						elseif released and released.location == "Altar" then
 							Sound.Play("AltarPlace", positions.Altar)
 						else
@@ -635,15 +691,24 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			self.lastHeldKind = currentHeldKind
 		end
 		self.lastPoolCount = snapshot.pool
+		self.lastChuteCount = currentChute
 		for id, item in nextItems do
 			local previous = previousItems[id]
 			if previous and previous.location == "Thrown" and item.location ~= "Thrown" and item.kind == "Body" then
 				if item.location == "Pool" then
 					Sound.Play("PoolDeposit", positions.Pool)
+				elseif item.location == "Chute" then
+					Sound.Play("PoolDeposit", positions.Chute or positions.Pool)
 				elseif item.location == "Ground" then
 					local model = item.model
 					Sound.Play("BodyDrop", if model then model:GetPivot().Position else nil)
 				end
+			end
+		end
+		for id, previous in previousItems do
+			if previous.location == "Thrown" and previous.kind == "Body" and not nextItems[id] and currentChute > lastChute then
+				Sound.Play("PoolDeposit", positions.Chute or positions.Pool)
+				break
 			end
 		end
 		local waiting=self.waitingHits
@@ -766,7 +831,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		self.messageEnds = os.clock() + 3
 		if notice.textId == "CoinsAwarded" then
 			Sound.Play("CoinReward")
-		elseif notice.textId == "RuneComplete" then
+		elseif notice.textId == "RuneComplete" or notice.textId == "FacilityUnlocked" then
 			Sound.Play("PaintComplete")
 		end
 	end
@@ -1236,6 +1301,9 @@ function Client.Update(self: Client, dt: number): ()
 	end
 	self.lastHint = now
 	self:Text("CoinsText", {textId = "Coins", args = {tostring(player:GetAttribute("Coins") or 0)}})
+	if self.UpdateAutomationViews then
+		self:UpdateAutomationViews(snapshot)
+	end
 	local carried = self:Carried()
 	local held = self:Held()
 	local focused = if self.attackTarget then self.items[self.attackTarget] else nil
@@ -1504,6 +1572,74 @@ function Client.UpdateAltar(self: Client, now: number): ()
 	end
 	self.altarBodyId = active[1].id
 end
+function Client.UpdateAutomationViews(self: Client, snapshot: Types.Snapshot?): ()
+	local rawCoins = player:GetAttribute("Coins")
+	local coins = if typeof(rawCoins) == "number" then rawCoins else 0
+	local unlocked = if snapshot then snapshot.unlockedFacilities else nil
+	if padsFolder then
+		for _, child in padsFolder:GetChildren() do
+			if child:IsA("Model") then
+				local state = AutomationRules.SyncPad(child, unlocked, coins, { skipText = true })
+				local facilityId = child:GetAttribute("FacilityId")
+				if typeof(facilityId) == "string" and facilityId ~= "" then
+					local guiAnchor = child:FindFirstChild("GuiAnchor")
+					local bb = if guiAnchor then guiAnchor:FindFirstChild("PadGui") else nil
+					if bb and bb:IsA("BillboardGui") then
+						bb.AutoLocalize = false
+					end
+					local card = if bb then bb:FindFirstChild("CardFrame") else nil
+					if card then
+						local titleLabel = card:FindFirstChild("TitleText")
+						local titleDesc = AutomationRules.DescribeTitle(facilityId)
+						if titleLabel and titleLabel:IsA("TextLabel") and titleDesc then
+							self.padTexts:Bind(titleLabel, titleDesc)
+						end
+						local descLabel = card:FindFirstChild("DescText")
+						local descDesc = AutomationRules.DescribeDesc(facilityId)
+						if descLabel and descLabel:IsA("TextLabel") and descDesc then
+							self.padTexts:Bind(descLabel, descDesc)
+						end
+						local prereqLabel = card:FindFirstChild("PrereqText")
+						if prereqLabel and prereqLabel:IsA("TextLabel") then
+							self.padTexts:Bind(prereqLabel, AutomationRules.DescribePrereq(facilityId, state))
+						end
+						local priceFrame = card:FindFirstChild("PriceFrame")
+						local priceLabel = if priceFrame then priceFrame:FindFirstChild("PriceText") else nil
+						local priceDesc = AutomationRules.DescribePrice(facilityId)
+						if priceLabel and priceLabel:IsA("TextLabel") and priceDesc then
+							self.padTexts:Bind(priceLabel, priceDesc)
+						end
+					end
+				end
+			end
+		end
+	end
+	local a00Open = unlocked ~= nil and unlocked.A00 == true
+	if fastChuteCover then
+		fastChuteCover:SetAttribute("Unlocked", a00Open)
+		for _, descendant in fastChuteCover:GetDescendants() do
+			if descendant:IsA("BasePart") then
+				descendant.LocalTransparencyModifier = if a00Open then 1 else 0
+				descendant.CanCollide = not a00Open
+				descendant.CanQuery = not a00Open
+				descendant.CanTouch = not a00Open
+				elseif descendant:IsA("BillboardGui") then
+					descendant.Enabled = not a00Open
+				elseif descendant:IsA("SurfaceGui") then
+					descendant.Enabled = not a00Open
+				end
+		end
+	end
+	local serverNow = workspace:GetServerTimeNow()
+	if autoRuneMachine then
+		autoRuneMachine:SetAttribute("Unlocked", unlocked ~= nil and unlocked.A03 == true)
+		autoRuneMachine:SetAttribute("Working", snapshot ~= nil and (snapshot.autoRuneEnds or 0) > serverNow)
+	end
+	if autoSmelterMachine then
+		autoSmelterMachine:SetAttribute("Unlocked", unlocked ~= nil and unlocked.A04 == true)
+		autoSmelterMachine:SetAttribute("Working", snapshot ~= nil and (snapshot.autoSmelterEnds or 0) > serverNow)
+	end
+end
 function Client.Init(self: Client, gui: ScreenGui): ()
 	if self.initialized then
 		return
@@ -1548,7 +1684,13 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 				if not top or top.stage == "Painted" or not snapshot then
 					return false
 				end
-				return ThrowArc.InsidePoolStrict(poolFloor.CFrame, poolFloor.Size, position, Physics.PoolWallHeight)
+				local inPool = ThrowArc.InsidePoolStrict(poolFloor.CFrame, poolFloor.Size, position, Physics.PoolWallHeight)
+				local inChute = if fastChuteOpening and chuteDropZone
+					then ThrowArc.InsideChute(fastChuteOpening.CFrame, fastChuteOpening.Size, chuteDropZone.CFrame, chuteDropZone.Size, position, Physics.ChuteWallHeight)
+					else false
+				local unlockedA00 = snapshot.unlockedFacilities ~= nil and snapshot.unlockedFacilities.A00 == true
+				local kind = ThrowArc.CanStoreThrow(unlockedA00, inPool, inChute, false, snapshot.pool, nil)
+				return kind == "Pool" or kind == "Chute"
 			end,
 			Ignored = function(): { Instance }
 				local list: { Instance } = {}
@@ -1573,6 +1715,14 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 	self.scope:Connect(Net.ConnectNotify(function(notice: Types.Notice): ()
 		self:OnNotice(notice)
 	end))
+	self.scope:Connect(player:GetAttributeChangedSignal("Coins"):Connect(function(): ()
+		if self.UpdateAutomationViews then
+			self:UpdateAutomationViews(self.snapshot)
+		end
+	end))
+	if self.UpdateAutomationViews then
+		self:UpdateAutomationViews(self.snapshot)
+	end
 	self.scope:Connect(UserInputService.InputBegan:Connect(function(input: InputObject, processed: boolean): ()
 		self:OnInput(input, processed)
 	end))
@@ -1653,6 +1803,9 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 	self.scope:Connect(RunService.RenderStepped:Connect(function(dt): ()
 		self.paintCamera:StepToss(workspace:GetServerTimeNow(), dt)
 		self.potionShelf:Step(os.clock())
+		if self.autoPotionShelf then
+			self.autoPotionShelf:Step(os.clock())
+		end
 		self:Update(dt)
 	end))
 end
@@ -1677,10 +1830,14 @@ function Client.Destroy(self: Client): ()
 	end
 	self.paintCamera:Destroy()
 	self.ui:UnbindActions()
+	self.padTexts:Destroy()
 	UIManager.GetTargetGuiManager():Destroy()
 	if self.worldInteraction then self.worldInteraction:Destroy(); self.worldInteraction = nil end
 	self.scope:Destroy()
 	self.potionShelf:Destroy()
+	if self.autoPotionShelf then
+		self.autoPotionShelf:Destroy()
+	end
 	if self.altarBodyId then self.view:ClearSacrifice(self.altarBodyId); self.altarBodyId = nil end
 	if self.altarIds then
 		for id in self.altarIds do

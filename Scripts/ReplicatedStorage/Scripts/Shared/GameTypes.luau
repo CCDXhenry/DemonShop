@@ -112,6 +112,13 @@ export type Snapshot = {
 	altarEnds: number,
 	painter: number?,
 	session: string?,
+	unlockedFacilities: { [string]: boolean }?,
+	chuteQueue: number?,
+	autoPaintedQueue: number?,
+	autoShelfCount: number?,
+	autoShelfItems: { [string]: CFrame }?,
+	autoRuneEnds: number?,
+	autoSmelterEnds: number?,
 }
 export type Notice = { kind: string, attackSequence: number?, hit: boolean?, version: number?, hits: number?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, flipped: boolean?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
 return {}

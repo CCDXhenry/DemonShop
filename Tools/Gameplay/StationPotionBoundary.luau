@@ -1,6 +1,6 @@
 -- 工位距离、药水隔离、重生保护与循环音效离线边界
 local R = require('@lune/roblox')
-local CFrame, Vector3, Instance, Enum = R.CFrame, R.Vector3, R.Instance, R.Enum
+local CFrame, Vector3, Color3, Instance, Enum = R.CFrame, R.Vector3, R.Color3, R.Instance, R.Enum
 
 local B = {
 	now = 100,
@@ -133,6 +133,11 @@ end
 
 function B.PivotTo(model, pose)
 	model.WorldPivot = pose
+	local primary = model.PrimaryPart
+	if primary then
+		primary.CFrame = pose
+		primary.Position = pose.Position
+	end
 end
 
 local function makePart(parent, name, pos, size)
@@ -202,7 +207,138 @@ function B.BuildDistrict(ranges)
 	local gen = Instance.new('Folder'); gen.Name = 'Generated'; gen.Parent = deck
 	local street = Instance.new('Folder'); street.Name = 'Street'; street.Parent = gen
 	local void = Instance.new('Folder'); void.Name = 'Raised Street Deck With Stair Void'; void.Parent = street
-	makePart(void, 'Box_005', Vector3.new(0, 0, 0), Vector3.new(40, 1, 40))
+	makePart(void, 'Box_005', Vector3.new(0, 20.04, -63), Vector3.new(180, 0.08, 26))
+
+	local autoLine = Instance.new('Folder')
+	autoLine.Name = 'AutomationLine'
+	autoLine.Parent = d
+
+	local brutePost = Instance.new('Model')
+	brutePost.Name = 'BrutePost'
+	brutePost.Parent = autoLine
+	makePart(brutePost, 'PostDeck', Vector3.new(-52.1, 20.57, -41.0), Vector3.new(7.0, 0.45, 2.2))
+	makePart(brutePost, 'Brute1SpawnAnchor', Vector3.new(-54.0, 20.895, -41.0), Vector3.new(0.1, 0.1, 0.1))
+	makePart(brutePost, 'Brute2SpawnAnchor', Vector3.new(-50.2, 20.895, -41.0), Vector3.new(0.1, 0.1, 0.1))
+
+	local cover = Instance.new('Model')
+	cover.Name = 'FastChuteCover'
+	cover.Parent = autoLine
+	local coverPlate = makePart(cover, 'CoverPlate', Vector3.new(-47.0, 21.1, -26.0), Vector3.new(8, 0.5, 8))
+	coverPlate.CanCollide = true
+	coverPlate.CanQuery = true
+	coverPlate.CanTouch = true
+
+	local opening = makePart(autoLine, 'FastChuteOpening', Vector3.new(-47.0, 21.1, -26.0), Vector3.new(8, 1, 8))
+	opening.CanCollide = false
+	opening.CanQuery = false
+	makePart(autoLine, 'ChuteTopDropAnchor', Vector3.new(-47.0, 21.8, -26.0))
+	local chutePrompt = makePart(autoLine, 'ChutePromptAnchor', Vector3.new(-52.2, 22.4, -26.0))
+	attachPrompt(chutePrompt, ranges.Chute or 8)
+
+	local landing = Instance.new('Model')
+	landing.Name = 'FastChuteLanding'
+	landing.Parent = autoLine
+	local dropZone = makePart(landing, 'DropZone', Vector3.new(-47.0, 1.0, -26.0), Vector3.new(8.2, 1.4, 8.2))
+	dropZone.CanCollide = false
+	makePart(landing, 'LandingAnchor', Vector3.new(-47.0, 1.15, -26.0))
+	local chutePickup = makePart(landing, 'ChutePickupAnchor', Vector3.new(-47.0, 1.8, -20.2))
+	attachPrompt(chutePickup, ranges.ChutePickup or 8)
+
+	local autoRune = Instance.new('Model')
+	autoRune.Name = 'AutoRuneMachine'
+	autoRune.Parent = autoLine
+	makePart(autoRune, 'WorkBedAnchor', Vector3.new(-19.0, 4.4, -27.0))
+	makePart(autoRune, 'OutputPadAnchor', Vector3.new(-28.6, 1.15, -27.0))
+	local outputPrompt = makePart(autoRune, 'OutputPromptAnchor', Vector3.new(-28.6, 1.8, -22.2))
+	attachPrompt(outputPrompt, ranges.AutoOutput or 8)
+
+	local autoSmelter = Instance.new('Model')
+	autoSmelter.Name = 'AutoSmelterMachine'
+	autoSmelter.Parent = autoLine
+	makePart(autoSmelter, 'FeedRailAnchor', Vector3.new(-10.0, 4.35, -27.0))
+	makePart(autoSmelter, 'MachineCenterAnchor', Vector3.new(-1.0, 4.5, -27.0))
+	local autoRack = Instance.new('Model')
+	autoRack.Name = 'AutoPotionRack'
+	autoRack.Parent = autoSmelter
+	local autoPoints = Instance.new('Folder')
+	autoPoints.Name = 'PotionPoints'
+	autoPoints.Parent = autoRack
+	for idx, pt in {
+		Vector3.new(7.4, 4.9, -31.0),
+		Vector3.new(10.0, 4.9, -31.0),
+		Vector3.new(12.6, 4.9, -31.0),
+		Vector3.new(7.4, 1.45, -31.0),
+		Vector3.new(10.0, 1.45, -31.0),
+		Vector3.new(12.6, 1.45, -31.0),
+	} do
+		makePart(autoPoints, 'PotionPoint' .. tostring(idx), pt)
+	end
+	local autoShelfPickup = makePart(autoRack, 'AutoShelfPickupAnchor', Vector3.new(10.0, 2.0, -27.2))
+	attachPrompt(autoShelfPickup, ranges.AutoShelf or 8)
+
+	local clerkStation = Instance.new('Model')
+	clerkStation.Name = 'AutoClerkStation'
+	clerkStation.Parent = autoLine
+	makePart(clerkStation, 'DispatchDeck', Vector3.new(22.0, 0.875, -27.25), Vector3.new(7.0, 0.25, 7.0))
+	makePart(clerkStation, 'ClerkSpawnAnchor', Vector3.new(22.0, 1.15, -27.25), Vector3.new(0.1, 0.1, 0.1))
+
+	local padsFolder = Instance.new('Folder')
+	padsFolder.Name = 'UnlockPads'
+	padsFolder.Parent = autoLine
+	local function makePad(name, facilityId, prereqId, prereqLabel, cost, pos)
+		local pad = Instance.new('Model')
+		pad.Name = name
+		pad:SetAttribute('FacilityId', facilityId)
+		pad:SetAttribute('PrerequisiteId', prereqId)
+		pad:SetAttribute('PrerequisiteLabel', prereqLabel)
+		pad:SetAttribute('Cost', cost)
+		pad:SetAttribute('PadState', if prereqId == '' then 'Insufficient' else 'Locked')
+		pad:SetAttribute('LockedColor', Color3.fromRGB(130, 136, 150))
+		pad:SetAttribute('InsufficientColor', Color3.fromRGB(228, 68, 82))
+		pad:SetAttribute('ReadyColor', Color3.fromRGB(46, 229, 145))
+		local padRoot = makePart(pad, 'RootPart', pos, Vector3.new(0.2, 0.2, 0.2))
+		pad.PrimaryPart = padRoot
+		makePart(pad, 'OuterRim', pos, Vector3.new(3.4, 0.12, 3.4))
+		makePart(pad, 'GlowRing', pos, Vector3.new(3.12, 0.15, 3.12))
+		makePart(pad, 'InnerDisc', pos, Vector3.new(2.66, 0.17, 2.66))
+		local core = makePart(pad, 'CenterGlyph', pos, Vector3.new(1.15, 0.185, 1.15))
+		local light = Instance.new('PointLight')
+		light.Name = 'StateLight'
+		light.Parent = core
+		local tz = makePart(pad, 'TriggerZone', pos + Vector3.new(0, 1.5, 0), Vector3.new(3.4, 3.0, 3.4))
+		tz.CanTouch = true
+		local guiAnchor = makePart(pad, 'GuiAnchor', pos + Vector3.new(0, 2.55, 0), Vector3.new(0.2, 0.2, 0.2))
+		local bb = Instance.new('BillboardGui')
+		bb.Name = 'PadGui'
+		bb.Enabled = true
+		bb.Parent = guiAnchor
+		local card = Instance.new('Frame')
+		card.Name = 'CardFrame'
+		card.Parent = bb
+		local stroke = Instance.new('UIStroke')
+		stroke.Name = 'BorderStroke'
+		stroke.Parent = card
+		local accent = Instance.new('Frame')
+		accent.Name = 'AccentBarFrame'
+		accent.Parent = card
+		local prereqText = Instance.new('TextLabel')
+		prereqText.Name = 'PrereqText'
+		prereqText.Text = prereqLabel
+		prereqText.Parent = card
+		local priceFrame = Instance.new('Frame')
+		priceFrame.Name = 'PriceFrame'
+		priceFrame.Parent = card
+		local priceStroke = Instance.new('UIStroke')
+		priceStroke.Name = 'PriceStroke'
+		priceStroke.Parent = priceFrame
+		pad.Parent = padsFolder
+	end
+	makePad('A00_FastChute', 'A00', '', 'PRE-REQ: NONE', 250, Vector3.new(-47.0, 21.4, -26.0))
+	makePad('A01_Brute1', 'A01', 'A00', 'REQUIRES: FAST DROP CHUTE', 1000, Vector3.new(-54.0, 20.345, -44.2))
+	makePad('A02_Brute2', 'A02', 'A01', 'REQUIRES: HELL BRUTE #1', 2500, Vector3.new(-50.2, 20.345, -44.2))
+	makePad('A03_AutoRune', 'A03', 'A00', 'REQUIRES: FAST DROP CHUTE', 2000, Vector3.new(-19.0, 0.0, -19.25))
+	makePad('A04_AutoSmelter', 'A04', 'A03', 'REQUIRES: AUTO RUNE TABLE', 4500, Vector3.new(-1.0, 0.0, -17.25))
+	makePad('A05_AutoClerk', 'A05', '', 'PRE-REQ: NONE', 9000, Vector3.new(22.0, 0.0, -19.25))
 
 	B.district = d
 	B.wallPart = makePart(d, 'OccludingWall', Vector3.new(0, 100, 0), Vector3.new(4, 4, 4))
@@ -425,6 +561,14 @@ B.Players = {
 		end
 		return nil
 	end,
+	GetPlayerFromCharacter = function(_, char)
+		for _, p in B.playerList do
+			if p.Character == char then
+				return p
+			end
+		end
+		return nil
+	end,
 }
 
 function B.CreateCharacter(player, pos)
@@ -479,12 +623,33 @@ B.Info = {
 	IsActive = function() return true end,
 	CanAddCoins = function() return true end,
 	AddCoins = function() return true end,
+	CanSpendCoins = function(player, amount)
+		local coins = player:GetAttribute('Coins') or 0
+		return typeof(amount) == 'number' and amount >= 0 and amount % 1 == 0 and coins >= amount
+	end,
+	SpendCoins = function(player, amount)
+		local coins = player:GetAttribute('Coins') or 0
+		if typeof(amount) ~= 'number' or amount < 0 or amount % 1 ~= 0 or coins < amount then
+			return false
+		end
+		player:SetAttribute('Coins', coins - amount)
+		return true
+	end,
+	TrySpendCoins = function(player, amount)
+		return B.Info.SpendCoins(player, amount)
+	end,
 }
 
 B.NPC = {
 	StopMotion = function() end,
 	Update = function() end,
-	Hit = function() end,
+	Hit = function(item)
+		item.hits += 1
+		item.version += 1
+		if item.hits >= 3 then
+			item.motionState = 'Down'
+		end
+	end,
 	Spawn = function() return nil end,
 }
 
@@ -518,8 +683,11 @@ B.Carry = {
 	end,
 	Static = function(item, pose)
 		item.holder = nil
-		if item.model and item.model.PrimaryPart then
-			item.model.PrimaryPart.CFrame = pose
+		if item.model then
+			item.model.WorldPivot = pose
+			if item.model.PrimaryPart then
+				item.model.PrimaryPart.CFrame = pose
+			end
 		end
 	end,
 	Detach = function(item)

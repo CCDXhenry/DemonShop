@@ -62,7 +62,7 @@ pwsh -File Tools/check-strict.ps1 -All
 
 ## 三、OBS Studio 客户端视口准确采集管线
 
-OBS 视口工具集（`Tools/Studio/`）通过本地 Win32 UI 自动化精确定位 Roblox 内部渲染区域 `QEngineWidget`，实现 1:1 物理像素剪裁与 60FPS 受守卫录像。
+Play 录像优先 Studio MCP。MCP 的 `video_capture` 不在当次工具列表中，或调用失败、超时、没有可核验视频时，才使用本节。OBS 视口工具集（`Tools/Studio/`）通过本地 Win32 UI 自动化精确定位 Roblox 内部渲染区域 `QEngineWidget`，实现 1:1 物理像素剪裁与 60FPS 受守卫录像。参数以当次 MCP schema 为准，不在这里写死。
 
 ### 1. 四步标准采集流程
 ```powershell

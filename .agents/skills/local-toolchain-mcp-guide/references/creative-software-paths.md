@@ -34,7 +34,7 @@ Blender 支持无图形界面直接执行 Python 脚本（利用内部 `bpy` 库
 
 ---
 
-## 二、OBS Studio (64-bit 游戏视口准确采集)
+## 二、OBS Studio (64-bit，MCP 录像失败后的视口后备)
 
 ### 1. 软件信息与绝对路径
 - **主程序物理路径**：`D:\obs-studio\bin\64bit\obs64.exe`
@@ -53,7 +53,7 @@ Blender 支持无图形界面直接执行 Python 脚本（利用内部 `bpy` 库
   - 自动化脚本需通过环境变量 `OBS_WEBSOCKET_PASSWORD` 传递密码，禁止在代码或日志中明文打印。
 
 ### 3. 本地联动工作流说明
-在 Roblox 自动化测试与视频验收中，推荐通过项目封装的 `Tools/Studio/obs_media_tool.py` 驱动 OBS（基于 Win32 视口物理像素自动裁切，实现 1:1 无黑边 60FPS 采集）：
+Play 录像优先 Studio MCP 的 `video_capture`，或实时 schema 含录像参数的 `screen_capture`。下面的 OBS 流程只在 MCP 录像不可用、调用失败，或任务明确要求 60 FPS 客户区裁切时使用。它通过项目封装的 `Tools/Studio/obs_media_tool.py` 驱动 OBS（基于 Win32 视口物理像素自动裁切，实现 1:1 无黑边 60FPS 采集）：
 ```powershell
 # 1. 视口校准
 python Tools/Studio/obs_media_tool.py calibrate

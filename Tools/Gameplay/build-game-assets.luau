@@ -19,6 +19,9 @@ end
 for _,name in {"SoulHoldingPool","RuneBodyTable","SoulConversionAltar","SoulCrystalDisplay"} do district[name].ModelStreamingMode=Enum.ModelStreamingMode.Persistent end
 assert(models:FindFirstChild("WhiteR15") and models.WhiteR15:GetAttribute("SurfaceVersion")==1,
  "Import Assets/Models/GameModels.rbxm containing the curved WhiteR15 template before building")
+-- 自动化底盘圈模板从 GameModels.rbxm 恢复；场景空洞与 AutomationLine 设施由 build-automation-assets.luau 构建。
+assert(models:FindFirstChild("UnlockPad") and models.UnlockPad:FindFirstChild("GuiAnchor"),
+ "Import Assets/Models/GameModels.rbxm containing UnlockPad or run Tools/Gameplay/build-automation-assets.luau")
 -- 曲面 UV、面积与可绘制区域由离线数据提供，不再生成六平面遮罩。
 local function part(parent,name,size,color,cf)
  local p=Instance.new("Part");p.Name=name;p.Size=size;p.Color=color;p.CFrame=cf or CFrame.identity

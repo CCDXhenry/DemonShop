@@ -26,7 +26,16 @@ local BodyPose = require(Shared.PaintBodyPose)
 local PaintRotation = require(Shared.PaintRotation)
 local CurvedSurface = require(Shared.CurvedSurface)
 local ThrowArc = require(Shared.ThrowArc)
-type PlayerData = { IsActive: (Player) -> boolean, CanAddCoins: (Player, number) -> boolean, AddCoins: (Player, number) -> boolean }
+local AutomationRules = require(Shared.AutomationRules)
+local AutomationAgents = require(script.Parent.AutomationAgents)
+type PlayerData = {
+	IsActive: (Player) -> boolean,
+	CanAddCoins: (Player, number) -> boolean,
+	AddCoins: (Player, number) -> boolean,
+	CanSpendCoins: ((Player, number) -> boolean)?,
+	SpendCoins: ((Player, number) -> boolean)?,
+	TrySpendCoins: ((Player, number) -> boolean)?,
+}
 type PaintSession = Painting.Session
 type PlayerRecord = {
 	scope: Lifecycle.Lifecycle,
@@ -55,6 +64,22 @@ export type Manager = typeof(setmetatable(
 		poolOverflowCount: number,
 		shelfCounts: { [number]: number },
 		shelfVisible: { [number]: { string } },
+		unlockedFacilities: { [string]: boolean },
+		unlockLocks: { [string]: boolean },
+		chuteVisible: { string },
+		chuteOverflowCount: number,
+		chuteTakeSerial: number,
+		autoPaintedVisible: { string },
+		autoPaintedOverflowCount: number,
+		autoOutputTakeSerial: number,
+		autoRuneItemId: string?,
+		autoRuneEnds: number,
+		autoSmelterItemId: string?,
+		autoSmelterEnds: number,
+		autoShelfCount: number,
+		autoShelfVisible: { string },
+		autoShelfTakeSerial: number,
+		agents: AutomationAgents.State?,
 		tableId: string?,
 		altarId: string?,
 		altarEnds: number,
@@ -70,7 +95,14 @@ export type Manager = typeof(setmetatable(
 	Manager
 ))
 function Manager.new(data: PlayerData?): Manager
-	local playerData: PlayerData = data or { IsActive = Info.IsActive, CanAddCoins = Info.CanAddCoins, AddCoins = Info.AddCoins }
+	local playerData: PlayerData = data or {
+		IsActive = Info.IsActive,
+		CanAddCoins = Info.CanAddCoins,
+		AddCoins = Info.AddCoins,
+		CanSpendCoins = Info.CanSpendCoins,
+		SpendCoins = Info.SpendCoins,
+		TrySpendCoins = Info.TrySpendCoins,
+	}
 	local runtime = Instance.new("Folder")
 	runtime.Name = "GameRuntime"
 	return setmetatable({
@@ -87,12 +119,38 @@ function Manager.new(data: PlayerData?): Manager
 		poolOverflowCount = 0,
 		shelfCounts = {},
 		shelfVisible = {},
+		unlockedFacilities = {},
+		unlockLocks = {},
+		chuteVisible = {},
+		chuteOverflowCount = 0,
+		chuteTakeSerial = 0,
+		autoPaintedVisible = {},
+		autoPaintedOverflowCount = 0,
+		autoOutputTakeSerial = 0,
+		autoRuneItemId = nil,
+		autoRuneEnds = 0,
+		autoSmelterItemId = nil,
+		autoSmelterEnds = 0,
+		autoShelfCount = 0,
+		autoShelfVisible = {},
+		autoShelfTakeSerial = 0,
+		agents = nil,
 		tableId = nil,
 		altarId = nil,
 		altarEnds = 0,
 		altarHeld = false,
 		paint = nil,
-		stationVersions = { Pool = 1, Table = 1, Altar = 1, Shelf = 1, Sigil = 1 },
+		stationVersions = {
+			Pool = 1,
+			Table = 1,
+			Altar = 1,
+			Shelf = 1,
+			Sigil = 1,
+			Chute = 1,
+			ChutePickup = 1,
+			AutoOutput = 1,
+			AutoShelf = 1,
+		},
 		stationKeys = {},
 		revision = 0,
 		nextSpawn = 0,
@@ -103,7 +161,36 @@ end
 function Manager.PoolCount(self: Manager): number
 	return #self.pool + self.poolOverflowCount
 end
-function Manager.SpawnPoolBody(self: Manager): Types.Item?
+function Manager.ChuteCount(self: Manager): number
+	return #self.chuteVisible + self.chuteOverflowCount
+end
+function Manager.AutoPaintedCount(self: Manager): number
+	return #self.autoPaintedVisible + self.autoPaintedOverflowCount
+end
+function Manager.AutoShelfCount(self: Manager): number
+	return self.autoShelfCount
+end
+local function IsAutomationLocation(location: string): boolean
+	return location == "Chute" or location == "AutoOutput" or location == "AutoRune" or location == "AutoSmelter" or location == "BruteCarried"
+end
+local function MarkAutoPaintedAppearance(item: Types.Item): ()
+	local model = item.model
+	model:SetAttribute("AutoPainted", true)
+	local color = Config.AutoPaintedColor
+	for _, child in model:GetChildren() do
+		if child:IsA("BodyColors") then
+			child.HeadColor3 = color
+			child.TorsoColor3 = color
+			child.LeftArmColor3 = color
+			child.RightArmColor3 = color
+			child.LeftLegColor3 = color
+			child.RightLegColor3 = color
+		elseif child:IsA("BasePart") and child.Name ~= "HumanoidRootPart" then
+			child.Color = color
+		end
+	end
+end
+local function CreateStationBody(self: Manager, location: string, stage: string, pose: CFrame): Types.Item?
 	local models = ReplicatedStorage:FindFirstChild("Models")
 	local template = if models then models:FindFirstChild("WhiteR15") else nil
 	if not template or not template:IsA("Model") then
@@ -114,14 +201,14 @@ function Manager.SpawnPoolBody(self: Manager): Types.Item?
 	model.Name = "WhiteNPC"
 	model:SetAttribute("ItemId", id)
 	model:SetAttribute("GroundPresentation", Physics.GroundRootEnabled)
-	model:PivotTo(Scene.PoolPose(#self.pool + 1))
+	model:PivotTo(pose)
 	model.Parent = self.runtime
 	Ragdoll.Setup(model)
 	local item: Types.Item = {
 		id = id,
 		kind = "Body",
-		stage = "Unpainted",
-		location = "Pool",
+		stage = stage,
+		location = location,
 		version = 1,
 		model = model,
 		holder = nil,
@@ -131,15 +218,21 @@ function Manager.SpawnPoolBody(self: Manager): Types.Item?
 		strokePoints = 0,
 		area = 0,
 		totalArea = Surface.Total(model),
-		progress = 0,
+		progress = if stage == "Painted" then 1 else 0,
 		paintSeconds = 0,
 		streetSlot = false,
 		nextWalk = 0,
 		carryWeld = nil,
 		walkTrack = nil,
 	}
-	Carry.RecoverPool(item)
 	self.items[id] = item
+	return item
+end
+function Manager.SpawnPoolBody(self: Manager): Types.Item?
+	local item = CreateStationBody(self, "Pool", "Unpainted", Scene.PoolPose(#self.pool + 1))
+	if item then
+		Carry.RecoverPool(item)
+	end
 	return item
 end
 function Manager.ReplenishPoolVisible(self: Manager): ()
@@ -150,6 +243,82 @@ function Manager.ReplenishPoolVisible(self: Manager): ()
 		end
 		self.poolOverflowCount -= 1
 		table.insert(self.pool, item.id)
+	end
+end
+function Manager.SpawnChuteBody(self: Manager): Types.Item?
+	local pose = Scene.ChutePose(#self.chuteVisible + 1)
+	local item = CreateStationBody(self, "Chute", "Unpainted", pose)
+	if item then
+		Carry.Static(item, pose, false)
+	end
+	return item
+end
+function Manager.SpawnAutoPaintedBody(self: Manager): Types.Item?
+	local pose = Scene.AutoOutputPose(#self.autoPaintedVisible + 1)
+	local item = CreateStationBody(self, "AutoOutput", "Painted", pose)
+	if item then
+		MarkAutoPaintedAppearance(item)
+		Carry.Static(item, pose, false)
+	end
+	return item
+end
+function Manager.ReplenishChuteVisible(self: Manager): ()
+	for index = #self.chuteVisible, 1, -1 do
+		if self.items[self.chuteVisible[index]] == nil then
+			table.remove(self.chuteVisible, index)
+		end
+	end
+	while #self.chuteVisible < Config.AutoQueueVisibleLimit and self.chuteOverflowCount > 0 do
+		local item = self:SpawnChuteBody()
+		if not item then
+			break
+		end
+		self.chuteOverflowCount -= 1
+		table.insert(self.chuteVisible, item.id)
+	end
+	for index, id in self.chuteVisible do
+		local item = self.items[id]
+		if item then
+			local target = Scene.ChutePose(index)
+			if (item.model:GetPivot().Position - target.Position).Magnitude > 0.05 then
+				Carry.Static(item, target, false)
+				item.version += 1
+			end
+		end
+	end
+end
+function Manager.ReplenishAutoPaintedVisible(self: Manager): ()
+	for index = #self.autoPaintedVisible, 1, -1 do
+		if self.items[self.autoPaintedVisible[index]] == nil then
+			table.remove(self.autoPaintedVisible, index)
+		end
+	end
+	while #self.autoPaintedVisible < Config.AutoQueueVisibleLimit and self.autoPaintedOverflowCount > 0 do
+		local item = self:SpawnAutoPaintedBody()
+		if not item then
+			break
+		end
+		self.autoPaintedOverflowCount -= 1
+		table.insert(self.autoPaintedVisible, item.id)
+	end
+	for index, id in self.autoPaintedVisible do
+		local item = self.items[id]
+		if item then
+			local target = Scene.AutoOutputPose(index)
+			if (item.model:GetPivot().Position - target.Position).Magnitude > 0.05 then
+				Carry.Static(item, target, false)
+				item.version += 1
+			end
+		end
+	end
+end
+function Manager.SyncAutoShelfVisible(self: Manager): ()
+	local target = math.min(self.autoShelfCount, Config.AutoQueueVisibleLimit)
+	while #self.autoShelfVisible < target do
+		table.insert(self.autoShelfVisible, HttpService:GenerateGUID(false))
+	end
+	while #self.autoShelfVisible > target do
+		table.remove(self.autoShelfVisible)
 	end
 end
 function Manager.AltarSummary(self: Manager): (string?, number, string)
@@ -172,12 +341,333 @@ function Manager.AltarSummary(self: Manager): (string?, number, string)
 	table.sort(parts)
 	return soonestId or waitingId, (if soonestId then soonest else 0), table.concat(parts, ",")
 end
+function Manager.PeekChuteItem(self: Manager): Types.Item?
+	while #self.chuteVisible > 0 and self.items[self.chuteVisible[1]] == nil do
+		table.remove(self.chuteVisible, 1)
+	end
+	if #self.chuteVisible == 0 and self.chuteOverflowCount > 0 then
+		self:ReplenishChuteVisible()
+	end
+	local id = self.chuteVisible[1]
+	return if id then self.items[id] else nil
+end
+function Manager.PushChuteItem(self: Manager, item: Types.Item, restoreTool: boolean?): ()
+	if #self.chuteVisible < Config.AutoQueueVisibleLimit then
+		Carry.Static(item, Scene.ChutePose(#self.chuteVisible + 1), restoreTool)
+		item.location = "Chute"
+		item.stage = "Unpainted"
+		item.streetSlot = false
+		item.version += 1
+		table.insert(self.chuteVisible, item.id)
+	else
+		Carry.Detach(item, restoreTool)
+		NPC.StopMotion(item)
+		self.items[item.id] = nil
+		item.model:Destroy()
+		self.chuteOverflowCount += 1
+	end
+end
+function Manager.PeekAutoPaintedItem(self: Manager): Types.Item?
+	while #self.autoPaintedVisible > 0 and self.items[self.autoPaintedVisible[1]] == nil do
+		table.remove(self.autoPaintedVisible, 1)
+	end
+	if #self.autoPaintedVisible == 0 and self.autoPaintedOverflowCount > 0 then
+		self:ReplenishAutoPaintedVisible()
+	end
+	local id = self.autoPaintedVisible[1]
+	return if id then self.items[id] else nil
+end
+function Manager.PushAutoPaintedItem(self: Manager, item: Types.Item): ()
+	if #self.autoPaintedVisible < Config.AutoQueueVisibleLimit then
+		item.location = "AutoOutput"
+		item.stage = "Painted"
+		item.progress = 1
+		item.streetSlot = false
+		item.version += 1
+		MarkAutoPaintedAppearance(item)
+		Carry.Static(item, Scene.AutoOutputPose(#self.autoPaintedVisible + 1), false)
+		table.insert(self.autoPaintedVisible, item.id)
+	else
+		Carry.Detach(item, false)
+		NPC.StopMotion(item)
+		self.items[item.id] = nil
+		item.model:Destroy()
+		self.autoPaintedOverflowCount += 1
+	end
+end
+function Manager.IsFacilityUnlocked(self: Manager, facilityId: string): boolean
+	return self.unlockedFacilities[facilityId] == true
+end
+function Manager.IsNearPad(self: Manager, player: Player, facilityId: string): boolean
+	local root = self:Root(player)
+	local pad = Scene.UnlockPads[facilityId]
+	if not root or not pad then
+		return false
+	end
+	local trigger = pad:FindFirstChild("TriggerZone")
+	local center = if trigger and trigger:IsA("BasePart") then trigger.Position else pad:GetPivot().Position
+	local dx = root.Position.X - center.X
+	local dz = root.Position.Z - center.Z
+	local dy = math.abs(root.Position.Y - center.Y)
+	return (dx * dx + dz * dz) <= Config.UnlockPadTriggerRadius * Config.UnlockPadTriggerRadius
+		and dy <= Config.UnlockPadHeightTolerance
+end
+function Manager.ApplyFacilityWorldState(self: Manager, facilityId: string): ()
+	local pad = Scene.UnlockPads[facilityId]
+	if pad then
+		pad:SetAttribute("Unlocked", true)
+		pad:SetAttribute("PadState", "Unlocked")
+		for _, descendant in pad:GetDescendants() do
+			if descendant:IsA("BasePart") then
+				descendant.CanTouch = false
+				if descendant.Name == "OuterRim" or descendant.Name == "GlowRing" or descendant.Name == "InnerDisc" or descendant.Name == "CenterGlyph" then
+					descendant.Transparency = 1
+				end
+			elseif descendant:IsA("PointLight") then
+				descendant.Enabled = false
+			elseif descendant:IsA("BillboardGui") then
+				descendant.Enabled = false
+			end
+		end
+	end
+	if facilityId == "A00" then
+		local cover = Scene.FastChuteCover
+		if cover then
+			cover:SetAttribute("Unlocked", true)
+			for _, descendant in cover:GetDescendants() do
+				if descendant:IsA("BasePart") then
+					descendant.CanCollide = false
+					descendant.CanQuery = false
+					descendant.CanTouch = false
+					descendant.Transparency = 1
+				elseif descendant:IsA("BillboardGui") then
+					descendant.Enabled = false
+				elseif descendant:IsA("SurfaceGui") then
+					descendant.Enabled = false
+				end
+			end
+		end
+	elseif facilityId == "A01" or facilityId == "A02" then
+		if Scene.BrutePost then
+			Scene.BrutePost:SetAttribute("Unlocked", true)
+		end
+		local state = self:EnsureAgents()
+		AutomationAgents.SyncUnlocked(state, workspace:GetServerTimeNow())
+	elseif facilityId == "A03" then
+		if Scene.AutoRuneMachine then
+			Scene.AutoRuneMachine:SetAttribute("Unlocked", true)
+		end
+	elseif facilityId == "A04" then
+		if Scene.AutoSmelterMachine then
+			Scene.AutoSmelterMachine:SetAttribute("Unlocked", true)
+		end
+	elseif facilityId == "A05" then
+		if Scene.AutoClerkStation then
+			Scene.AutoClerkStation:SetAttribute("Unlocked", true)
+		end
+		local state = self:EnsureAgents()
+		AutomationAgents.SyncUnlocked(state, workspace:GetServerTimeNow())
+	end
+end
+function Manager.EnsureAgents(self: Manager): AutomationAgents.State
+	local state = self.agents
+	if state and not state.destroyed then
+		return state
+	end
+	local created = AutomationAgents.New({
+		runtime = self.runtime,
+		scope = self.scope,
+		items = self.items,
+		stationVersions = self.stationVersions,
+		isUnlocked = function(facilityId: string): boolean
+			return self:IsFacilityUnlocked(facilityId)
+		end,
+		getAutoShelfCount = function(): number
+			return self.autoShelfCount
+		end,
+		takeAutoShelf = function(): number
+			local count = self.autoShelfCount
+			if count <= 0 then
+				return 0
+			end
+			self.autoShelfCount = 0
+			self.autoShelfTakeSerial += 1
+			self:SyncAutoShelfVisible()
+			return count
+		end,
+		isActivePlayer = function(player: Player): boolean
+			return self.data.IsActive(player)
+		end,
+		canAddCoins = function(player: Player, amount: number): boolean
+			return self.data.CanAddCoins(player, amount)
+		end,
+		addCoins = function(player: Player, amount: number): boolean
+			return self.data.AddCoins(player, amount)
+		end,
+		pushChuteItem = function(item: Types.Item): ()
+			self:PushChuteItem(item, false)
+		end,
+		stepAutomation = function(now: number): boolean
+			return self:StepAutomation(now)
+		end,
+		tell = function(player: Player, textId: GameTexts.TextId, args: { string }?): ()
+			self:Tell(player, textId, args)
+		end,
+		changed = function(): ()
+			self:Changed()
+		end,
+	})
+	self.agents = created
+	return created
+end
+function Manager.StepAutomationAgents(self: Manager, now: number): boolean
+	if self.agents == nil and not (self:IsFacilityUnlocked("A01") or self:IsFacilityUnlocked("A02") or self:IsFacilityUnlocked("A05")) then
+		return false
+	end
+	local state = self:EnsureAgents()
+	return AutomationAgents.Step(state, now)
+end
+function Manager.StepAutomation(self: Manager, now: number): boolean
+	local changed = false
+	if self:IsFacilityUnlocked("A03") then
+		if self.autoRuneItemId ~= nil and now >= self.autoRuneEnds then
+			local doneId = self.autoRuneItemId
+			self.autoRuneItemId = nil
+			self.autoRuneEnds = 0
+			local doneItem = self.items[doneId]
+			if doneItem then
+				self:PushAutoPaintedItem(doneItem)
+			elseif #self.autoPaintedVisible < Config.AutoQueueVisibleLimit then
+				local created = self:SpawnAutoPaintedBody()
+				if created then
+					table.insert(self.autoPaintedVisible, created.id)
+				else
+					self.autoPaintedOverflowCount += 1
+				end
+			else
+				self.autoPaintedOverflowCount += 1
+			end
+			changed = true
+		end
+		if self.autoRuneItemId == nil and self:ChuteCount() > 0 then
+			local nextItem = self:PeekChuteItem()
+			if nextItem then
+				table.remove(self.chuteVisible, 1)
+				self:ReplenishChuteVisible()
+				self.autoRuneItemId = nextItem.id
+				self.autoRuneEnds = now + Config.AutoRuneSeconds
+				nextItem.location = "AutoRune"
+				nextItem.stage = "Painting"
+				nextItem.version += 1
+				Carry.Static(nextItem, Scene.AutoRunePose(), false)
+				changed = true
+			elseif self.chuteOverflowCount > 0 then
+				self.chuteOverflowCount -= 1
+				self.autoRuneItemId = HttpService:GenerateGUID(false)
+				self.autoRuneEnds = now + Config.AutoRuneSeconds
+				changed = true
+			end
+		end
+	end
+	if self:IsFacilityUnlocked("A04") then
+		if self.autoSmelterItemId ~= nil and now >= self.autoSmelterEnds then
+			local doneId = self.autoSmelterItemId
+			self.autoSmelterItemId = nil
+			self.autoSmelterEnds = 0
+			local doneItem = self.items[doneId]
+			if doneItem then
+				self.items[doneId] = nil
+				doneItem.model:Destroy()
+			end
+			self.autoShelfCount += 1
+			self:SyncAutoShelfVisible()
+			changed = true
+		end
+		if self.autoSmelterItemId == nil and self:AutoPaintedCount() > 0 then
+			local nextItem = self:PeekAutoPaintedItem()
+			if nextItem then
+				table.remove(self.autoPaintedVisible, 1)
+				self:ReplenishAutoPaintedVisible()
+				self.autoSmelterItemId = nextItem.id
+				self.autoSmelterEnds = now + Config.AutoSmelterSeconds
+				nextItem.location = "AutoSmelter"
+				nextItem.stage = "Converting"
+				nextItem.version += 1
+				Carry.Static(nextItem, Scene.AutoSmelterPose(), false)
+				changed = true
+			elseif self.autoPaintedOverflowCount > 0 then
+				self.autoPaintedOverflowCount -= 1
+				self.autoSmelterItemId = HttpService:GenerateGUID(false)
+				self.autoSmelterEnds = now + Config.AutoSmelterSeconds
+				changed = true
+			end
+		end
+	end
+	return changed
+end
+function Manager.TryUnlockFacility(self: Manager, player: Player, facilityId: string): boolean
+	if self.closing or self.unlockedFacilities[facilityId] or self.unlockLocks[facilityId] then
+		return false
+	end
+	local def = Config.AutomationFacilities[facilityId]
+	if not def then
+		return false
+	end
+	local record = self.players[player]
+	if not record or record.closing or not self.data.IsActive(player) then
+		return false
+	end
+	if not AutomationRules.ArePrerequisitesMet(facilityId, self.unlockedFacilities) then
+		return false
+	end
+	if not self:IsNearPad(player, facilityId) then
+		return false
+	end
+	self.unlockLocks[facilityId] = true
+	if self.unlockedFacilities[facilityId] then
+		self.unlockLocks[facilityId] = nil
+		return false
+	end
+	local canSpend = self.data.CanSpendCoins
+	local hasCoins = if canSpend then canSpend(player, def.cost) else Info.CanSpendCoins(player, def.cost)
+	if not hasCoins then
+		self.unlockLocks[facilityId] = nil
+		return false
+	end
+	local paid = if self.data.TrySpendCoins
+		then self.data.TrySpendCoins(player, def.cost)
+		elseif self.data.SpendCoins then self.data.SpendCoins(player, def.cost)
+		else Info.TrySpendCoins(player, def.cost)
+	if not paid then
+		self.unlockLocks[facilityId] = nil
+		return false
+	end
+	self.unlockedFacilities[facilityId] = true
+	self:ApplyFacilityWorldState(facilityId)
+	self.unlockLocks[facilityId] = nil
+	local okName, displayName = pcall(function(): string
+		return player.DisplayName
+	end)
+	local actorName = if okName and typeof(displayName) == "string" and displayName ~= "" then displayName else player.Name
+	Net.Broadcast({
+		kind = "Message",
+		textId = "FacilityUnlocked",
+		textArgs = { actorName, def.name },
+	})
+	self:StepAutomation(workspace:GetServerTimeNow())
+	self:Changed()
+	return true
+end
 function Manager.Snapshot(self: Manager): Types.Snapshot
 	local shelfItems: { [string]: CFrame } = {}
 	for quality, ids in self.shelfVisible do
 		for slot, id in ids do
 			shelfItems[id] = Scene.ShelfPose(quality, slot)
 		end
+	end
+	local autoShelfItems: { [string]: CFrame } = {}
+	for slot, id in self.autoShelfVisible do
+		autoShelfItems[id] = Scene.AutoShelfPose(slot)
 	end
 	local list: { Types.ItemView } = {}
 	for _, item in self.items do
@@ -236,6 +726,13 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 		altarEnds = self.altarEnds,
 		painter = if self.paint then self.paint.player.UserId else nil,
 		session = if self.paint then self.paint.token else nil,
+		unlockedFacilities = table.clone(self.unlockedFacilities),
+		chuteQueue = self:ChuteCount(),
+		autoPaintedQueue = self:AutoPaintedCount(),
+		autoShelfCount = self:AutoShelfCount(),
+		autoShelfItems = autoShelfItems,
+		autoRuneEnds = self.autoRuneEnds,
+		autoSmelterEnds = self.autoSmelterEnds,
 	}
 end
 function Manager.Changed(self: Manager): ()
@@ -245,6 +742,10 @@ function Manager.Changed(self: Manager): ()
 		Table = (self.tableId or "") .. (if self.paint then self.paint.token else ""),
 		Altar = altarKey,
 		Shelf = self:ShelfKey(),
+		Chute = if self.unlockedFacilities.A00 then "1" else "0",
+		ChutePickup = (if self:ChuteCount() > 0 then "ready:" else "empty:") .. tostring(self.chuteTakeSerial),
+		AutoOutput = (if self:AutoPaintedCount() > 0 then "ready:" else "empty:") .. tostring(self.autoOutputTakeSerial),
+		AutoShelf = (if self.autoShelfCount > 0 then "ready:" else "empty:") .. tostring(self.autoShelfTakeSerial),
 	}
 	for name, key in keys do
 		if self.stationKeys[name] ~= key then
@@ -826,6 +1327,107 @@ function Manager.Shelf(self: Manager, player: Player): boolean
 	end
 	return true
 end
+function Manager.Chute(self: Manager, player: Player): boolean
+	if not self:IsFacilityUnlocked("A00") then
+		self:Tell(player, "ChuteLocked")
+		return false
+	end
+	local stack = self:Carried(player)
+	local deposit: { Types.Item } = {}
+	for _, item in stack do
+		if item.stage ~= "Painted" then
+			table.insert(deposit, item)
+		end
+	end
+	if #deposit == 0 then
+		if #stack > 0 or self:ShoulderOccupied(player) then
+			self:Tell(player, "ChuteUnfinishedOnly")
+		else
+			self:Tell(player, "ChuteNeedsBody")
+		end
+		return false
+	end
+	local willHaveRemaining = #deposit < #stack
+	for index, item in deposit do
+		self:PushChuteItem(item, index == #deposit and not willHaveRemaining)
+	end
+	if willHaveRemaining then
+		self:Restack(player)
+	end
+	self:StepAutomation(workspace:GetServerTimeNow())
+	return true
+end
+function Manager.ChutePickup(self: Manager, player: Player): boolean
+	if self:ShoulderOccupied(player) then
+		self:Tell(player, "HandsFull")
+		return false
+	end
+	local item = self:PeekChuteItem()
+	if not item then
+		self:Tell(player, "ChuteEmpty")
+		return false
+	end
+	if Carry.Take(item, player) then
+		table.remove(self.chuteVisible, 1)
+		self.chuteTakeSerial += 1
+		self:ReplenishChuteVisible()
+		self:Restack(player)
+		return true
+	end
+	return false
+end
+function Manager.AutoOutput(self: Manager, player: Player): boolean
+	if self:ShoulderOccupied(player) then
+		self:Tell(player, "HandsFull")
+		return false
+	end
+	local item = self:PeekAutoPaintedItem()
+	if not item then
+		self:Tell(player, "AutoOutputEmpty")
+		return false
+	end
+	if Carry.Take(item, player) then
+		table.remove(self.autoPaintedVisible, 1)
+		self.autoOutputTakeSerial += 1
+		self:ReplenishAutoPaintedVisible()
+		self:Restack(player)
+		return true
+	end
+	return false
+end
+function Manager.AutoShelf(self: Manager, player: Player): boolean
+	if #self:Carried(player) > 0 then
+		self:Tell(player, "HandsFull")
+		return false
+	end
+	if self.autoShelfCount <= 0 then
+		self:Tell(player, "NoAutoPotion")
+		return false
+	end
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local backpack = player:FindFirstChildOfClass("Backpack")
+	if (self.paint and self.paint.player == player) or not character or not humanoid or humanoid.Health <= 0 or not backpack then
+		return false
+	end
+	local tool = self:GrantStack(player, Config.DefaultPotionQuality, self.autoShelfCount)
+	if not tool then
+		return false
+	end
+	if tool.Parent ~= backpack and tool.Parent ~= character then
+		pcall(function(): ()
+			tool.Parent = backpack
+		end)
+	end
+	if tool.Parent ~= backpack and tool.Parent ~= character then
+		return false
+	end
+	self.autoShelfCount = 0
+	self.autoShelfTakeSerial += 1
+	self:SyncAutoShelfVisible()
+	humanoid:EquipTool(tool)
+	return true
+end
 function Manager.OwnedPotions(self: Manager, player: Player): ({ Types.Item }, number)
 	local list: { Types.Item } = {}
 	local seen: { [string]: boolean } = {}
@@ -1024,7 +1626,14 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 	end
 	local torso = item.model:FindFirstChild("UpperTorso")
 	local position = if torso and torso:IsA("BasePart") then torso.Position else item.model:GetPivot().Position
-	local kind = ThrowArc.Landing(Scene.PoolContainsStrict(position), item.stage == "Painted", self:PoolCount(), nil)
+	local kind = ThrowArc.CanStoreThrow(
+		self:IsFacilityUnlocked("A00"),
+		Scene.PoolContainsStrict(position),
+		Scene.ChuteContains(position),
+		item.stage == "Painted",
+		self:PoolCount(),
+		nil
+	)
 	if kind == "Pool" then
 		if #self.pool < Config.PoolVisibleLimit then
 			item.location = "Pool"
@@ -1037,6 +1646,10 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 			item.model:Destroy()
 			self.poolOverflowCount += 1
 		end
+		return
+	elseif kind == "Chute" then
+		self:PushChuteItem(item, false)
+		self:StepAutomation(workspace:GetServerTimeNow())
 		return
 	end
 	Carry.FinishGround(item)
@@ -1190,6 +1803,10 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 	end
 	local target = request.target
 	local changed = false
+	if request.action == "UnlockFacility" and target then
+		self:TryUnlockFacility(player, target)
+		return
+	end
 	if request.action == "TakeTable" then
 		if not self:Held(player) and not self.paint and self.tableId then
 			if not self:Near(player, Scene.TableInteract.Position, Scene.StationRange("Table"), nil) then
@@ -1204,13 +1821,25 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 			end
 		end
 	elseif request.action == "Interact" and target then
-		local positions = {
+		local positions: { [string]: Vector3 } = {
 			Pool = Scene.PoolPickup.Position,
 			Table = Scene.TableInteract.Position,
 			Altar = Scene.Altar.Position,
 			Shelf = Scene.Shelf.Position,
 			Sigil = Scene.SigilPosition,
 		}
+		if Scene.ChutePrompt then
+			positions.Chute = Scene.ChutePrompt.Position
+		end
+		if Scene.ChutePickup then
+			positions.ChutePickup = Scene.ChutePickup.Position
+		end
+		if Scene.AutoRuneOutputPrompt then
+			positions.AutoOutput = Scene.AutoRuneOutputPrompt.Position
+		end
+		if Scene.AutoShelfPickup then
+			positions.AutoShelf = Scene.AutoShelfPickup.Position
+		end
 		local position = positions[target]
 		if position then
 			if request.version ~= self.stationVersions[target] then
@@ -1229,6 +1858,14 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 				changed = self:Altar(player)
 			elseif target == "Shelf" then
 				changed = self:Shelf(player)
+			elseif target == "Chute" then
+				changed = self:Chute(player)
+			elseif target == "ChutePickup" then
+				changed = self:ChutePickup(player)
+			elseif target == "AutoOutput" then
+				changed = self:AutoOutput(player)
+			elseif target == "AutoShelf" then
+				changed = self:AutoShelf(player)
 			else
 				changed = self:Submit(player)
 			end
@@ -1434,6 +2071,12 @@ function Manager.Update(self: Manager): ()
 			changedMotion = true
 		end
 	end
+	if Manager.StepAutomation and self:StepAutomation(now) then
+		changedMotion = true
+	end
+	if Manager.StepAutomationAgents and self:StepAutomationAgents(now) then
+		changedMotion = true
+	end
 	if now < self.nextUpdate then
 		if changedMotion then
 			self:Changed()
@@ -1454,7 +2097,7 @@ function Manager.Update(self: Manager): ()
 		if item.streetSlot then
 			count += 1
 		end
-		if item.kind == "Body" and item.model.Parent ~= nil then
+		if item.kind == "Body" and item.model.Parent ~= nil and not IsAutomationLocation(item.location) then
 			bodies += 1
 		end
 		if item.kind == "Body" then
@@ -1475,7 +2118,7 @@ function Manager.Update(self: Manager): ()
 				Carry.RecoverPool(item)
 				changed = true
 			end
-		elseif item.location ~= "Altar" and primary and primary.Position.Y < -40 then
+		elseif item.location ~= "Altar" and not IsAutomationLocation(item.location) and primary and primary.Position.Y < -40 then
 			carrier = item.holder
 			if carrier then
 				self:EndPaint(carrier)
@@ -1519,6 +2162,17 @@ function Manager.Update(self: Manager): ()
 	if changed then
 		self:Changed()
 	end
+	if self.players and Config.AutomationFacilityOrder then
+		for player in self.players do
+			for _, facilityId in Config.AutomationFacilityOrder do
+				if not self.unlockedFacilities[facilityId] and self:IsNearPad(player, facilityId) then
+					if self:TryUnlockFacility(player, facilityId) then
+						break
+					end
+				end
+			end
+		end
+	end
 end
 function Manager.Close(self: Manager): ()
 	self.closing = true
@@ -1540,6 +2194,24 @@ function Manager.Init(self: Manager): ()
 	self.scope:Connect(RunService.Heartbeat:Connect(function(): ()
 		self:Update()
 	end))
+	for facilityId, pad in Scene.UnlockPads do
+		local trigger = pad:FindFirstChild("TriggerZone")
+		if trigger and trigger:IsA("BasePart") then
+			self.scope:Connect(trigger.Touched:Connect(function(hit: BasePart): ()
+				if self.closing or self.unlockedFacilities[facilityId] then
+					return
+				end
+				local ancestor: Instance? = hit.Parent
+				while ancestor and not ancestor:IsA("Model") do
+					ancestor = ancestor.Parent
+				end
+				local player = if ancestor and ancestor:IsA("Model") then Players:GetPlayerFromCharacter(ancestor) else nil
+				if player then
+					self:TryUnlockFacility(player, facilityId)
+				end
+			end))
+		end
+	end
 	for _ = 1, Config.StreetPopulation do
 		local item = NPC.Spawn(self.runtime, self.items)
 		if item then
@@ -1554,6 +2226,10 @@ function Manager.Destroy(self: Manager): ()
 	end
 	self.initialized = false
 	self:Close()
+	if self.agents then
+		AutomationAgents.Destroy(self.agents)
+		self.agents = nil
+	end
 	self.scope:Destroy()
 end
 return Manager

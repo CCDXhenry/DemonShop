@@ -59,12 +59,90 @@ local function PromptRange(anchor: BasePart): number
 	end
 	return Config.InteractionRange
 end
+local function OptionalPart(root: Instance?, ...: string): BasePart?
+	local current: Instance? = root
+	for i = 1, select("#", ...) do
+		if not current then
+			return nil
+		end
+		local name = select(i, ...)
+		current = current:FindFirstChild(name)
+	end
+	return if current and current:IsA("BasePart") then current else nil
+end
+local function OptionalModel(root: Instance?, ...: string): Model?
+	local current: Instance? = root
+	for i = 1, select("#", ...) do
+		if not current then
+			return nil
+		end
+		local name = select(i, ...)
+		current = current:FindFirstChild(name)
+	end
+	return if current and current:IsA("Model") then current else nil
+end
+local autoLine = district:FindFirstChild("AutomationLine")
+Scene.AutomationLine = autoLine
+Scene.FastChuteCover = OptionalModel(autoLine, "FastChuteCover")
+Scene.FastChuteOpening = OptionalPart(autoLine, "FastChuteOpening")
+Scene.ChuteTopDrop = OptionalPart(autoLine, "ChuteTopDropAnchor")
+Scene.ChutePrompt = OptionalPart(autoLine, "ChutePromptAnchor")
+Scene.ChuteDropZone = OptionalPart(autoLine, "FastChuteLanding", "DropZone")
+Scene.ChuteLanding = OptionalPart(autoLine, "FastChuteLanding", "LandingAnchor")
+Scene.ChutePickup = OptionalPart(autoLine, "FastChuteLanding", "ChutePickupAnchor")
+Scene.AutoRuneMachine = OptionalModel(autoLine, "AutoRuneMachine")
+Scene.AutoRuneWorkBed = OptionalPart(autoLine, "AutoRuneMachine", "WorkBedAnchor")
+Scene.AutoRuneOutputPad = OptionalPart(autoLine, "AutoRuneMachine", "OutputPadAnchor")
+Scene.AutoRuneOutputPrompt = OptionalPart(autoLine, "AutoRuneMachine", "OutputPromptAnchor")
+Scene.AutoSmelterMachine = OptionalModel(autoLine, "AutoSmelterMachine")
+Scene.AutoSmelterFeed = OptionalPart(autoLine, "AutoSmelterMachine", "FeedRailAnchor")
+Scene.AutoSmelterCenter = OptionalPart(autoLine, "AutoSmelterMachine", "MachineCenterAnchor")
+Scene.AutoShelfPickup = OptionalPart(autoLine, "AutoSmelterMachine", "AutoPotionRack", "AutoShelfPickupAnchor")
+Scene.BrutePost = OptionalModel(autoLine, "BrutePost")
+Scene.Brute1Spawn = OptionalPart(autoLine, "BrutePost", "Brute1SpawnAnchor")
+Scene.Brute2Spawn = OptionalPart(autoLine, "BrutePost", "Brute2SpawnAnchor")
+Scene.AutoClerkStation = OptionalModel(autoLine, "AutoClerkStation")
+Scene.ClerkSpawn = OptionalPart(autoLine, "AutoClerkStation", "ClerkSpawnAnchor")
+Scene.Noodles = OptionalModel(district, "UpperStreetCompletion", "NewShop_Noodles")
+local autoPotionPoints: { BasePart } = {}
+local autoPotionFolder = if autoLine
+	then (function(): Instance?
+		local smelter = autoLine:FindFirstChild("AutoSmelterMachine")
+		local rack = if smelter then smelter:FindFirstChild("AutoPotionRack") else nil
+		return if rack then rack:FindFirstChild("PotionPoints") else nil
+	end)()
+	else nil
+if autoPotionFolder then
+	for _, child in autoPotionFolder:GetChildren() do
+		if child:IsA("BasePart") then
+			table.insert(autoPotionPoints, child)
+		end
+	end
+	table.sort(autoPotionPoints, TopThenLeft)
+end
+local unlockPads: { [string]: Model } = {}
+local padsFolder = if autoLine then autoLine:FindFirstChild("UnlockPads") else nil
+if padsFolder then
+	for _, child in padsFolder:GetChildren() do
+		if child:IsA("Model") then
+			local fid = child:GetAttribute("FacilityId")
+			if typeof(fid) == "string" and fid ~= "" then
+				unlockPads[fid] = child
+			end
+		end
+	end
+end
+Scene.UnlockPads = unlockPads
 local stationRanges: { [string]: number } = {
 	Pool = PromptRange(Scene.PoolPickup),
 	Table = PromptRange(Scene.TableInteract),
 	Altar = PromptRange(Scene.Altar),
 	Shelf = PromptRange(Scene.Shelf),
 	Sigil = PromptRange(sigil),
+	Chute = if Scene.ChutePrompt then PromptRange(Scene.ChutePrompt) else Config.InteractionRange,
+	ChutePickup = if Scene.ChutePickup then PromptRange(Scene.ChutePickup) else Config.InteractionRange,
+	AutoOutput = if Scene.AutoRuneOutputPrompt then PromptRange(Scene.AutoRuneOutputPrompt) else Config.InteractionRange,
+	AutoShelf = if Scene.AutoShelfPickup then PromptRange(Scene.AutoShelfPickup) else Config.InteractionRange,
 }
 Scene.StationRanges = stationRanges
 function Scene.StationRange(target: string): number
@@ -129,6 +207,48 @@ function Scene.ShelfPose(quality: number, slot: number): CFrame
 	local point = potionPoints[math.clamp(quality, 1, #potionPoints)]
 	local offset = ShelfSlotOffsets[math.clamp(slot, 1, #ShelfSlotOffsets)]
 	return point.CFrame * CFrame.new(offset)
+end
+function Scene.ChuteContains(position: Vector3): boolean
+	if not Scene.FastChuteOpening or not Scene.ChuteDropZone then
+		return false
+	end
+	return ThrowArc.InsideChute(
+		Scene.FastChuteOpening.CFrame,
+		Scene.FastChuteOpening.Size,
+		Scene.ChuteDropZone.CFrame,
+		Scene.ChuteDropZone.Size,
+		position,
+		Physics.ChuteWallHeight
+	)
+end
+function Scene.ChutePose(slot: number): CFrame
+	local index = math.max(0, slot - 1)
+	local col = (index % 3) - 1
+	local layer = math.floor(index / 3) % 2
+	local base = if Scene.ChuteLanding then Scene.ChuteLanding.Position else Vector3.new(-47.0, 1.15, -26.0)
+	return CFrame.new(base + Vector3.new(col * 2.3, 0.55 + layer * 0.85, 0)) * CFrame.Angles(math.pi / 2, 0, 0)
+end
+function Scene.AutoOutputPose(slot: number): CFrame
+	local index = math.max(0, slot - 1)
+	local col = (index % 3) - 1
+	local layer = math.floor(index / 3) % 2
+	local base = if Scene.AutoRuneOutputPad then Scene.AutoRuneOutputPad.Position else Vector3.new(-28.6, 1.15, -27.0)
+	return CFrame.new(base + Vector3.new(col * 2.1, 0.55 + layer * 0.85, 0)) * CFrame.Angles(math.pi / 2, 0, 0)
+end
+function Scene.AutoRunePose(): CFrame
+	local base = if Scene.AutoRuneWorkBed then Scene.AutoRuneWorkBed.Position else Vector3.new(-19.0, 4.4, -27.0)
+	return PaintRotation.TablePose(base + Vector3.new(0, 0.25, 0))
+end
+function Scene.AutoSmelterPose(): CFrame
+	local base = if Scene.AutoSmelterCenter then Scene.AutoSmelterCenter.Position else Vector3.new(-1.0, 4.5, -27.0)
+	return CFrame.new(base)
+end
+function Scene.AutoShelfPose(slot: number): CFrame
+	if #autoPotionPoints == 0 then
+		return CFrame.new(10.0, 5.245, -31.0)
+	end
+	local point = autoPotionPoints[math.clamp(slot, 1, #autoPotionPoints)]
+	return point.CFrame * CFrame.new(0, 0.345, 0)
 end
 function Scene.SafePose(position: Vector3, fallback: Vector3, ignored: { Instance }): CFrame
 	local params = RaycastParams.new()

@@ -7,26 +7,103 @@ local TextFitting = require(script.Parent.UIManager.TextFitting)
 local Tool = {}
 Tool.__index = Tool
 
-type Binding = { textId: GameTexts.TextId, args: {string} }
+type Binding = {
+	textId: GameTexts.TextId,
+	source: string,
+	key: string,
+	args: {string},
+	argTextIds: {[number]: GameTexts.TextId}?,
+	resolvedArgs: {string},
+}
 export type Controller = typeof(setmetatable({} :: {
 	bindings: {[TextLabel]: Binding},
 	connections: {[TextLabel]: {RBXScriptConnection}},
+	refreshing: {[TextLabel]: boolean},
 }, Tool))
 
-function Tool.new(): Controller
-	return setmetatable({bindings = {}, connections = {}}, Tool)
+local function CloneArgTextIds(argTextIds: {[number]: GameTexts.TextId}?): {[number]: GameTexts.TextId}?
+	if argTextIds == nil then
+		return nil
+	end
+	return table.clone(argTextIds)
 end
 
-function Tool.Watch(self: Controller, label: TextLabel): ()
-	if self.connections[label] or label:FindFirstAncestorWhichIsA("BillboardGui") then return end
+local function SameStringList(a: {string}, b: {string}): boolean
+	if #a ~= #b then
+		return false
+	end
+	for index, value in a do
+		if b[index] ~= value then
+			return false
+		end
+	end
+	return true
+end
+
+local function SameArgTextIds(a: {[number]: GameTexts.TextId}?, b: {[number]: GameTexts.TextId}?): boolean
+	if a == nil and b == nil then
+		return true
+	end
+	if a == nil or b == nil then
+		return false
+	end
+	for index, id in pairs(a) do
+		if b[index] ~= id then
+			return false
+		end
+	end
+	for index, id in pairs(b) do
+		if a[index] ~= id then
+			return false
+		end
+	end
+	return true
+end
+
+local function ResolveArgs(label: TextLabel, rawArgs: {string}, argTextIds: {[number]: GameTexts.TextId}?): {string}
+	local resolved = table.clone(rawArgs)
+	if argTextIds == nil then
+		return resolved
+	end
+	for index, argTextId in pairs(argTextIds) do
+		local entryId: GameTexts.TextId = argTextId :: GameTexts.TextId
+		local argEntry = GameTexts.GetEntry(entryId)
+		if argEntry then
+			resolved[index] = TranslationTool.Translate(label, argEntry.source)
+		end
+	end
+	return resolved
+end
+
+function Tool.new(): Controller
+	return setmetatable({bindings = {}, connections = {}, refreshing = {}}, Tool)
+end
+
+function Tool.Watch(self: Controller, label: TextLabel, forceWatch: boolean?): ()
+	local isBillboard = label:FindFirstAncestorWhichIsA("BillboardGui") ~= nil
+	if self.connections[label] or (isBillboard and not forceWatch) then return end
 	local function OnTextChanged(): ()
-		TextFitting.FitTextLabel(label)
+		local binding = self.bindings[label]
+		if binding and binding.argTextIds and not self.refreshing[label] then
+			local nextResolved = ResolveArgs(label, binding.args, binding.argTextIds)
+			if not SameStringList(binding.resolvedArgs, nextResolved) then
+				binding.resolvedArgs = nextResolved
+				self.refreshing[label] = true
+				TranslationTool.CustomAutoLocalizeTextLabel(label, binding.source, binding.key, nextResolved)
+				self.refreshing[label] = nil
+			end
+		end
+		if not label:FindFirstAncestorWhichIsA("BillboardGui") then
+			TextFitting.FitTextLabel(label)
+		end
 	end
 	self.connections[label] = {
 		label:GetPropertyChangedSignal("Text"):Connect(OnTextChanged),
 		label:GetPropertyChangedSignal("ContentText"):Connect(OnTextChanged),
 	}
-	OnTextChanged()
+	if not isBillboard then
+		OnTextChanged()
+	end
 end
 
 function Tool.Bind(self: Controller, label: TextLabel, description: GameTexts.Description): ()
@@ -39,28 +116,47 @@ function Tool.Bind(self: Controller, label: TextLabel, description: GameTexts.De
 	local entry: GameTexts.Entry = requestedEntry or GameTexts.Notices.UnknownNotice
 	local previous = self.bindings[label]
 	local args: {string} = if textId == description.textId then description.args or {} else {}
-	if previous and previous.textId == textId and #previous.args == #args then
-		local equal = true
-		for index, value in args do
-			if previous.args[index] ~= value then equal = false; break end
-		end
-		if equal then return end
+	local argTextIds = if textId == description.textId then description.argTextIds else nil
+	if previous
+		and previous.textId == textId
+		and SameStringList(previous.args, args)
+		and SameArgTextIds(previous.argTextIds, argTextIds)
+	then
+		return
 	end
-	self:Watch(label)
+	local resolvedArgs = ResolveArgs(label, args, argTextIds)
+	self:Watch(label, argTextIds ~= nil)
 	label.AutoLocalize = false
-	self.bindings[label] = {textId = textId, args = table.clone(args)}
-	TranslationTool.CustomAutoLocalizeTextLabel(label, entry.source, entry.key, args)
+	self.bindings[label] = {
+		textId = textId,
+		source = entry.source,
+		key = entry.key,
+		args = table.clone(args),
+		argTextIds = CloneArgTextIds(argTextIds),
+		resolvedArgs = resolvedArgs,
+	}
+	TranslationTool.CustomAutoLocalizeTextLabel(label, entry.source, entry.key, resolvedArgs)
 end
 
 function Tool.Clear(self: Controller, label: TextLabel): ()
 	TranslationTool.RemoveCustomAutoLocalizeGui(label)
 	self.bindings[label] = nil
+	self.refreshing[label] = nil
 	label.AutoLocalize = false
 	label.Text = ""
 end
 
 function Tool.Notice(self: Controller, label: TextLabel, textId: GameTexts.TextId?, args: {string}?, legacyText: string?): ()
-	local description: GameTexts.Description? = if textId and GameTexts.GetEntry(textId) then {textId = textId, args = args} else nil
+	local argTextIds: {[number]: GameTexts.TextId}? = nil
+	if textId == "FacilityUnlocked" and args and args[2] then
+		local resolved = GameTexts.ResolveLegacy(args[2])
+		if resolved and not resolved.args then
+			argTextIds = { [2] = resolved.textId }
+		end
+	end
+	local description: GameTexts.Description? = if textId and GameTexts.GetEntry(textId)
+		then {textId = textId, args = args, argTextIds = argTextIds}
+		else nil
 	if not description and legacyText then description = GameTexts.ResolveLegacy(legacyText) end
 	if not description then
 		warn("未知加工通知：", textId, legacyText)
@@ -76,6 +172,7 @@ function Tool.Destroy(self: Controller): ()
 	end
 	table.clear(self.bindings)
 	table.clear(self.connections)
+	table.clear(self.refreshing)
 end
 
 return Tool

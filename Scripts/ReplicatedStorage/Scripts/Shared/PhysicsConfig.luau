@@ -72,6 +72,7 @@ local Config = {
 	PoolSpin = 3,
 	PoolInset = 3,
 	PoolWallHeight = 10,
+	ChuteWallHeight = 6,
 	PoolRecoverSeconds = 0.6,
 	PoolSettleSeconds = 2,
 	PoolAsleepDelay = 0.35,

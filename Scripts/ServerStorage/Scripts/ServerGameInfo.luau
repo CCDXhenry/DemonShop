@@ -165,6 +165,30 @@ function Info.AddCoins(player: Player, coins: number): boolean
 	Info.SendPlayerInfo(player)
 	return true
 end
+function Info.CanSpendCoins(player: Player, coins: number): boolean
+	local info = records[player]
+	return Info.IsActive(player)
+		and info ~= nil
+		and coins == coins
+		and math.abs(coins) < math.huge
+		and coins >= 0
+		and coins % 1 == 0
+		and info.coins >= coins
+end
+function Info.SpendCoins(player: Player, coins: number): boolean
+	if not Info.CanSpendCoins(player, coins) then
+		return false
+	end
+	local info = records[player]
+	info.coins -= coins
+	Info.MarkPlayerInfoChanged(player)
+	player:SetAttribute("Coins", info.coins)
+	Info.SendPlayerInfo(player)
+	return true
+end
+function Info.TrySpendCoins(player: Player, coins: number): boolean
+	return Info.SpendCoins(player, coins)
+end
 function Info.UpdateSetting(player: Player, key: string, value: unknown): boolean
 	local info = records[player]
 	if not Info.IsActive(player) or not info or not ProfileRules.Setting(info, key, value) then

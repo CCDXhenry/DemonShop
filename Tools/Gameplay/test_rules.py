@@ -9,16 +9,16 @@ OUT.mkdir(parents=True,exist_ok=True)
 shared=ROOT/"Scripts/ReplicatedStorage/Scripts/Shared"
 server=ROOT/"Scripts/ServerStorage/Scripts"
 (OUT/"FoundationDateBoundary.luau").write_text((ROOT/"Tools/Gameplay/FoundationDateBoundary.luau").read_text(encoding="utf-8"),encoding="utf-8")
-for name in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneGlyphData","RuneStampRules","ThrowArc"):
+for name in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules"):
     text=(shared/(name+".luau")).read_text(encoding="utf-8")
-    for dep in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","RuneGlyphData","RuneStampRules","ThrowArc"):
+    for dep in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules"):
         text=text.replace("require(script.Parent."+dep+")", "require('./"+dep+"')")
     if name == "GameConfig":
         start=text.index('local replicatedStorage:')
         end=text.index('--游戏版本')
         text=text[:start]+"local D=require('./FoundationDateBoundary')\nlocal DateTimeExtension,DateTime=D.DateTimeExtension,D.DateTime\n"+text[end:]
         text="local Color3=require('@lune/roblox').Color3\nlocal game={GameId=0}\n"+text
-    if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneStampRules","ThrowArc"):
+    if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneStampRules","ThrowArc","AutomationRules"):
         text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame,Color3,Enum=roblox.Vector2,roblox.Vector3,roblox.CFrame,roblox.Color3,roblox.Enum\n"+text
     if name == "ThrowArc":
         text=text.replace("model:GetPivot()", "model.WorldPivot")
@@ -107,7 +107,7 @@ subprocess.run(["lune","run",str(OUT/"test_painting.luau")],cwd=ROOT,check=True)
 
 # Exercise the complete production request dispatcher with real painting rules.
 source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
-prefix="local CFrame=require('@lune/roblox').CFrame\nlocal Config=require('./GameConfig')\nlocal Painting=require('./Painting')\nlocal PaintRotation=require('./PaintRotation')\nlocal Surface=require('./PaintSurface')\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\nlocal Random={new=function() return {} end}\n"
+prefix="local CFrame=require('@lune/roblox').CFrame\nlocal Config=require('./GameConfig')\nlocal Painting=require('./Painting')\nlocal PaintRotation=require('./PaintRotation')\nlocal Surface=require('./PaintSurface')\nlocal AutomationAgents={New=function() return nil end,SyncUnlocked=function() end,Step=function() return false end,Destroy=function() end}\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\nlocal Random={new=function() return {} end}\n"
 (OUT/"PaintRequestManager.luau").write_text(prefix+source[source.index('type PlayerData ='):],encoding="utf-8")
 for name in ("PaintRequestBoundary","test_paint_requests"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -274,7 +274,7 @@ subprocess.run(["lune","run",str(OUT/"test_analytics.luau")],cwd=ROOT,check=True
 
 for name in ("ChatBoundary", "test_foundation_chat"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
-foundation_module("ServerPlayerChatCommandManager", "Scripts/ServerStorage/Scripts/ServerGameManager/ServerPlayerChatCommandManager.luau", "local Manager =", "local C=require('./ChatBoundary')\nlocal Players,RunService,TextChatService,TeleportService,Config,GMConfig,Instance=C.Players,C.RunService,C.TextChatService,C.TeleportService,C.Config,C.GMConfig,C.Instance\nlocal Lifecycle=require('./LifecycleTool')\n")
+foundation_module("ServerPlayerChatCommandManager", "Scripts/ServerStorage/Scripts/ServerGameManager/ServerPlayerChatCommandManager.luau", "local Manager =", "local C=require('./ChatBoundary')\nlocal Players,RunService,TextChatService,TeleportService,Config,GMConfig,Instance,Info,game=C.Players,C.RunService,C.TextChatService,C.TeleportService,C.Config,C.GMConfig,C.Instance,C.Info,C.game\nlocal Lifecycle=require('./LifecycleTool')\n")
 subprocess.run(["lune","run",str(OUT/"test_foundation_chat.luau")],cwd=ROOT,check=True)
 
 
@@ -305,6 +305,24 @@ rep_src = (server / "Replication.luau").read_text(encoding="utf-8")
     encoding="utf-8",
 )
 
+agents_src = (server / "AutomationAgents.luau").read_text(encoding="utf-8")
+agents_body = agents_src[agents_src.index("local AutomationAgents = {}"):]
+agents_body = re.sub(r"\b([A-Za-z_][\w.]*):PivotTo\(", r"B.PivotTo(\1, ", agents_body)
+agents_body = re.sub(r"([A-Za-z_][\w.]*):GetPivot\(\)", r"\1.WorldPivot", agents_body)
+agents_prefix = (
+    "local R=require('@lune/roblox')\n"
+    "local CFrame,Vector3,Color3,Instance,Enum=R.CFrame,R.Vector3,R.Color3,R.Instance,R.Enum\n"
+    "local Config=require('./GameConfig')\n"
+    "local GameTexts=require('./GameTexts')\n"
+    "local Types=require('./GameTypes')\n"
+    "local Physics=require('./PhysicsConfig')\n"
+    "local Lifecycle=require('./LifecycleTool')\n"
+    "local B=require('./StationPotionBoundary')\n"
+    "local Players,ReplicatedStorage,workspace,RaycastParams=B.Players,B.ReplicatedStorage,B.workspace,B.RaycastParams\n"
+    "local Net,NPC,Carry,Ragdoll,Scene=B.Net,B.NPC,B.Carry,B.Ragdoll,require('./StationScene')\n"
+)
+(OUT / "AutomationAgents.luau").write_text(agents_prefix + agents_body, encoding="utf-8")
+
 pm_src = (server / "ProcessingManager.luau").read_text(encoding="utf-8")
 pm_body = pm_src[pm_src.index("type PlayerData ="):]
 pm_body = re.sub(r"\b([A-Za-z_]\w*):WaitForChild\(", r"B.WaitForChild(\1, ", pm_body)
@@ -313,7 +331,7 @@ pm_body = re.sub(r"\b([A-Za-z_]\w*):UnequipTools\(\)", r"B.UnequipTools(\1)", pm
 pm_body = re.sub(r"\b([A-Za-z_]\w*)\.(CharacterRemoving|CharacterAdded|Died|Unequipped):Connect\(", r'B.Signal(\1, "\2"):Connect(', pm_body)
 pm_body = pm_body.replace("slash:Stop()", "B.StopSound(slash)")
 pm_body = pm_body.replace("model:PivotTo(", "B.PivotTo(model, ")
-pm_body = pm_body.replace("top.model:GetPivot()", "top.model.WorldPivot")
+pm_body = re.sub(r"([A-Za-z_][\w.]*):GetPivot\(\)", r"\1.WorldPivot", pm_body)
 pm_prefix = (
     "local R=require('@lune/roblox')\n"
     "local CFrame,Vector3,Instance,Enum=R.CFrame,R.Vector3,R.Instance,R.Enum\n"
@@ -328,6 +346,8 @@ pm_prefix = (
     "local VisualRules=require('./VisualRules')\n"
     "local Surface=require('./PaintSurface')\n"
     "local ThrowArc=require('./ThrowArc')\n"
+    "local AutomationRules=require('./AutomationRules')\n"
+    "local AutomationAgents=require('./AutomationAgents')\n"
     "local Lifecycle=require('./LifecycleTool')\n"
     "local B=require('./StationPotionBoundary')\n"
     "local RaycastParams=B.RaycastParams\n"
@@ -383,7 +403,12 @@ client_prefix = (
 )
 (OUT / "StationClient.luau").write_text(client_prefix + "\n".join(client_parts) + "\nreturn Client\n", encoding="utf-8")
 subprocess.run(["lune", "run", str(OUT / "test_station_and_potions.luau")], cwd=ROOT, check=True)
+(OUT / "test_m3_automation.luau").write_text((ROOT / "Tools/Gameplay/test_m3_automation.luau").read_text(encoding="utf-8"), encoding="utf-8")
+subprocess.run(["lune", "run", str(OUT / "test_m3_automation.luau")], cwd=ROOT, check=True)
+(OUT / "test_m4_automation.luau").write_text((ROOT / "Tools/Gameplay/test_m4_automation.luau").read_text(encoding="utf-8"), encoding="utf-8")
+subprocess.run(["lune", "run", str(OUT / "test_m4_automation.luau")], cwd=ROOT, check=True)
 
 # World prompts use production rules/controller with only native service boundaries mocked.
 subprocess.run(["python",str(ROOT/"Tools/Gameplay/test_world_interaction.py")],cwd=ROOT,check=True)
 subprocess.run([sys.executable,str(ROOT/"Tools/Gameplay/test_white_presentation.py")],cwd=ROOT,check=True)
+subprocess.run(["lune", "run", str(ROOT / "Tools/Gameplay/test_m2_assets.luau")], cwd=ROOT, check=True)

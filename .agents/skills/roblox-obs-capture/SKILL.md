@@ -1,13 +1,24 @@
 ---
 name: roblox-obs-capture
-description: 在 Roblox 项目中通过 OBS 校准并采集 Windows Roblox Studio Play 游戏视口，核验截图边界与录像连续性。实机验证需要 MCP 之外的截图、录屏，或排查 OBS 抓错窗口、裁切偏移、黑屏与冻结时使用；普通 MCP 截图无需调用。
+description: 录制 Roblox Studio Play 视口。优先使用 Studio MCP 的 video_capture，或实时 schema 含录像参数的 screen_capture；工具不在列表中或调用失败时，再用 OBS 校准并采集 Windows 客户端视口。用户要求录屏、检查动作、闪烁或时机，或排查 OBS 抓错窗口、裁切偏移、黑屏与冻结时使用。普通 MCP 截图无需调用。
 ---
 
-# Roblox OBS 准确采集
+# 录屏：Studio MCP 优先，OBS 后备
 
-用于 Roblox 项目在 Windows 上通过 OBS 获取 Studio Play 客户端视口的截图和录像。采集走本地 WebSocket，不依赖 Studio MCP；实例、日志和运行状态检查继续使用已有 Studio 工具。普通 MCP 截图无需改走 OBS。
+Play 录像先走 Roblox Studio MCP。静止画面继续用 `screen_capture`，不把每次看图改成录像。MCP 录像工具不在当次列表中，或调用失败、超时、没有可核验的视频文件时，再走下方 OBS 流程。实例、日志和运行状态检查继续使用已有 Studio 工具。
 
-## 工具与前提
+## MCP 优先路径
+
+- 录像只用于动作、闪烁、时机，或用户明确要求录屏。单帧继续 `screen_capture`。
+- 确认当前任务已授权 Play 再启动 Play。调用本 skill 本身不构成启动游戏的授权。不修改游戏源码来实现捕获。不改 `CameraType`，不用 `camera_position` 锁视角。
+- 先 `list_roblox_studios`，取本项目 PlaceId `110812537538556` 的 `studio_id`，再读当次工具 schema。有 `video_capture` 就用它。没有时，若 `screen_capture` 的实时参数包含录像模式，按该 schema 调用。参数与文档不一致时以实时 schema 为准。
+- 预期调用仅在 schema 仍是这一形时使用：Play 的 Client 上 `is_start: true`，动作结束后 `is_start: false`。核验返回的视频、manifest、frame_times 和 warnings。`status` 为 `partial`，或没有视频文件，不算通过。
+- 工具不在列表中，或调用失败（含 `Target is not reachable`、VRAM 不足、超时）时，说明原因后进入 OBS 流程。MCP 失败后不得仍宣称 MCP 验收通过，也不得跳过 OBS 的校准和丢帧检查。
+- 用户点名要 OBS，或要求 60 FPS、客户区裁切和丢帧连续性证明时，直接用 OBS。
+
+## OBS 后备：工具与前提
+
+OBS 采集走本地 WebSocket，不依赖 Studio MCP。普通 MCP 截图无需改走 OBS。
 
 - 复用仓库 `Tools/Studio/obs_media_tool.py`、`obs_controller.py`、`obs_studio_bridge.py` 和 `obs_verify_video.py`，不要临时另写一套截屏或自动绑定脚本。
 - 确认当前任务已授权 Play 验证再启动 Play；配置 OBS 或调用本 skill 本身不构成启动游戏的授权。不修改游戏源码来实现捕获。

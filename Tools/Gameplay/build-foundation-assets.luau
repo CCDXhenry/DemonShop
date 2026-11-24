@@ -43,6 +43,11 @@ local sfx = Ensure(groups, "SoundEffects", "SoundGroup")
 for _, value in rs.Models:GetDescendants() do
  if value:IsA("Sound") and not value.SoundGroup then value.SoundGroup = sfx end
 end
+local commands = Ensure(game:GetService("TextChatService"), "CustomTextChatCommands", "Folder")
+local addCoins = Ensure(commands, "AddCoinsCommand", "TextChatCommand")
+addCoins.PrimaryAlias = "/AddCoins"
+addCoins.SecondaryAlias = "/addcoins"
+addCoins.Enabled = true
 local legacy=remotes:FindFirstChild("FoundationNotify")
 if legacy then legacy:Destroy() end
 local starter=game:GetService("StarterGui"):FindFirstChild("GameScreenGui")

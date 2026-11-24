@@ -42,6 +42,7 @@ function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?, potions: P
 	if potions and (potions.equipped or potions.stored > 0) then return Describe("TakePotion", { tostring(Config.PotionReward) }) end
 	if snapshot then
 		if snapshot.shelf > 0 then return Describe("PotionReady") end
+		if (snapshot.autoShelfCount or 0) > 0 then return Describe("CollectAutoPotion") end
 		if snapshot.altarId then return Describe("AltarWorking") end
 		if snapshot.tableId then return Describe("ReturnTable") end
 		if snapshot.pool > 0 then return Describe("FetchPool") end
@@ -79,6 +80,20 @@ function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.Ite
 	elseif target == "Sigil" then
 		if potions and (potions.equipped or potions.stored > 0) then return Describe("OfferPotion", { tostring(Config.PotionReward) }) end
 		return Describe("BringPotion")
+	elseif target == "Chute" then
+		if not (snapshot and snapshot.unlockedFacilities and snapshot.unlockedFacilities.A00) then return Describe("ChuteLocked") end
+		if load.unfinished then return Describe("DepositBodies") end
+		if carrying then return Describe("ChuteUnfinishedOnly") end
+		return Describe("ChuteNeedsBody")
+	elseif target == "ChutePickup" then
+		if load.other then return Describe("HandsFullHint") end
+		return if snapshot and (snapshot.chuteQueue or 0) > 0 then Describe("TakeChuteBody") else Describe("ChuteEmpty")
+	elseif target == "AutoOutput" then
+		if load.other then return Describe("HandsFullHint") end
+		return if snapshot and (snapshot.autoPaintedQueue or 0) > 0 then Describe("TakeAutoRuneBody") else Describe("AutoOutputEmpty")
+	elseif target == "AutoShelf" then
+		if load.body then return Describe("HandsFullHint") end
+		return if snapshot and (snapshot.autoShelfCount or 0) > 0 then Describe("CollectAutoPotion") else Describe("NoAutoPotion")
 	end
 	return Describe("CarryBody")
 end
