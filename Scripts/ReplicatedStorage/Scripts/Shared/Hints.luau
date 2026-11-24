@@ -39,8 +39,7 @@ end
 function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?, potions: Potions?, stack: { Types.ItemView }?): GameTexts.Description
 	local load = ReadCarry(held, stack)
 	if load.body then return Describe("ThrowAim") end
-	if potions and potions.equipped then return Describe("TakePotion", { tostring(Config.PotionReward) }) end
-	if potions and potions.stored > 0 then return Describe("EquipPotion") end
+	if potions and (potions.equipped or potions.stored > 0) then return Describe("TakePotion", { tostring(Config.PotionReward) }) end
 	if snapshot then
 		if snapshot.shelf > 0 then return Describe("PotionReady") end
 		if snapshot.altarId then return Describe("AltarWorking") end
@@ -53,7 +52,6 @@ function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.Ite
 	local load = ReadCarry(held, stack)
 	local carrying = load.body or load.other or held ~= nil
 	if target == "Pool" then
-		if load.unfinished and snapshot and snapshot.pool >= Config.PoolCapacity then return Describe("PoolFull") end
 		if load.unfinished then return Describe("StoreBody") end
 		if carrying then return Describe("PoolUnfinishedOnly") end
 		return if snapshot and snapshot.pool > 0 then Describe("TakeSharedBody") else Describe("PoolEmpty")
@@ -72,15 +70,15 @@ function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.Ite
 	elseif target == "Altar" then
 		if load.painted then return Describe("InsertRuneBody") end
 		if snapshot and snapshot.altarId then
-			return if snapshot.shelf >= Config.ShelfCapacity then Describe("ShelfFull") else Describe("AltarBusy")
+			return Describe("AltarBusy")
 		end
 		return Describe("AltarNeedsRuneBody")
 	elseif target == "Shelf" then
 		if load.body then return Describe("HandsFullHint") end
 		return if snapshot and snapshot.shelf > 0 then Describe("CollectPotion") else Describe("NoPotion")
 	elseif target == "Sigil" then
-		if potions and potions.equipped then return Describe("OfferPotion", { tostring(Config.PotionReward) }) end
-		return if potions and potions.stored > 0 then Describe("EquipPotion") else Describe("BringPotion")
+		if potions and (potions.equipped or potions.stored > 0) then return Describe("OfferPotion", { tostring(Config.PotionReward) }) end
+		return Describe("BringPotion")
 	end
 	return Describe("CarryBody")
 end

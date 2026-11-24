@@ -162,8 +162,8 @@ function Arc.InsidePoolStrict(floor: CFrame, floorSize: Vector3, position: Vecto
 end
 
 -- 第二个返回值表示需要向抛掷者提示池已满。
-function Arc.Landing(inStrict: boolean, painted: boolean, count: number, capacity: number): (string, boolean)
-	if inStrict and not painted and count < capacity then
+function Arc.Landing(inStrict: boolean, painted: boolean, count: number, capacity: number?): (string, boolean)
+	if inStrict and not painted and (capacity == nil or capacity <= 0 or count < capacity) then
 		return "Pool", false
 	end
 	if inStrict and not painted then

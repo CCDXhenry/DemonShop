@@ -212,8 +212,8 @@ GameConfig.HitStaggerSeconds = 0.75 -- 命中后短暂停步，让连续三击�
 GameConfig.StunImpulseSpeed = 3 -- 最后一击的受控水平倒地冲量，studs/s
 GameConfig.StunHits = 3 -- 累计命中次数，无自动苏醒
 GameConfig.InteractionRange = 8 -- 工位与物品交互距离，studs
-GameConfig.PoolCapacity = 8 -- 共享池容量，具
-GameConfig.ShelfCapacity = 6 -- 每一档药水的堆叠上限，瓶
+GameConfig.PoolCapacity = 8 -- 兼容旧字段：渲染上限以 PoolVisibleLimit 为准，逻辑容量无限
+GameConfig.ShelfCapacity = 6 -- 兼容旧字段：渲染上限以 ShelfVisibleLimit 为准，逻辑容量无限
 GameConfig.DefaultPotionQuality = 1 -- 当前唯一品质；点位序号与品质相同，第 1 档用排序后的第一个点
 GameConfig.ToolbarSlotLimit = 9 -- 底部工具栏可见槽位数
 GameConfig.ConversionSeconds = 10 -- 单具身体转化时间，秒
@@ -271,5 +271,8 @@ GameConfig.PaintFlipSeconds = 0.55 -- 自动翻面动画时长，秒
 GameConfig.PaintFlipLiftHeight = 0.85 -- 自动翻面过程中的垂直抬升峰值，studs
 GameConfig.PaintFlipFlashSeconds = 0.24 -- 自动翻面时已画符文轻度高亮闪烁时长，秒
 GameConfig.PaintFlipFlashBrightness = 0.65 -- 自动翻面闪烁峰值亮度（0~1）
+GameConfig.SessionOnlyEconomy = true -- 本局化经济：进服金币归零，写库时金币固定归零
+GameConfig.PoolVisibleLimit = 8 -- 存放池实体白膜渲染上限，超出转入虚拟计数
+GameConfig.ShelfVisibleLimit = 6 -- 手动药水架每档瓶身实体渲染上限，逻辑容量无限
 
 return GameConfig

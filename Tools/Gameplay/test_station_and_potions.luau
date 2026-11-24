@@ -447,4 +447,272 @@ do
 	end
 end
 
+-- 7. M1: 无限存放池(8可见+补位+MaximumBodies解耦)、无限药水架(6可见+不卡祭坛)、召唤法阵一键全卖
+do
+	B.ResetPlayers()
+	table.clear(B.broadcasts)
+	table.clear(B.notices)
+	local coinTotals = {}
+	local m1 = Manager.new({
+		IsActive = function() return true end,
+		CanAddCoins = function() return true end,
+		AddCoins = function(p, amount)
+			coinTotals[p] = (coinTotals[p] or 0) + amount
+			return true
+		end,
+	})
+	m1.replication = Replication.new()
+	local p1, p1Char, _, p1Root, p1Bp = B.CreatePlayer(301, Vector3.zero)
+	local p2, _, _, p2Root, _ = B.CreatePlayer(302, Vector3.zero)
+	m1:AddPlayer(p1)
+	m1:AddPlayer(p2)
+	m1:Changed()
+	table.clear(B.broadcasts)
+	table.clear(B.notices)
+
+	local function makeWorldBody(id, stage, location)
+		local m = Instance.new('Model')
+		m.Name = id
+		local rp = Instance.new('Part')
+		rp.Name = 'HumanoidRootPart'
+		rp.Size = Vector3.new(2, 2, 1)
+		rp.Position = Vector3.new(-20, 2, 0)
+		rp.CFrame = CFrame.new(-20, 2, 0)
+		rp.Parent = m
+		local ut = Instance.new('Part')
+		ut.Name = 'UpperTorso'
+		ut.Size = Vector3.new(2, 2, 1)
+		ut.Position = Vector3.new(-20, 2, 0)
+		ut.CFrame = CFrame.new(-20, 2, 0)
+		ut.Parent = m
+		m.PrimaryPart = rp
+		m.Parent = m1.runtime
+		local item = {
+			id = id,
+			kind = 'Body',
+			stage = stage or 'Unpainted',
+			location = location or 'Carried',
+			version = 1,
+			model = m,
+			holder = nil,
+			hits = Config.StunHits,
+			covered = {},
+			strokes = {},
+			strokePoints = 0,
+			area = 0,
+			totalArea = 100,
+			progress = if stage == 'Painted' then 1 else 0,
+			paintSeconds = 0,
+			streetSlot = false,
+			nextWalk = 0,
+		}
+		m1.items[id] = item
+		return item
+	end
+
+	local function sendM1(player, req)
+		B.now += 0.2
+		m1:OnRequest(player, req)
+	end
+
+	-- 7a. 存放池逻辑无限 + 8 实体限流 + 斜抛入池超限回收 + 取用后自动补位
+	movePlayer(p1Root, stationPositions.Pool + Vector3.new(0, 0, 4))
+	local overflowedModels = {}
+	for i = 1, 10 do
+		local b = makeWorldBody('m1-pool-' .. tostring(i), 'Unpainted', 'Carried')
+		b.holder = p1
+		sendM1(p1, { action = 'Interact', target = 'Pool', version = m1.stationVersions.Pool })
+		if i > Config.PoolVisibleLimit then
+			table.insert(overflowedModels, b)
+		end
+	end
+	check(#m1.pool == Config.PoolVisibleLimit, 'pool caps visible entities at PoolVisibleLimit (8)')
+	check(m1.poolOverflowCount == 2, 'pool stores overflow beyond 8 in poolOverflowCount')
+	check(m1:PoolCount() == 10 and m1:Snapshot().pool == 10, 'Snapshot reports total logical pool count (10)')
+	for _, ob in overflowedModels do
+		check(ob.model.Parent == nil and m1.items[ob.id] == nil, 'overflow pool body model is destroyed and removed from items')
+	end
+
+	-- 斜抛入池第 11 具：同样直接接收并转入虚拟计数
+	local thrownBody = makeWorldBody('m1-thrown-11', 'Unpainted', 'Thrown')
+	thrownBody.poolToss = { kind = 'Manual', from = CFrame.identity, target = CFrame.new(-20, 2, 0), started = B.now, owner = p1.UserId }
+	m1:SettleThrown(thrownBody)
+	check(#m1.pool == Config.PoolVisibleLimit and m1.poolOverflowCount == 3 and m1:PoolCount() == 11, 'SettleThrown accepts overflow throw without PoolFull block')
+	check(thrownBody.model.Parent == nil and m1.items[thrownBody.id] == nil, 'SettleThrown destroys overflow model')
+
+	-- 取出 1 具后自动从 poolOverflowCount 补生 1 具实体维持 8 具可见
+	sendM1(p1, { action = 'Interact', target = 'Pool', version = m1.stationVersions.Pool })
+	check(m1:PoolCount() == 10 and #m1.pool == Config.PoolVisibleLimit and m1.poolOverflowCount == 2, 'taking from pool replenishes visible pool back to 8')
+	local carriedFromPool = m1:Carried(p1)[1]
+	check(carriedFromPool ~= nil, 'player carries body taken from pool')
+
+	-- 另一名玩家从工作台取料，池再次自动补位维持 8 具
+	movePlayer(p2Root, stationPositions.Table + Vector3.new(0, 0, 3))
+	sendM1(p2, { action = 'Interact', target = 'Table', version = m1.stationVersions.Table })
+	check(m1:PoolCount() == 9 and #m1.pool == Config.PoolVisibleLimit and m1.poolOverflowCount == 1, 'Table fetch replenishes visible pool back to 8')
+	m1:EndPaint(p2)
+
+	-- 虚拟计数不占用 MaximumBodies(32) 刷怪配额
+	m1.poolOverflowCount = 40
+	local spawnCalls = 0
+	local prevSpawn = B.NPC.Spawn
+	B.NPC.Spawn = function()
+		spawnCalls += 1
+		return nil
+	end
+	m1.nextUpdate = 0
+	m1.nextSpawn = 0
+	m1:Update()
+	B.NPC.Spawn = prevSpawn
+	check(spawnCalls == 1, 'virtual poolOverflowCount=40 does not block street NPC spawn under MaximumBodies=32')
+
+	-- 7b. 手动药水架逻辑无限 + 6 实体渲染 + 祭坛不阻塞
+	for i = 1, 8 do
+		local altarBody = makeWorldBody('m1-altar-' .. tostring(i), 'Converting', 'Altar')
+		altarBody.convertEnds = B.now - 1
+	end
+	m1.nextUpdate = 0
+	m1:Update()
+	local snapShelf = m1:Snapshot()
+	local visibleShelfCount = 0
+	for _ in snapShelf.shelfItems do
+		visibleShelfCount += 1
+	end
+	check(m1:ShelfCount() == 8 and m1:QualityCount(Config.DefaultPotionQuality) == 8 and snapShelf.shelf == 8, 'shelf counts all 8 potions past ShelfVisibleLimit without blocking altar')
+	check(visibleShelfCount == Config.ShelfVisibleLimit, 'Snapshot.shelfItems caps rendered bottles at ShelfVisibleLimit (6)')
+	check(m1.altarId == nil, 'no altar body left waiting or held when shelf exceeds 6')
+
+	-- p1 先丢掉肩上白膜再去药水架领取全部 8 瓶
+	B.Carry.Drop(carriedFromPool)
+	movePlayer(p1Root, stationPositions.Shelf + Vector3.new(0, 0, 3))
+	sendM1(p1, { action = 'Interact', target = 'Shelf', version = m1.stationVersions.Shelf })
+	check(m1:ShelfCount() == 0 and m1:Snapshot().shelf == 0, 'Shelf collect empties logical shelf count')
+	local eqPotion = m1:EquippedPotion(p1)
+	check(eqPotion ~= nil and eqPotion.stack == 8, 'Shelf grants full 8-stack potion to player')
+
+	-- 7c. 召唤法阵一键全卖（同时包含手持与背包多格药水，以及仅背包未装备药水）
+	local bpExtra = m1:GrantStack(p1, 2, 3)
+	check(bpExtra ~= nil and bpExtra.Parent == p1Bp, 'extra quality stack placed in Backpack')
+	table.clear(coinTotals)
+	table.clear(B.notices)
+	movePlayer(p1Root, stationPositions.Sigil + Vector3.new(0, 0, 4))
+	sendM1(p1, { action = 'Interact', target = 'Sigil', version = m1.stationVersions.Sigil })
+	local remList, remCount = m1:OwnedPotions(p1)
+	check(#remList == 0 and remCount == 0, 'Sigil sell-all consumes both equipped Character potion and unequipped Backpack potion')
+	check(coinTotals[p1] == 11 * Config.PotionReward and coinTotals[p2] == 11 * Config.PotionReward, 'Sigil sell-all awards 11 * PotionReward to every active player')
+
+	-- 仅背包未装备药水（不需先切出）直接靠近法阵一键全卖
+	local bpOnly = m1:GrantStack(p1, Config.DefaultPotionQuality, 4)
+	check(bpOnly ~= nil and bpOnly.Parent == p1Bp and m1:EquippedPotion(p1) == nil, 'Backpack-only potion is unequipped')
+	table.clear(coinTotals)
+	sendM1(p1, { action = 'Interact', target = 'Sigil', version = m1.stationVersions.Sigil })
+	local remList2, remCount2 = m1:OwnedPotions(p1)
+	check(#remList2 == 0 and remCount2 == 0, 'Sigil sell-all consumes unequipped Backpack potions directly')
+	check(coinTotals[p1] == 4 * Config.PotionReward and coinTotals[p2] == 4 * Config.PotionReward, 'Sigil sell-all awards 4 * PotionReward for Backpack-only potions')
+end
+
+-- 8. 多白膜肩扛堆叠 carryOrder 同步、Delta 增量检测与抛掷一致性
+do
+	B.ResetPlayers()
+	table.clear(B.broadcasts)
+	table.clear(B.notices)
+	local m2 = Manager.new({
+		IsActive = function() return true end,
+		CanAddCoins = function() return true end,
+		AddCoins = function() return true end,
+	})
+	m2.replication = Replication.new()
+	local tp = B.CreatePlayer(101, Vector3.zero)
+	m2:AddPlayer(tp)
+	m2:Changed()
+	table.clear(B.broadcasts)
+	table.clear(B.notices)
+
+	local function makeCarried(id, order)
+		local m = Instance.new('Model')
+		m.Name = id
+		m.WorldPivot = CFrame.identity
+		local rp = Instance.new('Part')
+		rp.Name = 'HumanoidRootPart'
+		rp.Size = Vector3.new(2, 2, 1)
+		rp.Position = Vector3.zero
+		rp.CFrame = CFrame.identity
+		rp.Parent = m
+		local ut = Instance.new('Part')
+		ut.Name = 'UpperTorso'
+		ut.Size = Vector3.new(2, 2, 1)
+		ut.Position = Vector3.zero
+		ut.CFrame = CFrame.identity
+		ut.Parent = m
+		m.PrimaryPart = rp
+		m.Parent = m2.runtime
+		local item = {
+			id = id,
+			kind = 'Body',
+			stage = 'Unpainted',
+			location = 'Carried',
+			version = 1,
+			model = m,
+			holder = tp,
+			carryOrder = order,
+			hits = Config.StunHits,
+			covered = {},
+			strokes = {},
+			strokePoints = 0,
+			area = 0,
+			totalArea = 100,
+			progress = 0,
+			paintSeconds = 0,
+			streetSlot = false,
+			nextWalk = 0,
+		}
+		m2.items[id] = item
+		return item
+	end
+
+	local b1 = makeCarried('aaa-first', 1)
+	local b2 = makeCarried('mmm-second', 2)
+	local b3 = makeCarried('zzz-third', 3)
+
+	-- 验证 Replication.Broadcast 对 carryOrder 变更敏感
+	local rep = Replication.new()
+	rep:Broadcast(m2:Snapshot())
+	table.clear(B.broadcasts)
+	b2.carryOrder = 5
+	rep:Broadcast(m2:Snapshot())
+	check(#B.broadcasts == 1 and B.broadcasts[1].kind == 'Delta' and #B.broadcasts[1].snapshot.items == 1 and B.broadcasts[1].snapshot.items[1].id == b2.id and B.broadcasts[1].snapshot.items[1].carryOrder == 5,
+		'Replication.Broadcast emits Delta when carryOrder changes')
+	b2.carryOrder = 2
+
+	-- 验证 Client:Carried() 与服务端 Manager:Carried() 顶层顺序一致且抛掷不被 ItemChanged 拒绝
+	local snap = m2:Snapshot()
+	local clientItems = {}
+	for _, iv in snap.items do
+		clientItems[iv.id] = iv
+	end
+	check(clientItems[b1.id].carryOrder == 1 and clientItems[b2.id].carryOrder == 2 and clientItems[b3.id].carryOrder == 3,
+		'Snapshot replicates carryOrder for carried bodies')
+
+	B.Players.LocalPlayer = tp
+	local Client = require('./StationClient')
+	local client2 = setmetatable({ items = clientItems }, Client)
+	local clientCarried = client2:Carried()
+	local serverCarried = m2:Carried(tp)
+	check(#clientCarried == 3 and #serverCarried == 3, 'both client and server see 3 carried bodies')
+	check(clientCarried[1].id == b3.id and serverCarried[1].id == b3.id, 'top carried body matches highest carryOrder on both peers')
+	check(clientCarried[2].id == b2.id and clientCarried[3].id == b1.id, 'remaining carried stack order matches carryOrder descending')
+
+	table.clear(B.notices)
+	B.now += 1
+	m2:OnRequest(tp, {
+		action = 'Throw',
+		target = clientCarried[1].id,
+		version = clientCarried[1].version,
+		direction = Vector3.zAxis,
+	})
+	check(#B.notices == 0, 'Throw using Client:Carried()[1] succeeds without ItemChanged rejection')
+	check(b3.location == 'Thrown' and b3.holder == nil, 'top carried body transitions to Thrown on server')
+	check(m2:Carried(tp)[1].id == b2.id, 'next highest carryOrder body becomes top of shoulder stack')
+end
+
 print(string.format('PASS: %d station distance, toolbar potion isolation, respawn rescue and audio loop assertions', checks))

@@ -131,6 +131,10 @@ function B.StopSound(_sound)
 	B.stoppedSounds += 1
 end
 
+function B.PivotTo(model, pose)
+	model.WorldPivot = pose
+end
+
 local function makePart(parent, name, pos, size)
 	local p = Instance.new('Part')
 	p.Name = name
@@ -208,8 +212,12 @@ end
 B.BuildDistrict({ Pool = 12, Table = 6, Altar = 10, Shelf = 5, Sigil = 14 })
 
 B.workspace = {
+	Gravity = 196.2,
 	GetServerTimeNow = function()
 		return B.now
+	end,
+	Blockcast = function()
+		return nil
 	end,
 	FindFirstChild = function(_, name)
 		if name == 'NeonContractDistrict' then
@@ -284,6 +292,26 @@ local slashSound = Instance.new('Sound')
 slashSound.Name = 'SwordSlash'
 slashSound.Parent = clubHandle
 clubTemplate.Parent = modelsFolder
+
+local whiteTemplate = Instance.new('Model')
+whiteTemplate.Name = 'WhiteR15'
+local whiteHrp = Instance.new('Part')
+whiteHrp.Name = 'HumanoidRootPart'
+whiteHrp.Size = Vector3.new(2, 2, 1)
+whiteHrp.Position = Vector3.new(-20, 2, 0)
+whiteHrp.CFrame = CFrame.new(-20, 2, 0)
+whiteHrp.Parent = whiteTemplate
+local whiteTorso = Instance.new('Part')
+whiteTorso.Name = 'UpperTorso'
+whiteTorso.Size = Vector3.new(2, 2, 1)
+whiteTorso.Position = Vector3.new(-20, 2, 0)
+whiteTorso.CFrame = CFrame.new(-20, 2, 0)
+whiteTorso:SetAttribute('Paintable', true)
+whiteTorso.Parent = whiteTemplate
+local whiteHum = Instance.new('Humanoid')
+whiteHum.Parent = whiteTemplate
+whiteTemplate.PrimaryPart = whiteHrp
+whiteTemplate.Parent = modelsFolder
 
 B.ModelsFolder = modelsFolder
 
@@ -462,6 +490,7 @@ B.NPC = {
 
 B.Ragdoll = {
 	Init = function() end,
+	Setup = function() end,
 	SetMode = function() end,
 	LimitVelocity = function() end,
 }
@@ -500,6 +529,19 @@ B.Carry = {
 	TossIntoPool = function(item)
 		item.holder = nil
 		item.location = 'Pool'
+	end,
+	FinishPool = function(item)
+		item.poolToss = nil
+	end,
+	FinishGround = function(item)
+		item.poolToss = nil
+		item.location = 'Ground'
+	end,
+	BeginManualToss = function(item)
+		item.holder = nil
+		item.location = 'Thrown'
+		item.version += 1
+		return false
 	end,
 	BeginAltarToss = function(item, _layer, _fromTable, now)
 		item.holder = nil

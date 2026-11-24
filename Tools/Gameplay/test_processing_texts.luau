@@ -26,8 +26,9 @@ local equippedPotions = {stored=1, equipped=true}
 local storedPotions = {stored=1, equipped=false}
 Check(Hints.Next(nil, nil, equippedPotions).textId, "TakePotion")
 Check(Hints.Next(nil, raw, equippedPotions).textId, "ThrowAim")
-Check(Hints.Next(nil, nil, storedPotions).textId, "EquipPotion")
+Check(Hints.Next(nil, nil, storedPotions).textId, "TakePotion")
 for _,case in {
+	{"Pool",Snapshot({pool=20}),raw,"StoreBody"},
 	{"Pool",nil,potion,"PoolUnfinishedOnly"},{"Pool",nil,painted,"PoolUnfinishedOnly"},
 	{"Pool",nil,raw,"StoreBody"},{"Pool",Snapshot({pool=1}),nil,"TakeSharedBody"},{"Pool",nil,nil,"PoolEmpty"},
 	{"Table",Snapshot({painter=2}),raw,"TableOtherPainter"},{"Table",Snapshot({painter=1}),raw,"PlaceBody"},
@@ -35,11 +36,11 @@ for _,case in {
 	{"Table",Snapshot({tableId="t",items={{id="t",stage="Painted"}}}),nil,"CollectRuneBody"},
 	{"Table",Snapshot({tableId="t",items={{id="t",stage="Painting"}}}),nil,"ContinuePainting"},
 	{"Table",Snapshot({tableId="missing",pool=1}),nil,"FetchAndPaint"},{"Table",nil,nil,"TableEmpty"},
-	{"Altar",Snapshot({altarId="a",shelf=13}),nil,"ShelfFull"},
+	{"Altar",Snapshot({altarId="a",shelf=13}),nil,"AltarBusy"},
 	{"Altar",Snapshot({altarId="a",shelf=12}),nil,"AltarBusy"},
 	{"Altar",nil,painted,"InsertRuneBody"},{"Altar",nil,raw,"AltarNeedsRuneBody"},
 	{"Shelf",Snapshot({shelf=1}),raw,"HandsFullHint"},{"Shelf",Snapshot({shelf=1}),nil,"CollectPotion"},
-	{"Shelf",nil,nil,"NoPotion"},{"Sigil",nil,nil,"OfferPotion",equippedPotions},{"Sigil",nil,nil,"EquipPotion",storedPotions},{"Sigil",nil,nil,"BringPotion"},
+	{"Shelf",nil,nil,"NoPotion"},{"Sigil",nil,nil,"OfferPotion",equippedPotions},{"Sigil",nil,nil,"OfferPotion",storedPotions},{"Sigil",nil,nil,"BringPotion"},
 	{"item-id",nil,nil,"CarryBody"},
 } do Check(Hints.Action(case[1],case[2],case[3],1,case[5]).textId,case[4]) end
 Check(Hints.Action("Pool",nil,nil,1,nil,{painted,raw}).textId,"StoreBody")
@@ -48,7 +49,7 @@ Check(Hints.Next(nil,nil,nil,{painted,raw}).textId,"ThrowAim")
 Check(Hints.Next(nil,nil,equippedPotions).args[1],"237")
 Check(Hints.Action("Sigil",nil,nil,1,equippedPotions).args[1],"237")
 Check(Hints.Next(nil,nil).args[1],"5")
-Check(Translation.FormatByKey(Texts.Hud.Stock.source,Texts.Hud.Stock.key,{"2","11","4","13"}),"POOL 2/11  |  POTIONS 4/13")
+Check(Translation.FormatByKey(Texts.Hud.Stock.source,Texts.Hud.Stock.key,{"2","4"}),"POOL 2  |  POTIONS 4")
 Check(Texts.Entries,nil)
 Check(Texts.GetEntry("UnknownId"),nil)
 local expected, ordered, seen = {}, {}, {}

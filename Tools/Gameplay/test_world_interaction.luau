@@ -15,8 +15,8 @@ local function Action(target,held,potions,stack) local a=Rules.Resolve(target,sn
 Check(Action('Pool',nil)==nil,'empty pool hidden')
 Check(Action('Pool',raw)=='StoreBody','store unfinished')
 Check(Action('Pool',painted)==nil and Action('Pool',potion)==nil,'pool rejects completed or potion')
-snapshot.pool=Config.PoolCapacity
-Check(Action('Pool',raw)==nil,'full pool hidden')
+snapshot.pool=Config.PoolCapacity + 5
+Check(Action('Pool',raw)=='StoreBody','unlimited pool accepts unfinished body past visible limit')
 Check(Action('Pool',nil)=='TakeSharedBody','take from pool')
 Check(Action('Table',nil)=='FetchAndPaint','fetch from pool and paint')
 Check(Action('Table',raw)=='PlaceBody' and Action('Table',potion)==nil,'table requires unfinished body')
@@ -35,7 +35,8 @@ Check(Action('Altar',painted)=='InsertRuneBody','altar still accepts another com
 Check(Action('Shelf',nil)==nil,'empty shelf hidden')
 snapshot.shelf=1
 Check(Action('Shelf',nil)=='CollectPotion' and Action('Shelf',raw)==nil,'shelf hidden while carrying a body')
-Check(Action('Sigil',nil,{stored=1,equipped=true})=='PromptOffer' and Action('Sigil',raw)==nil,'offer only the equipped potion')
+Check(Action('Sigil',nil,{stored=1,equipped=true})=='PromptOffer' and Action('Sigil',raw)==nil,'offer equipped potion')
+Check(Action('Sigil',nil,{stored=2,equipped=false})=='PromptOffer','offer unequipped backpack potions at sigil')
 Check(Action('raw',nil)=='PromptPickUp' and Action('raw',potion)==nil,'ground pickup requires free hands')
 Check(Action('potion',nil)=='PromptPickUp' and Rules.Resolve('potion',snapshot,items,nil).object=='PromptPotion','ground potion text')
 local other={id='other',kind='Body',stage='Raw',location='Ground',version=2,hits=Config.StunHits}

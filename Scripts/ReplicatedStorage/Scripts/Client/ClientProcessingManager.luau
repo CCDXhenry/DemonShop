@@ -226,6 +226,13 @@ function Client.Carried(self: Client): { Types.ItemView }
 			table.insert(list, item)
 		end
 	end
+	table.sort(list, function(a: Types.ItemView, b: Types.ItemView): boolean
+		local left, right = a.carryOrder or 0, b.carryOrder or 0
+		if left ~= right then
+			return left > right
+		end
+		return a.id < b.id
+	end)
 	return list
 end
 function Client.Held(self: Client): Types.ItemView?
@@ -1249,7 +1256,7 @@ function Client.Update(self: Client, dt: number): ()
 	end
 	self:Text("CarryText", carryText)
 	if snapshot then
-		local stock: GameTexts.Description = {textId = "Stock", args = {tostring(snapshot.pool), tostring(Config.PoolCapacity), tostring(snapshot.shelf), tostring(Config.ShelfCapacity)}}
+		local stock: GameTexts.Description = {textId = "Stock", args = {tostring(snapshot.pool), tostring(snapshot.shelf)}}
 		local soonest: number? = nil
 		for _, item in self.items do
 			if item.kind == "Body" and item.location == "Altar" and item.convertEnds and item.convertEnds > workspace:GetServerTimeNow() then
@@ -1258,7 +1265,7 @@ function Client.Update(self: Client, dt: number): ()
 		end
 		if snapshot.altarId or soonest then
 			local seconds = if soonest then math.max(0, math.ceil(soonest - workspace:GetServerTimeNow())) else 0
-			stock = if seconds > 0 then {textId = "AltarCountdown", args = {tostring(seconds), tostring(snapshot.shelf), tostring(Config.ShelfCapacity)}} else {textId = "AltarShelfFull"}
+			stock = {textId = "AltarCountdown", args = {tostring(seconds), tostring(snapshot.shelf)}}
 		end
 		self:Text("StockText", stock)
 	end
@@ -1457,7 +1464,7 @@ function Client.UpdateAltar(self: Client, now: number): ()
 	if not self.altarLoopSound and Sound then
 		self.altarLoopSound = Sound.Play("AltarLoop", positions.Altar, nil, true)
 	end
-	local shelfFull = self.snapshot ~= nil and self.snapshot.shelf >= Config.ShelfCapacity
+	local shelfFull = false
 	for _, item in active do
 		local model = self.bodies:GetAltarModel(item.id)
 		if not model then
@@ -1538,7 +1545,7 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 			CanStore = function(position: Vector3): boolean
 				local top = self:Carried()[1]
 				local snapshot = self.snapshot
-				if not top or top.stage == "Painted" or not snapshot or snapshot.pool >= Config.PoolCapacity then
+				if not top or top.stage == "Painted" or not snapshot then
 					return false
 				end
 				return ThrowArc.InsidePoolStrict(poolFloor.CFrame, poolFloor.Size, position, Physics.PoolWallHeight)

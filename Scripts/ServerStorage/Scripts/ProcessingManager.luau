@@ -21,6 +21,7 @@ local Door = require(script.Parent.Door)
 local Painting = require(script.Parent.Painting)
 local Replication = require(script.Parent.Replication)
 local VisualRules = require(Shared.VisualRules)
+local Surface = require(Shared.PaintSurface)
 local BodyPose = require(Shared.PaintBodyPose)
 local PaintRotation = require(Shared.PaintRotation)
 local CurvedSurface = require(Shared.CurvedSurface)
@@ -51,7 +52,9 @@ export type Manager = typeof(setmetatable(
 		players: { [Player]: PlayerRecord },
 		removing: { [Player]: boolean },
 		pool: { string },
-		shelf: { [number]: { string } },
+		poolOverflowCount: number,
+		shelfCounts: { [number]: number },
+		shelfVisible: { [number]: { string } },
 		tableId: string?,
 		altarId: string?,
 		altarEnds: number,
@@ -81,7 +84,9 @@ function Manager.new(data: PlayerData?): Manager
 		players = {},
 		removing = {},
 		pool = {},
-		shelf = {},
+		poolOverflowCount = 0,
+		shelfCounts = {},
+		shelfVisible = {},
 		tableId = nil,
 		altarId = nil,
 		altarEnds = 0,
@@ -94,6 +99,58 @@ function Manager.new(data: PlayerData?): Manager
 		nextUpdate = 0,
 		nextToolbarOrder = 0,
 	}, Manager)
+end
+function Manager.PoolCount(self: Manager): number
+	return #self.pool + self.poolOverflowCount
+end
+function Manager.SpawnPoolBody(self: Manager): Types.Item?
+	local models = ReplicatedStorage:FindFirstChild("Models")
+	local template = if models then models:FindFirstChild("WhiteR15") else nil
+	if not template or not template:IsA("Model") then
+		return nil
+	end
+	local model = template:Clone()
+	local id = HttpService:GenerateGUID(false)
+	model.Name = "WhiteNPC"
+	model:SetAttribute("ItemId", id)
+	model:SetAttribute("GroundPresentation", Physics.GroundRootEnabled)
+	model:PivotTo(Scene.PoolPose(#self.pool + 1))
+	model.Parent = self.runtime
+	Ragdoll.Setup(model)
+	local item: Types.Item = {
+		id = id,
+		kind = "Body",
+		stage = "Unpainted",
+		location = "Pool",
+		version = 1,
+		model = model,
+		holder = nil,
+		hits = Config.StunHits,
+		covered = {},
+		strokes = {},
+		strokePoints = 0,
+		area = 0,
+		totalArea = Surface.Total(model),
+		progress = 0,
+		paintSeconds = 0,
+		streetSlot = false,
+		nextWalk = 0,
+		carryWeld = nil,
+		walkTrack = nil,
+	}
+	Carry.RecoverPool(item)
+	self.items[id] = item
+	return item
+end
+function Manager.ReplenishPoolVisible(self: Manager): ()
+	while #self.pool < Config.PoolVisibleLimit and self.poolOverflowCount > 0 do
+		local item = self:SpawnPoolBody()
+		if not item then
+			break
+		end
+		self.poolOverflowCount -= 1
+		table.insert(self.pool, item.id)
+	end
 end
 function Manager.AltarSummary(self: Manager): (string?, number, string)
 	local now = workspace:GetServerTimeNow()
@@ -117,7 +174,7 @@ function Manager.AltarSummary(self: Manager): (string?, number, string)
 end
 function Manager.Snapshot(self: Manager): Types.Snapshot
 	local shelfItems: { [string]: CFrame } = {}
-	for quality, ids in self.shelf do
+	for quality, ids in self.shelfVisible do
 		for slot, id in ids do
 			shelfItems[id] = Scene.ShelfPose(quality, slot)
 		end
@@ -136,6 +193,7 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 			fall = item.fall,
 			progress = item.progress,
 			holder = if item.holder then item.holder.UserId else nil,
+			carryOrder = item.carryOrder,
 			visualCount = if item.visualState then item.visualState.count else 0,
 			paintFlipped = item.paintFlipped == true,
 			flyEnds = item.flyEnds,
@@ -170,7 +228,7 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 		bodyPose = if body then body.poseBody else nil,
 		stationVersions = table.clone(self.stationVersions),
 		items = list,
-		pool = #self.pool,
+		pool = self:PoolCount(),
 		shelf = self:ShelfCount(),
 		shelfItems = shelfItems,
 		tableId = self.tableId,
@@ -183,7 +241,7 @@ end
 function Manager.Changed(self: Manager): ()
 	local _, _, altarKey = self:AltarSummary()
 	local keys: { [string]: string } = {
-		Pool = table.concat(self.pool, ","),
+		Pool = table.concat(self.pool, ",") .. "#" .. tostring(self.poolOverflowCount),
 		Table = (self.tableId or "") .. (if self.paint then self.paint.token else ""),
 		Altar = altarKey,
 		Shelf = self:ShelfKey(),
@@ -208,7 +266,11 @@ function Manager.Carried(self: Manager, player: Player): { Types.Item }
 		end
 	end
 	table.sort(list, function(a: Types.Item, b: Types.Item): boolean
-		return (a.carryOrder or 0) > (b.carryOrder or 0)
+		local left, right = a.carryOrder or 0, b.carryOrder or 0
+		if left ~= right then
+			return left > right
+		end
+		return a.id < b.id
 	end)
 	return list
 end
@@ -271,27 +333,27 @@ function Manager.Near(self: Manager, player: Player, position: Vector3, range: n
 end
 function Manager.ShelfCount(self: Manager): number
 	local count = 0
-	for _, ids in self.shelf do
-		count += #ids
+	for _, amount in self.shelfCounts do
+		count += amount
 	end
 	return count
 end
 function Manager.QualityCount(self: Manager, quality: number): number
-	local ids = self.shelf[quality]
-	return if ids then #ids else 0
+	return self.shelfCounts[quality] or 0
 end
 function Manager.ShelfKey(self: Manager): string
 	local qualities: { number } = {}
-	for quality in self.shelf do
-		table.insert(qualities, quality)
+	for quality, amount in self.shelfCounts do
+		if amount > 0 then
+			table.insert(qualities, quality)
+		end
 	end
 	table.sort(qualities)
 	local parts: { string } = {}
 	for _, quality in qualities do
-		local ids = self.shelf[quality]
-		if ids then
-			table.insert(parts, tostring(quality) .. ":" .. table.concat(ids, ","))
-		end
+		local count = self.shelfCounts[quality] or 0
+		local visible = self.shelfVisible[quality]
+		table.insert(parts, tostring(quality) .. ":" .. tostring(count) .. ":" .. (if visible then table.concat(visible, ",") else ""))
 	end
 	return table.concat(parts, ";")
 end
@@ -320,39 +382,15 @@ function Manager.SpawnAltarPotion(self: Manager, item: Types.Item): ()
 	local quality = Config.DefaultPotionQuality
 	item.model:Destroy()
 	self.items[item.id] = nil
-	local model = ReplicatedStorage.Models.Potion:Clone() :: Model
-	local id = HttpService:GenerateGUID(false)
-	model:SetAttribute("ItemId", id)
-	model:SetAttribute("Quality", quality)
-	local potion: Types.Item = {
-		id = id,
-		kind = "Potion",
-		stage = "Ready",
-		location = "Shelf",
-		version = 1,
-		model = model,
-		holder = nil,
-		quality = quality,
-		hits = 0,
-		covered = {},
-		strokes = {},
-		strokePoints = 0,
-		area = 0,
-		totalArea = 0,
-		progress = 0,
-		paintSeconds = 0,
-		streetSlot = false,
-		nextWalk = 0,
-		carryWeld = nil,
-		walkTrack = nil,
-	}
-	self.items[id] = potion
-	local pile = self.shelf[quality]
-	if not pile then
-		pile = {}
-		self.shelf[quality] = pile
+	self.shelfCounts[quality] = (self.shelfCounts[quality] or 0) + 1
+	local visible = self.shelfVisible[quality]
+	if not visible then
+		visible = {}
+		self.shelfVisible[quality] = visible
 	end
-	table.insert(pile, id)
+	if #visible < Config.ShelfVisibleLimit then
+		table.insert(visible, HttpService:GenerateGUID(false))
+	end
 end
 function Manager.EndPaint(self: Manager, player: Player): ()
 	local session = self.paint
@@ -465,15 +503,19 @@ function Manager.Pool(self: Manager, player: Player): boolean
 		end
 	end
 	if chosen then
-		if #self.pool >= Config.PoolCapacity then
-			self:Tell(player, "PoolFull")
-			return false
-		end
 		local keep = #stack > 1
-		chosen.location = "Pool"
-		chosen.version += 1
-		table.insert(self.pool, chosen.id)
-		Carry.TossIntoPool(chosen, not keep)
+		if #self.pool < Config.PoolVisibleLimit then
+			chosen.location = "Pool"
+			chosen.version += 1
+			table.insert(self.pool, chosen.id)
+			Carry.TossIntoPool(chosen, not keep)
+		else
+			Carry.Detach(chosen, not keep)
+			NPC.StopMotion(chosen)
+			self.items[chosen.id] = nil
+			chosen.model:Destroy()
+			self.poolOverflowCount += 1
+		end
 		if keep then
 			self:Restack(player)
 		end
@@ -481,11 +523,18 @@ function Manager.Pool(self: Manager, player: Player): boolean
 	elseif #stack > 0 or self:ShoulderOccupied(player) then
 		self:Tell(player, "StoreUnfinished")
 		return false
-	elseif #self.pool > 0 then
+	elseif self:PoolCount() > 0 then
+		while #self.pool > 0 and self.items[self.pool[1]] == nil do
+			table.remove(self.pool, 1)
+		end
+		if #self.pool == 0 then
+			self:ReplenishPoolVisible()
+		end
 		local id = self.pool[1]
-		local item = self.items[id]
+		local item = if id then self.items[id] else nil
 		if item and Carry.Take(item, player) then
 			table.remove(self.pool, 1)
+			self:ReplenishPoolVisible()
 			self:Restack(player)
 			return true
 		end
@@ -534,9 +583,19 @@ function Manager.Table(self: Manager, player: Player): boolean
 		return false
 	end
 	local item = chosen
-	if not item and #self.pool > 0 then
-		item = self.items[self.pool[1]]
-		table.remove(self.pool, 1)
+	if not item and self:PoolCount() > 0 then
+		while #self.pool > 0 and self.items[self.pool[1]] == nil do
+			table.remove(self.pool, 1)
+		end
+		if #self.pool == 0 then
+			self:ReplenishPoolVisible()
+		end
+		local id = self.pool[1]
+		if id then
+			item = self.items[id]
+			table.remove(self.pool, 1)
+			self:ReplenishPoolVisible()
+		end
 	end
 	if not item then
 		self:Tell(player, "BringStunned")
@@ -732,8 +791,8 @@ function Manager.Shelf(self: Manager, player: Player): boolean
 		return false
 	end
 	local qualities: { number } = {}
-	for quality, ids in self.shelf do
-		if #ids > 0 then
+	for quality, count in self.shelfCounts do
+		if count > 0 then
 			table.insert(qualities, quality)
 		end
 	end
@@ -741,8 +800,8 @@ function Manager.Shelf(self: Manager, player: Player): boolean
 	local equip: Tool? = nil
 	local granted: { number } = {}
 	for _, quality in qualities do
-		local ids = self.shelf[quality]
-		local tool = if ids then self:GrantStack(player, quality, #ids) else nil
+		local count = self.shelfCounts[quality] or 0
+		local tool = if count > 0 then self:GrantStack(player, quality, count) else nil
 		if tool then
 			if tool.Parent ~= backpack and tool.Parent ~= character then
 				pcall(function(): ()
@@ -759,40 +818,55 @@ function Manager.Shelf(self: Manager, player: Player): boolean
 		return false
 	end
 	for _, quality in granted do
-		local ids = self.shelf[quality]
-		if ids then
-			for _, id in ids do
-				local item = self.items[id]
-				if item then
-					self.items[id] = nil
-					item.model:Destroy()
-				end
-			end
-			self.shelf[quality] = nil
-		end
+		self.shelfCounts[quality] = nil
+		self.shelfVisible[quality] = nil
 	end
 	if equip then
 		humanoid:EquipTool(equip)
 	end
 	return true
 end
+function Manager.OwnedPotions(self: Manager, player: Player): ({ Types.Item }, number)
+	local list: { Types.Item } = {}
+	local seen: { [string]: boolean } = {}
+	local totalCount = 0
+	local function Scan(container: Instance?): ()
+		if not container then
+			return
+		end
+		for _, child in container:GetChildren() do
+			if child:IsA("Tool") and child.Name == "Potion" then
+				local id = child:GetAttribute("ItemId")
+				local item = if typeof(id) == "string" then self.items[id] else nil
+				if item and not seen[item.id] and item.kind == "Potion" and item.owner == player and item.model == child then
+					seen[item.id] = true
+					table.insert(list, item)
+					totalCount += math.max(1, item.stack or 1)
+				end
+			end
+		end
+	end
+	Scan(player.Character)
+	Scan(player:FindFirstChildOfClass("Backpack"))
+	return list, totalCount
+end
 function Manager.Submit(self: Manager, player: Player): boolean
 	local record = self.players[player]
-	local item = self:EquippedPotion(player)
 	if not record or not self.data.IsActive(player) then
 		return false
 	end
-	if not item then
+	local potions, totalCount = self:OwnedPotions(player)
+	if totalCount == 0 then
 		self:Tell(player, "BringPotionSigil")
 		return false
 	end
-	-- 售出一次：当前服务器每位资料已就绪的玩家各得完整奖励；无人可收款则不消耗药水。
-	local reward = Config.PotionReward
+	-- 一键全额售出：汇总手持与背包中全部药水堆叠总数，为当前服务器每位活跃玩家发放完整总奖励。
+	local totalReward = totalCount * Config.PotionReward
 	local recipients: { Player } = {}
 	local blocked: { Player } = {}
 	for _, other in Players:GetPlayers() do
 		if self.data.IsActive(other) then
-			if self.data.CanAddCoins(other, reward) then
+			if self.data.CanAddCoins(other, totalReward) then
 				table.insert(recipients, other)
 			else
 				table.insert(blocked, other)
@@ -803,20 +877,15 @@ function Manager.Submit(self: Manager, player: Player): boolean
 		self:Tell(player, "CoinLimit")
 		return false
 	end
-	local count = item.stack or 1
-	if count > 1 then
-		item.stack = count - 1
-		item.model:SetAttribute("StackCount", item.stack)
-		item.version += 1
-	else
-		self.items[item.id] = nil
-		item.stage = "Consumed"
-		item.model:Destroy()
+	for _, potion in potions do
+		self.items[potion.id] = nil
+		potion.stage = "Consumed"
+		potion.model:Destroy()
 	end
 	self.stationVersions.Sigil += 1
 	for _, other in recipients do
-		if self.data.AddCoins(other, reward) then
-			self:Tell(other, "CoinsAwarded", { tostring(reward) })
+		if self.data.AddCoins(other, totalReward) then
+			self:Tell(other, "CoinsAwarded", { tostring(totalReward) })
 		else
 			self:Tell(other, "CoinLimit")
 		end
@@ -953,22 +1022,22 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 	if item.location ~= "Thrown" then
 		return
 	end
-	local toss = item.poolToss
-	local ownerId = if toss then toss.owner else nil
 	local torso = item.model:FindFirstChild("UpperTorso")
 	local position = if torso and torso:IsA("BasePart") then torso.Position else item.model:GetPivot().Position
-	local kind, poolFull = ThrowArc.Landing(Scene.PoolContainsStrict(position), item.stage == "Painted", #self.pool, Config.PoolCapacity)
+	local kind = ThrowArc.Landing(Scene.PoolContainsStrict(position), item.stage == "Painted", self:PoolCount(), nil)
 	if kind == "Pool" then
-		item.location = "Pool"
-		table.insert(self.pool, item.id)
-		Carry.FinishPool(item)
-		return
-	end
-	if poolFull and ownerId then
-		local thrower = Players:GetPlayerByUserId(ownerId)
-		if thrower then
-			self:Tell(thrower, "PoolFull")
+		if #self.pool < Config.PoolVisibleLimit then
+			item.location = "Pool"
+			table.insert(self.pool, item.id)
+			Carry.FinishPool(item)
+		else
+			Carry.Detach(item, false)
+			NPC.StopMotion(item)
+			self.items[item.id] = nil
+			item.model:Destroy()
+			self.poolOverflowCount += 1
 		end
+		return
 	end
 	Carry.FinishGround(item)
 end
@@ -1385,7 +1454,7 @@ function Manager.Update(self: Manager): ()
 		if item.streetSlot then
 			count += 1
 		end
-		if item.kind == "Body" then
+		if item.kind == "Body" and item.model.Parent ~= nil then
 			bodies += 1
 		end
 		if item.kind == "Body" then
@@ -1439,16 +1508,8 @@ function Manager.Update(self: Manager): ()
 	end)
 	for _, item in ready do
 		if self.items[item.id] ~= item then continue end
-		if self:QualityCount(Config.DefaultPotionQuality) >= Config.ShelfCapacity then
-			item.altarHeld = true
-		elseif item.altarHeld then
-			item.altarHeld = false
-			item.convertEnds = now + Config.AltarClimaxSeconds
-			changed = true
-		else
-			self:SpawnAltarPotion(item)
-			changed = true
-		end
+		self:SpawnAltarPotion(item)
+		changed = true
 	end
 	if self.paint and not self:Root(self.paint.player) then
 		local player = self.paint.player

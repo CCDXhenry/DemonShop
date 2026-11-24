@@ -20,6 +20,8 @@ for name in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerPro
         text="local Color3=require('@lune/roblox').Color3\nlocal game={GameId=0}\n"+text
     if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneStampRules","ThrowArc"):
         text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame,Color3,Enum=roblox.Vector2,roblox.Vector3,roblox.CFrame,roblox.Color3,roblox.Enum\n"+text
+    if name == "ThrowArc":
+        text=text.replace("model:GetPivot()", "model.WorldPivot")
     (OUT/(name+".luau")).write_text(text,encoding="utf-8")
 (OUT/"test_throw_arc.luau").write_text((ROOT/"Tools/Gameplay/test_throw_arc.luau").read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_throw_arc.luau")],cwd=ROOT,check=True)
@@ -105,7 +107,7 @@ subprocess.run(["lune","run",str(OUT/"test_painting.luau")],cwd=ROOT,check=True)
 
 # Exercise the complete production request dispatcher with real painting rules.
 source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
-prefix="local CFrame=require('@lune/roblox').CFrame\nlocal Config=require('./GameConfig')\nlocal Painting=require('./Painting')\nlocal PaintRotation=require('./PaintRotation')\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\nlocal Random={new=function() return {} end}\n"
+prefix="local CFrame=require('@lune/roblox').CFrame\nlocal Config=require('./GameConfig')\nlocal Painting=require('./Painting')\nlocal PaintRotation=require('./PaintRotation')\nlocal Surface=require('./PaintSurface')\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\nlocal Random={new=function() return {} end}\n"
 (OUT/"PaintRequestManager.luau").write_text(prefix+source[source.index('type PlayerData ='):],encoding="utf-8")
 for name in ("PaintRequestBoundary","test_paint_requests"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -291,6 +293,7 @@ scene_prefix = (
     "local workspace,RaycastParams,PhysicsService=B.workspace,B.RaycastParams,B.PhysicsService\n"
     "local Physics=require('./PhysicsConfig')\n"
     "local Config=require('./GameConfig')\n"
+    "local ThrowArc=require('./ThrowArc')\n"
     "local PaintRotation=require('./PaintRotation')\n"
 )
 (OUT / "StationScene.luau").write_text(scene_prefix + scene_body, encoding="utf-8")
@@ -309,6 +312,8 @@ pm_body = re.sub(r"\b([A-Za-z_]\w*):EquipTool\(", r"B.EquipTool(\1, ", pm_body)
 pm_body = re.sub(r"\b([A-Za-z_]\w*):UnequipTools\(\)", r"B.UnequipTools(\1)", pm_body)
 pm_body = re.sub(r"\b([A-Za-z_]\w*)\.(CharacterRemoving|CharacterAdded|Died|Unequipped):Connect\(", r'B.Signal(\1, "\2"):Connect(', pm_body)
 pm_body = pm_body.replace("slash:Stop()", "B.StopSound(slash)")
+pm_body = pm_body.replace("model:PivotTo(", "B.PivotTo(model, ")
+pm_body = pm_body.replace("top.model:GetPivot()", "top.model.WorldPivot")
 pm_prefix = (
     "local R=require('@lune/roblox')\n"
     "local CFrame,Vector3,Instance,Enum=R.CFrame,R.Vector3,R.Instance,R.Enum\n"
@@ -321,8 +326,11 @@ pm_prefix = (
     "local CurvedSurface=require('./CurvedSurface')\n"
     "local BodyPose=require('./PaintBodyPose')\n"
     "local VisualRules=require('./VisualRules')\n"
+    "local Surface=require('./PaintSurface')\n"
+    "local ThrowArc=require('./ThrowArc')\n"
     "local Lifecycle=require('./LifecycleTool')\n"
     "local B=require('./StationPotionBoundary')\n"
+    "local RaycastParams=B.RaycastParams\n"
     "local Net,workspace,Scene=B.Net,B.workspace,require('./StationScene')\n"
     "local Players,ReplicatedStorage,HttpService,RunService=B.Players,B.ReplicatedStorage,B.HttpService,B.RunService\n"
     "local NPC,Carry,Ragdoll,Ground,Door,Info=B.NPC,B.Carry,B.Ragdoll,B.Ground,B.Door,B.Info\n"

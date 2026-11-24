@@ -16,7 +16,7 @@ function Replication.Broadcast(self: Replication, snapshot: Types.Snapshot): ()
 	for _, item in snapshot.items do
 		current[item.id] = item
 		local old = previous and previous[item.id]
-		if not old or old.version ~= item.version or old.location ~= item.location or old.holder ~= item.holder or old.stage ~= item.stage or old.hits ~= item.hits or old.progress ~= item.progress or old.model ~= item.model or old.altarTossStarted ~= item.altarTossStarted or old.convertEnds ~= item.convertEnds then table.insert(changed, item) end
+		if not old or old.version ~= item.version or old.location ~= item.location or old.holder ~= item.holder or old.carryOrder ~= item.carryOrder or old.stage ~= item.stage or old.hits ~= item.hits or old.progress ~= item.progress or old.model ~= item.model or old.altarTossStarted ~= item.altarTossStarted or old.convertEnds ~= item.convertEnds then table.insert(changed, item) end
 	end
 	self.previous = current
 	if not previous then Net.Broadcast({ kind = "State", snapshot = snapshot }); return end

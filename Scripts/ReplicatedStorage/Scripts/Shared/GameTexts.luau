@@ -56,8 +56,8 @@ local GameTexts = {
 	},
 	Hud = {
 		Coins = { source = "COINS  {1}", key = "Processing.Coins" }, -- 用途：状态栏显示金币；{1} 为当前金币数；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CoinsText
-		Stock = { source = "POOL {1}/{2}  |  POTIONS {3}/{4}", key = "Processing.Stock" }, -- 用途：状态栏显示共享库存；{1}/{2} 为池内数量及容量，{3}/{4} 为药水数量及容量；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.StockText
-		AltarCountdown = { source = "ALTAR {1}s  |  POTIONS {2}/{3}", key = "Processing.AltarCountdown" }, -- 用途：显示转化进度；{1} 为剩余秒数，{2}/{3} 为药水数量及容量；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.StockText
+		Stock = { source = "POOL {1}  |  POTIONS {2}", key = "Processing.Stock" }, -- 用途：状态栏显示共享库存；{1} 为池内数量，{2} 为药水数量；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.StockText
+		AltarCountdown = { source = "ALTAR {1}s  |  POTIONS {2}", key = "Processing.AltarCountdown" }, -- 用途：显示转化进度；{1} 为剩余秒数，{2} 为药水数量；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.StockText
 		AltarShelfFull = { source = "ALTAR READY - SHELF FULL", key = "" }, -- 用途：转化结束但药水架已满时显示阻塞状态；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.StockText
 		CarryingPotion = { source = "CARRYING POTION", key = "" }, -- 用途：状态栏显示正在携带药水；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
 		CarryingRuneBody = { source = "CARRYING RUNE BODY", key = "" }, -- 用途：状态栏显示正在携带完成画符的布娃娃；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText

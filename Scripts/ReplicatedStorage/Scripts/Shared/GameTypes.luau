@@ -96,7 +96,7 @@ export type Item = {
 	altarHeld: boolean?,
 }
 export type ItemView =
-	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, progress: number, holder: number?, visualCount: number?, paintFlipped: boolean?, fall: GroundFall?, flyEnds: number?, convertEnds: number?, toss: PoolToss?, altarToss: AltarTossView?, altarTossStarted: number? }
+	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, progress: number, holder: number?, carryOrder: number?, visualCount: number?, paintFlipped: boolean?, fall: GroundFall?, flyEnds: number?, convertEnds: number?, toss: PoolToss?, altarToss: AltarTossView?, altarTossStarted: number? }
 export type Snapshot = {
 	bodyPose: BodyPose?,
 	revision: number,

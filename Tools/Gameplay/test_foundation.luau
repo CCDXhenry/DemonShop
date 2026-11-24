@@ -11,6 +11,7 @@ local Client=require('./ClientGameManager')
 local ClientInfo=require('./ClientGameInfo')
 local Market=require('./ServerMarketplaceManager')
 local Protocol=require('./FoundationProtocol')
+local Config=require('./GameConfig')
 local checks=0
 local function check(v,label) assert(v,label);checks+=1 end
 local initial=Save.New(100000)
@@ -41,6 +42,8 @@ for _,request in {{action='SetBGMVolume',value=0/0},{action='SetSoundEffectVolum
 end
 check(Protocol.Validate({action='SetBGMVolume',value=.5}) and Protocol.Validate({action='RequestPlayerInfoInit'}),'network accepts valid requests')
 check(Market.ProcessReceipt({PlayerId=1001,ProductId=1,PurchaseId='x'})==R.Enum.ProductPurchaseDecision.NotProcessedYet,'unconfigured receipt never granted')
+check(Config.SessionOnlyEconomy == true,'SessionOnlyEconomy defaults to true for M1')
+Config.SessionOnlyEconomy = false
 B.db.values['1001']=Save.New();B.db.values['1001'].coins=321
 local server=Server.new();server:Init();server:Init()
 check(B.processingStarts==1 and B.Players.PlayerAdded:Count()==1 and B.RunService.Heartbeat:Count()==1 and B.binds==1,'server Init is idempotent')
@@ -140,6 +143,7 @@ check(firstDone and current.playerInfoChanged,'direct native writes during save 
 check(B.db.values['1001'].coins==savedCoins,'pending snapshot owns scalar fields')
 check(Info.Save(B.player) and B.db.values['1001'].coins==savedCoins+7 and not current.playerInfoChanged,'follow-up save persists direct writes and clears only current snapshot')
 Mock.DataStoreTool.SafeUpdate=previousUpdate
+Config.SessionOnlyEconomy = true
 local interrupted=B.Player(4004)
 local baseResolve=B.Context.ResolveConfig
 B.Context.ResolveConfig=function()task.wait(.02);return {final=true}end
@@ -187,6 +191,29 @@ local nativeSnapshot=Info.CreatePlayerSaveInfoByPlayerInfo(Info.GetPlayerInfo(pi
 check(nativeSnapshot.version==nil and nativeSnapshot.dataVersion==0 and Save.Validate(nativeSnapshot),'native snapshot is directly valid at storage boundary')
 check(Info.Save(pipelinePlayer) and B.db.values['9009'].version==nil and B.db.values['9009'].dataVersion==0,'new save pipeline stores native initial version directly')
 Info.RemovePlayerInfo(pipelinePlayer)
+do
+	-- M1 本局化经济验证：进服金币归零，运行期可累加，保存时固定写入 0 且保留设置与统计。
+	local sessionPlayer = B.Player(7007)
+	B.db.values['7007'] = Save.New(100000)
+	B.db.values['7007'].coins = 321
+	B.db.values['7007'].settingInfo.bgmVolume = 0.8
+	server:AddPlayer(sessionPlayer)
+	local sInfo = Info.GetPlayerInfo(sessionPlayer)
+	check(sInfo ~= nil and sInfo.coins == 0 and sessionPlayer.attributes.Coins == 0, 'SessionOnlyEconomy zeroes pre-existing DB coins on join')
+	check(Info.AddCoins(sessionPlayer, 250) and sInfo.coins == 250 and sessionPlayer.attributes.Coins == 250, 'SessionOnlyEconomy allows runtime coin gains')
+	check(Info.UpdateSetting(sessionPlayer, 'bgmVolume', 0.25), 'SessionOnlyEconomy allows setting updates')
+	Info.Tick(sessionPlayer, 3.5)
+	local sessionSnap = Info.CreatePlayerSaveInfoByPlayerInfo(sInfo)
+	check(sessionSnap.coins == 0 and sessionSnap.settingInfo.bgmVolume == 0.25 and sessionSnap.gameTime == 3.5, 'CreatePlayerSaveInfoByPlayerInfo zeroes coins while preserving settings and statistics')
+	check(Info.Save(sessionPlayer), 'SessionOnlyEconomy save succeeds')
+	check(B.db.values['7007'].coins == 0 and B.db.values['7007'].settingInfo.bgmVolume == 0.25 and B.db.values['7007'].gameTime == 3.5, 'SessionOnlyEconomy writes coins=0 while persisting settings and gameTime')
+	server:RemovePlayer(sessionPlayer)
+	check(B.db.values['7007'].coins == 0, 'RemovePlayer persists coins=0 under SessionOnlyEconomy')
+	server:AddPlayer(sessionPlayer)
+	local rejoined = Info.GetPlayerInfo(sessionPlayer)
+	check(rejoined ~= nil and rejoined.coins == 0 and rejoined.settingInfo.bgmVolume == 0.25 and rejoined.gameTime == 3.5, 'rejoin under SessionOnlyEconomy starts with coins=0 and restores settings')
+	server:RemovePlayer(sessionPlayer)
+end
 local closingLoad=B.Player(8008)
 local beforeCloseNotices=#B.notices
 B.Context.ResolveConfig=function()task.wait(.03);return {final=true}end

@@ -43,7 +43,7 @@ function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[strin
 	local carrying = load.body or load.other or held ~= nil
 	if target == "Pool" then
 		object = "PromptPool"
-		if load.unfinished and snapshot.pool < Config.PoolCapacity then action = "StoreBody"
+		if load.unfinished then action = "StoreBody"
 		elseif not carrying and snapshot.pool > 0 then action = "TakeSharedBody" end
 	elseif target == "Table" then
 		object = "PromptTable"
@@ -62,7 +62,7 @@ function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[strin
 		if snapshot.shelf > 0 and not load.body then action = "CollectPotion" end
 	elseif target == "Sigil" then
 		object = "PromptSigil"
-		if potions and potions.equipped then action = "PromptOffer" end
+		if potions and (potions.equipped or potions.stored > 0) then action = "PromptOffer" end
 	else
 		local item = items[target]
 		local reachable = item and not item.holder and (item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits))
@@ -80,7 +80,7 @@ function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[strin
 	end
 	if not action or not version then return nil end
 	local tableItem = if target == "Table" and snapshot.tableId then items[snapshot.tableId] else nil
-	local signature = table.concat({target, tostring(version), action, if held then held.id else "", tostring(if held then held.version else 0), tostring(if tableItem then tableItem.version else 0), tostring(if target == "Table" then snapshot.stationVersions.Pool else 0), if potions and potions.equipped then "1" else "0"}, ":")
+	local signature = table.concat({target, tostring(version), action, if held then held.id else "", tostring(if held then held.version else 0), tostring(if tableItem then tableItem.version else 0), tostring(if target == "Table" then snapshot.stationVersions.Pool else 0), if potions and (potions.equipped or potions.stored > 0) then "1" else "0"}, ":")
 	return {target=target, version=version, action=action, object=object, signature=signature}
 end
 return Rules

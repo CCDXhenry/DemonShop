@@ -93,7 +93,7 @@ function Info.InitPlayerInfo(player: Player, playerSaveInfo: Config.PlayerSaveIn
 	local oldDays, oldDate = playerSaveInfo.loginDays, playerSaveInfo.lastOnlineDateUTC
 	local info: PlayerInfo = {
 		dataVersion = playerSaveInfo.dataVersion,
-		coins = playerSaveInfo.coins,
+		coins = if Config.SessionOnlyEconomy then 0 else playerSaveInfo.coins,
 		firstEnterTime = playerSaveInfo.firstEnterTime,
 		firstEnterVersion = playerSaveInfo.firstEnterVersion,
 		gameTime = playerSaveInfo.gameTime,
@@ -124,7 +124,7 @@ end
 function Info.CreatePlayerSaveInfoByPlayerInfo(info: Config.PlayerInfo): Config.PlayerSaveInfo
 	return {
 		dataVersion = info.dataVersion,
-		coins = info.coins,
+		coins = if Config.SessionOnlyEconomy then 0 else info.coins,
 		firstEnterTime = info.firstEnterTime,
 		firstEnterVersion = info.firstEnterVersion,
 		gameTime = info.gameTime,
