@@ -2,6 +2,7 @@
 --!strict
 assert(game.PlaceId == 110812537538556 and not game:GetService("RunService"):IsRunning(), "DemonShop Edit required")
 
+local chuteOnly = ... == "ChuteOnly"
 local RS = game:GetService("ReplicatedStorage")
 local district = workspace:WaitForChild("NeonContractDistrict")
 local streetUpgrade = district:WaitForChild("StreetUpgrade")
@@ -389,7 +390,9 @@ local function buildUnlockPadTemplate(): Model
 	return pad
 end
 
-local unlockPadTemplate = buildUnlockPadTemplate()
+local existingPadTemplate = modelsFolder:FindFirstChild("UnlockPad")
+local unlockPadTemplate = if chuteOnly and existingPadTemplate and existingPadTemplate:IsA("Model")
+	then existingPadTemplate else buildUnlockPadTemplate()
 
 local function applyPadState(pad: Model, state: string, prereqLabel: string, costText: string): ()
 	local stateColor = if state == "Locked"
@@ -493,9 +496,11 @@ end
 local sfMinX, sfMaxX = -69.61499881744385, 90.38500118255615
 local sfMinY, sfMaxY = 18.0, 20.0
 local sfMinZ, sfMaxZ = -18.399999618530272, 61.60000038146973
-local chuteCenterX, chuteCenterZ = -47.0, -26.0
-local holeMinX, holeMaxX = chuteCenterX - 4.0, chuteCenterX + 4.0
-local holeMinZ, holeMaxZ = chuteCenterZ - 4.0, chuteCenterZ + 4.0
+local chuteCenterX, chuteCenterZ = -58.8, -28.75
+local holeMinX, holeMaxX = chuteCenterX - 9, chuteCenterX + 9
+local holeMinZ, holeMaxZ = chuteCenterZ - 6.75, chuteCenterZ + 6.75
+local standCenterZ = (-39 + holeMinZ) / 2
+local linerReveal = 0.05 -- 护壁内面略微凸出，避免与楼板断面共面闪烁。
 
 for _, c in streetUpgrade:GetChildren() do
 	if (c.Name == "SouthFoundation_Side" and c:IsA("BasePart") and c.Size.X > 100)
@@ -540,131 +545,104 @@ local function makeDeckSlice(name: string, pMin: Vector3, pMax: Vector3): Part
 	p:SetAttribute("ZFScope", "m1")
 	return p
 end
-makeDeckSlice("Box_001_West", Vector3.new(-70.0, sfMinY, -128.0), Vector3.new(holeMinX, sfMaxY, -18.0))
-makeDeckSlice("Box_001_East", Vector3.new(holeMaxX, sfMinY, -128.0), Vector3.new(90.0, sfMaxY, -18.0))
-makeDeckSlice("Box_001_NorthStrip", Vector3.new(holeMinX, sfMinY, -128.0), Vector3.new(holeMaxX, sfMaxY, holeMinZ))
-makeDeckSlice("Box_001_SouthStrip", Vector3.new(holeMinX, sfMinY, holeMaxZ), Vector3.new(holeMaxX, sfMaxY, -18.0))
+makeDeckSlice("Box_001_West", Vector3.new(-70.0, sfMinY, -128.0), Vector3.new(holeMinX - linerReveal, sfMaxY, -18.0))
+makeDeckSlice("Box_001_East", Vector3.new(holeMaxX + linerReveal, sfMinY, -128.0), Vector3.new(90.0, sfMaxY, -18.0))
+makeDeckSlice("Box_001_NorthStrip", Vector3.new(holeMinX - linerReveal, sfMinY, -128.0), Vector3.new(holeMaxX + linerReveal, sfMaxY, holeMinZ - linerReveal))
+makeDeckSlice("Box_001_SouthStrip", Vector3.new(holeMinX - linerReveal, sfMinY, holeMaxZ + linerReveal), Vector3.new(holeMaxX + linerReveal, sfMaxY, -18.0))
 
--- ============================================================================
--- 3. 改造 NewShop_Noodles 东侧门洞、BAR_5 西角隔间与井口室（井口 X in [-51,-43], Z in [-30,-22]）
--- ============================================================================
-local noodlesFloorYMin = 21.044943
-local noodlesFloorYMax = 21.396761
-local noodlesWallYMax = 35.997215
-local noodlesRoofYMin = 35.689374
-local noodlesRoofYMax = 36.305056
-local portalMinZ, portalMaxZ = -32.5, -21.409092
-
-local counter = noodles:FindFirstChild("InteriorCounter")
-if counter and counter:IsA("BasePart") then
-	counter.Size = Vector3.new(7.4, 2.638636, 1.759091)
-	counter.CFrame = CFrame.new(-63.2, 22.54017, -26.2)
+-- 地下原有横梁与吊件擦过新井口前缘，将它们收至井筒东侧。
+local cellar = district:FindFirstChild("Industrial Cellar Shell", true)
+local beam = if cellar then cellar:FindFirstChild("Segment_001") else nil
+if beam and beam:IsA("BasePart") and beam.Position.X - beam.Size.X * 0.5 < holeMaxX then
+	local endX = beam.Position.X + beam.Size.X * 0.5
+	beam.Size = Vector3.new(endX - holeMaxX, beam.Size.Y, beam.Size.Z)
+	beam.Position = Vector3.new((endX + holeMaxX) * 0.5, beam.Position.Y, beam.Position.Z)
+end
+local hanger = if cellar then cellar:FindFirstChild("Box_006") else nil
+if hanger and hanger:IsA("BasePart") and hanger.Position.X > holeMinX and hanger.Position.X < holeMaxX then
+	hanger.Position = Vector3.new(holeMaxX + hanger.Size.X * 0.5, hanger.Position.Y, hanger.Position.Z)
 end
 
+-- ============================================================================
+-- 3. 保留面馆正面，在门内站立带后开井，并恢复 BAR_5 西侧
+-- ============================================================================
+local noodlesFloorYMin, noodlesFloorYMax = 21.044943, 21.396761
+local noodlesWallYMax = 35.997215
+local roomMinX, roomMaxX, roomMinZ, roomMaxZ = -68.70, -49.35, -39.0, -21.409092
+
 for _, c in noodles:GetChildren() do
-	if c.Name == "BackWall"
+	if c.Name == "InteriorCounter"
+		or c.Name == "BackWall"
 		or c.Name == "BackWall_West"
 		or c.Name == "BackWall_PortalHeader"
 		or c.Name == "Floor"
-		or c.Name == "Floor_ChuteNorth"
-		or c.Name == "Floor_ChuteSouth"
+		or string.sub(c.Name, 1, 11) == "Floor_Chute"
 		or (c.Name == "SideWall" and c:IsA("BasePart") and c.Position.X > -55)
-		or c.Name == "SideWall_EastNorth"
-		or c.Name == "SideWall_EastPortalHeader"
+		or string.sub(c.Name, 1, 13) == "SideWall_East"
 		or c.Name == "FastChuteRoom"
 	then
 		c:Destroy()
 	end
 end
 
-makeBox(noodles, "BackWall", Vector3.new(-68.70, noodlesFloorYMin, -21.7609), Vector3.new(-49.35, noodlesWallYMax, -21.0573), COLORS.ShopWall, Enum.Material.Metal, true, 0)
-makeBox(noodles, "Floor", Vector3.new(-68.70, noodlesFloorYMin, -39.0), Vector3.new(holeMinX, noodlesFloorYMax, -21.409092), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
-makeBox(noodles, "Floor_ChuteNorth", Vector3.new(holeMinX, noodlesFloorYMin, -39.0), Vector3.new(-49.35, noodlesFloorYMax, holeMinZ), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
-makeBox(noodles, "Floor_ChuteSouth", Vector3.new(holeMinX, noodlesFloorYMin, holeMaxZ), Vector3.new(-49.35, noodlesFloorYMax, -21.409092), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
-makeBox(noodles, "SideWall_EastNorth", Vector3.new(-49.8777, noodlesFloorYMin, -39.0), Vector3.new(-49.35, noodlesWallYMax, portalMinZ), COLORS.ShopWall, Enum.Material.Metal, true, 0)
-makeBox(noodles, "SideWall_EastPortalHeader", Vector3.new(-49.8777, noodlesRoofYMin, portalMinZ), Vector3.new(-49.35, noodlesWallYMax, portalMaxZ), COLORS.ShopWall, Enum.Material.Metal, true, 0)
+makeBox(noodles, "BackWall", Vector3.new(roomMinX, noodlesFloorYMin, -21.7609), Vector3.new(roomMaxX, noodlesWallYMax, -21.0573), COLORS.ShopWall, Enum.Material.Metal, true, 0)
+makeBox(noodles, "SideWall_East", Vector3.new(holeMaxX, noodlesFloorYMin, roomMinZ), Vector3.new(roomMaxX, noodlesWallYMax, roomMaxZ), COLORS.ShopWall, Enum.Material.Metal, true, 0)
+makeBox(noodles, "Floor", Vector3.new(roomMinX, noodlesFloorYMin, roomMinZ), Vector3.new(roomMaxX, noodlesFloorYMax, holeMinZ - linerReveal), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
+makeBox(noodles, "Floor_ChuteSouth", Vector3.new(roomMinX, noodlesFloorYMin, holeMaxZ + linerReveal), Vector3.new(roomMaxX, noodlesFloorYMax, roomMaxZ), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
+makeBox(noodles, "Floor_ChuteWest", Vector3.new(roomMinX, noodlesFloorYMin, holeMinZ - linerReveal), Vector3.new(holeMinX - linerReveal, noodlesFloorYMax, holeMaxZ + linerReveal), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
+makeBox(noodles, "Floor_ChuteEast", Vector3.new(holeMaxX + linerReveal, noodlesFloorYMin, holeMinZ - linerReveal), Vector3.new(roomMaxX, noodlesFloorYMax, holeMaxZ + linerReveal), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
 
 for _, c in bar5:GetChildren() do
 	if c.Name == "Floor"
-		or c.Name == "Floor_ChuteNorth"
-		or c.Name == "Floor_ChuteSouth"
+		or string.sub(c.Name, 1, 11) == "Floor_Chute"
 		or (c.Name == "SideWall" and c:IsA("BasePart") and c.Position.X < -40)
-		or c.Name == "SideWall_WestNorth"
-		or c.Name == "SideWall_WestPortalHeader"
-		or c.Name == "SideWall_WestSouth"
+		or string.sub(c.Name, 1, 13) == "SideWall_West"
 	then
 		c:Destroy()
 	end
 end
-
-makeBox(bar5, "Floor", Vector3.new(holeMaxX, 20.0, -39.0), Vector3.new(-22.965, 20.4, -19.0), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
-makeBox(bar5, "Floor_ChuteNorth", Vector3.new(-48.965, 20.0, -39.0), Vector3.new(holeMaxX, 20.4, holeMinZ), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
-makeBox(bar5, "Floor_ChuteSouth", Vector3.new(-48.965, 20.0, holeMaxZ), Vector3.new(holeMaxX, 20.4, -19.0), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
-makeBox(bar5, "SideWall_WestNorth", Vector3.new(-48.965, 20.0, -39.0), Vector3.new(-48.365, 44.0, portalMinZ), COLORS.Bar5Wall, Enum.Material.Metal, true, 0)
-makeBox(bar5, "SideWall_WestPortalHeader", Vector3.new(-48.965, noodlesRoofYMin, portalMinZ), Vector3.new(-48.365, 44.0, -19.0), COLORS.Bar5Wall, Enum.Material.Metal, true, 0)
-makeBox(bar5, "SideWall_WestSouth", Vector3.new(-48.965, 20.0, portalMaxZ), Vector3.new(-48.365, noodlesRoofYMin, -19.0), COLORS.Bar5Wall, Enum.Material.Metal, true, 0)
-
-local barCounter = bar5:FindFirstChild("InteriorCounter")
-if barCounter and barCounter:IsA("BasePart") then
-	barCounter.Size = Vector3.new(13.735, 3.0, 2.0)
-	barCounter.CFrame = CFrame.new(-32.3325, 21.7, -24.0)
-end
+makeBox(bar5, "Floor", Vector3.new(-48.965, 20.0, -39.0), Vector3.new(-22.965, 20.4, -19.0), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
+makeBox(bar5, "SideWall_West", Vector3.new(-48.965, 20.0, -39.0), Vector3.new(-48.365, 44.0, -19.0), COLORS.Bar5Wall, Enum.Material.Metal, true, 0)
 
 local room = Instance.new("Model")
 room.Name = "FastChuteRoom"
 room.ModelStreamingMode = Enum.ModelStreamingMode.Persistent
 room.Parent = noodles
 
--- 前门平滑门槛台阶（街道 Y=20.345 -> 店内地板 Y=21.397）
+-- 门槛、井口描边和井筒护壁均沿原建筑的轴线布置。
 local entryStep = makeBox(room, "EntryStep", Vector3.new(-62.10, 20.345, -39.75), Vector3.new(-55.95, 20.90, -39.0), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
 entryStep.CastShadow = false
 
--- 门洞霓虹框与顶封（不侵入 8x8 落井净空）
-makeBox(room, "PortalTrimNorth", Vector3.new(-49.95, noodlesFloorYMax, portalMinZ - 0.08), Vector3.new(-48.30, noodlesRoofYMin, portalMinZ + 0.08), COLORS.ShopNeon, Enum.Material.Neon, false, 0)
-makeBox(room, "PortalTrimSouth", Vector3.new(-49.95, noodlesFloorYMax, portalMaxZ - 0.08), Vector3.new(-48.30, noodlesRoofYMin, portalMaxZ + 0.08), COLORS.ShopNeon, Enum.Material.Neon, false, 0)
-makeBox(room, "PortalTrimTop", Vector3.new(-49.95, noodlesRoofYMin - 0.16, portalMinZ - 0.08), Vector3.new(-48.30, noodlesRoofYMin, portalMaxZ + 0.08), COLORS.ShopGold, Enum.Material.Neon, false, 0)
-makeBox(room, "PortalCeilingBridge", Vector3.new(-49.88, noodlesRoofYMin, -33.05), Vector3.new(-48.365, noodlesRoofYMax, -20.97), COLORS.ShopRoof, Enum.Material.Metal, true, 0)
-
--- 井口室四周围护与顶板（BAR_5 西角隔间 X in [-49.35, -39.80], Z in [-32.5, -19.4]）
-makeBox(room, "RoomNorthWall", Vector3.new(-48.365, 20.40, -33.05), Vector3.new(-39.80, noodlesWallYMax, portalMinZ), COLORS.Bar5Wall, Enum.Material.Metal, true, 0)
-makeBox(room, "RoomEastWall", Vector3.new(-40.35, 20.40, -33.05), Vector3.new(-39.80, noodlesWallYMax, -19.00), COLORS.Bar5Wall, Enum.Material.Metal, true, 0)
-makeBox(room, "RoomSouthWall", Vector3.new(-49.35, noodlesFloorYMin, -20.15), Vector3.new(-39.80, noodlesWallYMax, -19.40), COLORS.ShopWall, Enum.Material.Metal, true, 0)
-makeBox(room, "RoomRoof", Vector3.new(-49.35, noodlesRoofYMin, -33.05), Vector3.new(-39.80, noodlesRoofYMax, -19.40), COLORS.ShopRoof, Enum.Material.Metal, true, 0)
-
--- 井口室地板（北/南/东，西侧无缝衔接面馆地板）
-makeBox(room, "ChuteFloor_North", Vector3.new(-49.35, noodlesFloorYMin, portalMinZ), Vector3.new(-40.35, noodlesFloorYMax, holeMinZ), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
-makeBox(room, "ChuteFloor_South", Vector3.new(-49.35, noodlesFloorYMin, holeMaxZ), Vector3.new(-40.35, noodlesFloorYMax, -20.15), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
-makeBox(room, "ChuteFloor_East", Vector3.new(holeMaxX, noodlesFloorYMin, holeMinZ), Vector3.new(-40.35, noodlesFloorYMax, holeMaxZ), COLORS.ShopFloor, Enum.Material.Marble, true, 0)
-
--- 井筒竖向护壁（封堵 Y=18.0~21.397 夹层缝隙，净空保持 8x8）
-makeBox(room, "ShaftLiner_West", Vector3.new(holeMinX - 0.4, sfMinY, holeMinZ - 0.4), Vector3.new(holeMinX, noodlesFloorYMax, -21.76), COLORS.MetalDark, Enum.Material.Metal, true, 0)
-makeBox(room, "ShaftLiner_East", Vector3.new(holeMaxX, sfMinY, holeMinZ - 0.4), Vector3.new(holeMaxX + 0.4, noodlesFloorYMax, -21.76), COLORS.MetalDark, Enum.Material.Metal, true, 0)
-makeBox(room, "ShaftLiner_North", Vector3.new(holeMinX, sfMinY, holeMinZ - 0.4), Vector3.new(holeMaxX, noodlesFloorYMax, holeMinZ), COLORS.MetalDark, Enum.Material.Metal, true, 0)
-makeBox(room, "ShaftLiner_South", Vector3.new(holeMinX, sfMinY, holeMaxZ), Vector3.new(holeMaxX, noodlesFloorYMax, -21.76), COLORS.MetalDark, Enum.Material.Metal, true, 0)
-
--- 井口安全霓虹描边（贴井口外缘，不侵入 8x8 净空）
-makeBox(room, "ChuteRim_West", Vector3.new(holeMinX - 0.22, noodlesFloorYMax, holeMinZ - 0.22), Vector3.new(holeMinX, noodlesFloorYMax + 0.04, holeMaxZ + 0.22), COLORS.NeonAmber, Enum.Material.Neon, false, 0)
-makeBox(room, "ChuteRim_East", Vector3.new(holeMaxX, noodlesFloorYMax, holeMinZ - 0.22), Vector3.new(holeMaxX + 0.22, noodlesFloorYMax + 0.04, holeMaxZ + 0.22), COLORS.NeonAmber, Enum.Material.Neon, false, 0)
-makeBox(room, "ChuteRim_North", Vector3.new(holeMinX, noodlesFloorYMax, holeMinZ - 0.22), Vector3.new(holeMaxX, noodlesFloorYMax + 0.04, holeMinZ), COLORS.NeonAmber, Enum.Material.Neon, false, 0)
-makeBox(room, "ChuteRim_South", Vector3.new(holeMinX, noodlesFloorYMax, holeMaxZ), Vector3.new(holeMaxX, noodlesFloorYMax + 0.04, holeMaxZ + 0.22), COLORS.NeonAmber, Enum.Material.Neon, false, 0)
-
-makeWorkLight(room, Vector3.new(-41.5, 32.0, chuteCenterZ), Color3.fromRGB(255, 200, 145), 1.35, 28)
-makePlaque(room, "PortalSign", Vector3.new(6.2, 1.2, 0.22), CFrame.lookAt(Vector3.new(-40.48, 28.2, -25.8), Vector3.new(-41.48, 28.2, -25.8)), "FAST CHUTE  ▼", Enum.NormalId.Front, COLORS.ShopGold)
-makePlaque(room, "RoomGuidePlaque", Vector3.new(6.4, 1.2, 0.22), CFrame.new(-45.5, 25.4, -20.26), "DROP BODIES OR JUMP  ▼", Enum.NormalId.Front, COLORS.NeonAmber)
+local rimWidth = 0.22
+local linerWidth = 0.4
+local function FrameOpening(prefix: string, width: number, minY: number, maxY: number, color: Color3, material: Enum.Material, collide: boolean): ()
+	makeBox(room, prefix .. "_West", Vector3.new(holeMinX - width, minY, holeMinZ - width), Vector3.new(holeMinX, maxY, holeMaxZ + width), color, material, collide, 0)
+	makeBox(room, prefix .. "_East", Vector3.new(holeMaxX, minY, holeMinZ - width), Vector3.new(holeMaxX + width, maxY, holeMaxZ + width), color, material, collide, 0)
+	makeBox(room, prefix .. "_North", Vector3.new(holeMinX, minY, holeMinZ - width), Vector3.new(holeMaxX, maxY, holeMinZ), color, material, collide, 0)
+	makeBox(room, prefix .. "_South", Vector3.new(holeMinX, minY, holeMaxZ), Vector3.new(holeMaxX, maxY, holeMaxZ + width), color, material, collide, 0)
+end
+FrameOpening("ShaftLiner", linerWidth, sfMinY, noodlesFloorYMax - 0.01, COLORS.MetalDark, Enum.Material.Metal, true)
+FrameOpening("ChuteRim", rimWidth, noodlesFloorYMax, noodlesFloorYMax + 0.04, COLORS.NeonAmber, Enum.Material.Neon, false)
+makeWorkLight(room, Vector3.new(chuteCenterX, 32, chuteCenterZ), Color3.fromRGB(255, 200, 145), 1.35, 28)
+makePlaque(room, "RoomGuidePlaque", Vector3.new(8.2, 1.2, 0.22), CFrame.lookAt(
+	Vector3.new(chuteCenterX, 26.5, -21.9), Vector3.new(chuteCenterX, 26.5, -22.9)
+), "FAST CHUTE  ▼", Enum.NormalId.Front, COLORS.NeonAmber)
 
 -- ============================================================================
 -- 4. 清理临时灰盒 AutoHole / AutoPaint / AutoCook，构建 NeonContractDistrict.AutomationLine
 -- ============================================================================
-for _, oldName in { "AutoHole", "AutoPaint", "AutoCook" } do
-	local old = workspace:FindFirstChild(oldName)
-	if old then
-		old:Destroy()
-	end
-end
-
 local autoLine = ensureFolder(district, "AutomationLine")
-for _, child in autoLine:GetChildren() do
-	child:Destroy()
+if chuteOnly then
+	for _, name in { "FastChuteOpening", "ChuteThrowBaffles", "ChuteTopDropAnchor", "ChutePromptAnchor" } do
+		local old = autoLine:FindFirstChild(name)
+		if old then old:Destroy() end
+	end
+else
+	for _, oldName in { "AutoHole", "AutoPaint", "AutoCook" } do
+		local old = workspace:FindFirstChild(oldName)
+		if old then old:Destroy() end
+	end
+	for _, child in autoLine:GetChildren() do child:Destroy() end
 end
 
 -- 4.1 井口封盖板 FastChuteCover（未解锁 A00 时闭合井口并与地板齐平）
@@ -675,40 +653,66 @@ makeBox(coverModel, "HatchSeamX", Vector3.new(holeMinX + 0.3, noodlesFloorYMax -
 makeBox(coverModel, "HatchSeamZ", Vector3.new(chuteCenterX - 0.08, noodlesFloorYMax - 0.01, holeMinZ + 0.3), Vector3.new(chuteCenterX + 0.08, noodlesFloorYMax + 0.015, holeMaxZ - 0.3), COLORS.MetalDark, Enum.Material.Metal, false, 0)
 weldAllToRoot(coverModel, coverRoot)
 
--- 井口逻辑体积与锚点（供 M3 投料/按 E 倒入使用）
-local chuteOpening = makePart(autoLine, "FastChuteOpening", Vector3.new(8, 1, 8), CFrame.new(chuteCenterX, noodlesFloorYMin + 0.175, chuteCenterZ), COLORS.NeonAmber, Enum.Material.Plastic, false, 1)
-chuteOpening.CanQuery = false
+-- 井口逻辑体积、站立带交互点，以及仅用于抛掷扫掠的三面挡板。
+local chuteOpening = makePart(autoLine, "FastChuteOpening", Vector3.new(holeMaxX - holeMinX, 1, holeMaxZ - holeMinZ), CFrame.new(chuteCenterX, noodlesFloorYMax, chuteCenterZ), COLORS.NeonAmber, Enum.Material.Plastic, false, 1)
 chuteOpening.CastShadow = false
-makeAnchor(autoLine, "ChuteTopDropAnchor", "ChuteTopDrop", Vector3.new(chuteCenterX, noodlesFloorYMax + 0.4, chuteCenterZ), false)
-makeAnchor(autoLine, "ChutePromptAnchor", "ChutePrompt", Vector3.new(chuteCenterX - 5.2, noodlesFloorYMax + 1.0, chuteCenterZ), true)
+makeAnchor(autoLine, "ChuteTopDropAnchor", "ChuteTopDrop", Vector3.new(chuteCenterX, noodlesFloorYMax + 0.4, standCenterZ), false)
+makeAnchor(autoLine, "ChutePromptAnchor", "ChutePrompt", Vector3.new(-53.6, noodlesFloorYMax + 1, standCenterZ), true)
 
--- 4.2 FastChuteLanding (-47.0, 0.5, -26.0)
-local landingModel, landingRoot = makeRootedModel(autoLine, "FastChuteLanding", Vector3.new(-47.0, 0.5, -26.0))
-makeBox(landingModel, "BaseSlab", Vector3.new(-52.0, 0.0, -31.0), Vector3.new(-42.0, 0.75, -21.0), COLORS.SlateDark, Enum.Material.Slate, true, 0)
-makeBox(landingModel, "CushionPad", Vector3.new(-51.2, 0.75, -30.2), Vector3.new(-42.8, 1.0, -21.8), COLORS.SlateMid, Enum.Material.SmoothPlastic, true, 0)
-makeBox(landingModel, "CurbNorth", Vector3.new(-52.0, 0.75, -31.0), Vector3.new(-42.0, 1.45, -30.4), COLORS.MetalDark, Enum.Material.Metal, true, 0)
-makeBox(landingModel, "CurbWest", Vector3.new(-52.0, 0.75, -30.4), Vector3.new(-51.4, 1.45, -21.6), COLORS.MetalDark, Enum.Material.Metal, true, 0)
-makeBox(landingModel, "CurbEast", Vector3.new(-42.6, 0.75, -30.4), Vector3.new(-42.0, 1.45, -21.6), COLORS.MetalDark, Enum.Material.Metal, true, 0)
-makeBox(landingModel, "CurbSouthLeft", Vector3.new(-52.0, 0.75, -21.6), Vector3.new(-49.2, 1.35, -21.0), COLORS.MetalDark, Enum.Material.Metal, true, 0)
-makeBox(landingModel, "CurbSouthRight", Vector3.new(-44.8, 0.75, -21.6), Vector3.new(-42.0, 1.35, -21.0), COLORS.MetalDark, Enum.Material.Metal, true, 0)
-makeCylinder(landingModel, "TargetRingOuter", 6.2, 0.06, Vector3.new(-47.0, 1.02, -26.0), COLORS.NeonPurple, Enum.Material.Neon, false, 0)
-makeCylinder(landingModel, "TargetRingInnerMask", 5.6, 0.07, Vector3.new(-47.0, 1.025, -26.0), COLORS.SlateMid, Enum.Material.SmoothPlastic, false, 0)
-makeCylinder(landingModel, "TargetRingCore", 2.8, 0.08, Vector3.new(-47.0, 1.03, -26.0), COLORS.NeonCyan, Enum.Material.Neon, false, 0)
-makeCylinder(landingModel, "TargetCoreMask", 2.2, 0.09, Vector3.new(-47.0, 1.035, -26.0), COLORS.SlateDark, Enum.Material.Slate, false, 0)
-makeBox(landingModel, "CeilingCollarWest", Vector3.new(-51.8, 17.2, -30.8), Vector3.new(-51.05, 18.0, -21.2), COLORS.MetalDark, Enum.Material.Metal, false, 0)
-makeBox(landingModel, "CeilingCollarEast", Vector3.new(-42.95, 17.2, -30.8), Vector3.new(-42.2, 18.0, -21.2), COLORS.MetalDark, Enum.Material.Metal, false, 0)
-makeBox(landingModel, "CeilingCollarNorth", Vector3.new(-51.05, 17.2, -30.8), Vector3.new(-42.95, 18.0, -30.05), COLORS.MetalDark, Enum.Material.Metal, false, 0)
-makeBox(landingModel, "CeilingCollarSouth", Vector3.new(-51.05, 17.2, -21.95), Vector3.new(-42.95, 18.0, -21.2), COLORS.MetalDark, Enum.Material.Metal, false, 0)
-makeBox(landingModel, "CeilingNeonTrim", Vector3.new(-51.6, 17.12, -21.92), Vector3.new(-42.4, 17.2, -21.8), COLORS.NeonAmber, Enum.Material.Neon, false, 0)
+local baffles = ensureFolder(autoLine, "ChuteThrowBaffles")
+local function AddBaffle(name: string, minX: number, minZ: number, maxX: number, maxZ: number): ()
+	local baffle = makeBox(baffles, name, Vector3.new(minX, noodlesFloorYMax, minZ), Vector3.new(maxX, noodlesWallYMax - 0.3, maxZ), COLORS.MetalDark, Enum.Material.Plastic, false, 1)
+	baffle.CanQuery = true
+	baffle.CastShadow = false
+end
+local baffleWidth = 0.12
+AddBaffle("West", holeMinX, holeMinZ, holeMinX + baffleWidth, holeMaxZ)
+AddBaffle("East", holeMaxX - baffleWidth, holeMinZ, holeMaxX, holeMaxZ)
+AddBaffle("Back", holeMinX, holeMaxZ - baffleWidth, holeMaxX, holeMaxZ)
 
-makePlaque(landingModel, "StationPlaque", Vector3.new(4.4, 1.1, 0.24), CFrame.new(-47.0, 0.85, -20.85), "FAST CHUTE LANDING", Enum.NormalId.Back, COLORS.NeonAmber)
-makeWorkLight(landingModel, Vector3.new(-47.0, 9.0, -25.0), Color3.fromRGB(220, 165, 255), 1.15, 22)
-local dropZone = makePart(landingModel, "DropZone", Vector3.new(8.2, 1.4, 8.2), CFrame.new(-47.0, 1.0, -26.0), COLORS.NeonPurple, Enum.Material.Plastic, false, 1)
-dropZone.CanQuery = false
+-- 4.2 FastChuteLanding，24×16，南侧留取料通道。
+local landingCenterZ = -28.5
+local landMinX, landMaxX = chuteCenterX - 12, chuteCenterX + 12
+local landMinZ, landMaxZ = landingCenterZ - 8, landingCenterZ + 8
+local landingModel, landingRoot = makeRootedModel(autoLine, "FastChuteLanding", Vector3.new(chuteCenterX, 0, landingCenterZ))
+makeBox(landingModel, "BaseSlab", Vector3.new(landMinX, 0, landMinZ), Vector3.new(landMaxX, 0.75, landMaxZ), COLORS.SlateDark, Enum.Material.Slate, true, 0)
+makeBox(landingModel, "CushionPad", Vector3.new(landMinX + 0.6, 0.75, landMinZ + 0.6), Vector3.new(landMaxX - 0.6, 1, landMaxZ - 0.6), COLORS.SlateMid, Enum.Material.SmoothPlastic, true, 0)
+makeBox(landingModel, "CurbNorth", Vector3.new(landMinX, 0.75, landMinZ), Vector3.new(landMaxX, 1.45, landMinZ + 0.6), COLORS.MetalDark, Enum.Material.Metal, true, 0)
+makeBox(landingModel, "CurbWest", Vector3.new(landMinX, 0.75, landMinZ + 0.6), Vector3.new(landMinX + 0.6, 1.45, landMaxZ - 0.6), COLORS.MetalDark, Enum.Material.Metal, true, 0)
+makeBox(landingModel, "CurbEast", Vector3.new(landMaxX - 0.6, 0.75, landMinZ + 0.6), Vector3.new(landMaxX, 1.45, landMaxZ - 0.6), COLORS.MetalDark, Enum.Material.Metal, true, 0)
+makeBox(landingModel, "CurbSouthLeft", Vector3.new(landMinX, 0.75, landMaxZ - 0.6), Vector3.new(chuteCenterX - 3, 1.35, landMaxZ), COLORS.MetalDark, Enum.Material.Metal, true, 0)
+makeBox(landingModel, "CurbSouthRight", Vector3.new(chuteCenterX + 3, 0.75, landMaxZ - 0.6), Vector3.new(landMaxX, 1.35, landMaxZ), COLORS.MetalDark, Enum.Material.Metal, true, 0)
+makeCylinder(landingModel, "TargetRingOuter", 6.2, 0.06, Vector3.new(chuteCenterX, 1.02, landingCenterZ), COLORS.NeonPurple, Enum.Material.Neon, false, 0)
+makeCylinder(landingModel, "TargetRingInnerMask", 5.6, 0.07, Vector3.new(chuteCenterX, 1.025, landingCenterZ), COLORS.SlateMid, Enum.Material.SmoothPlastic, false, 0)
+makeCylinder(landingModel, "TargetRingCore", 2.8, 0.08, Vector3.new(chuteCenterX, 1.03, landingCenterZ), COLORS.NeonCyan, Enum.Material.Neon, false, 0)
+makeCylinder(landingModel, "TargetCoreMask", 2.2, 0.09, Vector3.new(chuteCenterX, 1.035, landingCenterZ), COLORS.SlateDark, Enum.Material.Slate, false, 0)
+makePlaque(landingModel, "StationPlaque", Vector3.new(6, 1.1, 0.24), CFrame.new(chuteCenterX + 7, 1.1, landMaxZ + 0.15), "FAST CHUTE LANDING", Enum.NormalId.Back, COLORS.NeonAmber)
+makeWorkLight(landingModel, Vector3.new(chuteCenterX, 9, landingCenterZ), Color3.fromRGB(220, 165, 255), 1.15, 28)
+local dropZone = makePart(landingModel, "DropZone", Vector3.new(24, 1.4, 16), CFrame.new(chuteCenterX, 1, landingCenterZ), COLORS.NeonPurple, Enum.Material.Plastic, false, 1)
 dropZone.CastShadow = false
-makeAnchor(landingModel, "LandingAnchor", "LandingPoint", Vector3.new(-47.0, 1.15, -26.0), false)
-makeAnchor(landingModel, "ChutePickupAnchor", "ChutePickup", Vector3.new(-47.0, 1.8, -20.2), true)
+makeAnchor(landingModel, "LandingAnchor", "LandingPoint", Vector3.new(chuteCenterX, 1.15, landingCenterZ), false)
+makeAnchor(landingModel, "ChutePickupAnchor", "ChutePickup", Vector3.new(chuteCenterX, 1.8, landMaxZ + 0.4), true)
 weldAllToRoot(landingModel, landingRoot)
+
+local padsFolder = ensureFolder(autoLine, "UnlockPads")
+local a00Position = Vector3.new(-65.8, noodlesFloorYMax, standCenterZ)
+local a00 = padsFolder:FindFirstChild("A00_FastChute")
+if a00 and a00:IsA("Model") then
+	a00:PivotTo(CFrame.new(a00Position))
+else
+	spawnUnlockPad(padsFolder, "A00_FastChute", a00Position, "A00", "FAST DROP CHUTE", "OPENS AN IN-SHOP CHUTE TO THE BASEMENT", "", "PRE-REQ: NONE", 250, "250 COINS", "Insufficient")
+end
+local function BuildSummary()
+	return {
+		opening = tostring(chuteOpening.Size),
+		landing = tostring(dropZone.Size),
+		baffles = #baffles:GetChildren(),
+		unlockPad = unlockPadTemplate:GetFullName(),
+		pads = #padsFolder:GetChildren(),
+		automationChildren = #autoLine:GetChildren(),
+	}
+end
+if chuteOnly then return BuildSummary() end
 
 -- 4.3 BrutePost（NewShop_Noodles 店门侧方打手召唤底座）
 local streetTopY = 20.345
@@ -846,16 +850,10 @@ weldAllToRoot(clerkModel, clerkRoot)
 -- ============================================================================
 -- 5. 放置 6 处解锁底盘圈（A00 ~ A05，使用英文基准词条 + PadGui.AutoLocalize=false）
 -- ============================================================================
-local padsFolder = ensureFolder(autoLine, "UnlockPads")
-spawnUnlockPad(padsFolder, "A00_FastChute", Vector3.new(chuteCenterX, noodlesFloorYMax, chuteCenterZ), "A00", "FAST DROP CHUTE", "OPENS AN IN-SHOP CHUTE TO THE BASEMENT", "", "PRE-REQ: NONE", 250, "250 COINS", "Insufficient")
 spawnUnlockPad(padsFolder, "A01_Brute1", Vector3.new(-54.0, streetTopY, -44.2), "A01", "HELL BRUTE #1", "AUTO-STUNS CITIZENS AND DROPS INTO CHUTE", "A00", "REQUIRES: FAST DROP CHUTE", 1000, "1,000 COINS", "Locked")
 spawnUnlockPad(padsFolder, "A02_Brute2", Vector3.new(-50.2, streetTopY, -44.2), "A02", "HELL BRUTE #2", "ADDS A SECOND BRUTE TO DOUBLE SUPPLY", "A01", "REQUIRES: HELL BRUTE #1", 2500, "2,500 COINS", "Locked")
 spawnUnlockPad(padsFolder, "A03_AutoRune", Vector3.new(-19.0, 0.0, -19.25), "A03", "AUTO RUNE TABLE", "AUTO-PULLS BODIES AND ENGRAVES RUNES", "A00", "REQUIRES: FAST DROP CHUTE", 2000, "2,000 COINS", "Locked")
 spawnUnlockPad(padsFolder, "A04_AutoSmelter", Vector3.new(-1.0, 0.0, -17.25), "A04", "AUTO SMELTER", "AUTO-SMELTS RUNE BODIES INTO POTIONS", "A03", "REQUIRES: AUTO RUNE TABLE", 4500, "4,500 COINS", "Locked")
 spawnUnlockPad(padsFolder, "A05_AutoClerk", Vector3.new(22.0, 0.0, -19.25), "A05", "AUTO CLERK", "AUTO-DELIVERS POTIONS FOR COINS", "", "PRE-REQ: NONE", 9000, "9,000 COINS", "Insufficient")
 
-return {
-	unlockPad = unlockPadTemplate:GetFullName(),
-	pads = #padsFolder:GetChildren(),
-	automationChildren = #autoLine:GetChildren(),
-}
+return BuildSummary()

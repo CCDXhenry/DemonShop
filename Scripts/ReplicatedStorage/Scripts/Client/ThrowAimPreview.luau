@@ -17,7 +17,8 @@ export type Preview = typeof(setmetatable(
 		origin: Vector3?,
 		velocity: Vector3?,
 		gravity: number?,
-		span: Vector3?,
+		baffles: Instance?,
+		baffleParams: RaycastParams,
 		legal: boolean?,
 		nextTrace: number,
 	},
@@ -34,19 +35,30 @@ function Preview.Hide(self: Preview): ()
 	self.nextTrace = 0
 end
 
-function Preview.Update(self: Preview, origin: Vector3, direction: Vector3, gravity: number, legalAt: (Vector3) -> boolean, ignored: { Instance }, now: number, subject: Model): ()
+function Preview.Update(self: Preview, origin: Vector3, direction: Vector3, gravity: number, legalAt: (Vector3, Vector3?, boolean?) -> boolean, ignored: { Instance }, now: number, baffles: Instance?): ()
 	local velocity = Arc.LaunchVelocity(direction, gravity)
-	local box = Arc.SweepBox(subject)
-	if self.origin == origin and self.velocity == velocity and self.gravity == gravity and self.span == box and now < self.nextTrace then
+	if self.origin == origin and self.velocity == velocity and self.gravity == gravity and self.baffles == baffles and now < self.nextTrace then
 		return
 	end
+	self.params.FilterDescendantsInstances = ignored
+	self.baffleParams.FilterDescendantsInstances = if baffles then { baffles } else {}
 	local function Cast(frame: CFrame, size: Vector3, delta: Vector3): RaycastResult?
-		self.params.FilterDescendantsInstances = ignored
-		return workspace:Blockcast(frame, size, delta, self.params)
+		local solid = workspace:Blockcast(frame, size, delta, self.params)
+		local baffle = if baffles then workspace:Blockcast(frame, size, delta, self.baffleParams) else nil
+		return Arc.FirstHit(solid, baffle)
 	end
-	local duration, _, surface, normal = Arc.Sweep(origin, velocity, gravity, Config.PreviewStepSeconds, Config.PreviewDurationSeconds, box, Cast)
-	local legal = if surface then legalAt(surface) else false
-	self.origin, self.velocity, self.gravity, self.span, self.legal = origin, velocity, gravity, box, legal
+	local duration, landing, surface, normal, hit = Arc.Sweep(origin, velocity, gravity, Config.PreviewStepSeconds, Config.PreviewDurationSeconds, Config.SweepSize, Cast)
+	local hitBaffle = hit ~= nil and baffles ~= nil and hit:IsDescendantOf(baffles)
+	local legal = if surface then legalAt(surface, normal, hitBaffle) else false
+	if normal and not legal and math.abs(normal.Y) <= 0.2 then
+		local function CastFloor(start: Vector3, delta: Vector3): RaycastResult?
+			return workspace:Raycast(start, delta, self.params)
+		end
+		local corrected, floor = Arc.WallLanding(landing, normal, CastFloor)
+		if floor then surface, normal = floor, Vector3.yAxis end
+		legal = legalAt(corrected)
+	end
+	self.origin, self.velocity, self.gravity, self.baffles, self.legal = origin, velocity, gravity, baffles, legal
 	self.nextTrace = now + Config.RefreshIntervalSeconds
 	local color = if legal then Config.LegalColor else Config.WarningColor
 	local half = duration * 0.5
@@ -117,6 +129,8 @@ function Preview.new(): Preview
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.RespectCanCollide = true
+	local baffleParams = RaycastParams.new()
+	baffleParams.FilterType = Enum.RaycastFilterType.Include
 	local self = setmetatable({
 		model = model,
 		arcs = arcs,
@@ -126,7 +140,8 @@ function Preview.new(): Preview
 		origin = nil,
 		velocity = nil,
 		gravity = nil,
-		span = nil,
+		baffles = nil,
+		baffleParams = baffleParams,
 		legal = nil,
 		nextTrace = 0,
 	}, Preview)

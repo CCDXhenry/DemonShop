@@ -770,6 +770,8 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 				origin = item.poolToss.origin,
 				velocity = item.poolToss.velocity,
 				duration = item.poolToss.duration,
+				chuteDropFrom = item.poolToss.chuteDropFrom,
+				wallStop = item.poolToss.wallStop,
 			} else nil,
 			altarToss = if item.altarToss then {
 				from = item.altarToss.from,
@@ -1698,6 +1700,11 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 	if item.location ~= "Thrown" then
 		return
 	end
+	if item.poolToss and item.poolToss.chuteDropFrom then
+		self:PushChuteItem(item, false)
+		self:StepAutomation(workspace:GetServerTimeNow())
+		return
+	end
 	local torso = item.model:FindFirstChild("UpperTorso")
 	local position = if torso and torso:IsA("BasePart") then torso.Position else item.model:GetPivot().Position
 	local kind = ThrowArc.CanStoreThrow(
@@ -1728,17 +1735,44 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 	end
 	Carry.FinishGround(item)
 end
-function Manager.SweepThrow(origin: Vector3, velocity: Vector3, ignored: { Instance }, model: Model): (number, Vector3)
+function Manager.SweepThrow(origin: Vector3, velocity: Vector3, ignored: { Instance }, canEnterChute: boolean): (number, Vector3, Vector3?, boolean)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = ignored
 	params.RespectCanCollide = true
+	local baffleParams: RaycastParams? = nil
+	local baffles = Scene.ChuteBaffles
+	if canEnterChute and baffles then
+		local paramsForBaffles = RaycastParams.new()
+		paramsForBaffles.FilterType = Enum.RaycastFilterType.Include
+		paramsForBaffles.FilterDescendantsInstances = { baffles }
+		baffleParams = paramsForBaffles
+	end
 	local throwConfig = Physics.ManualThrow
 	local function Cast(frame: CFrame, size: Vector3, delta: Vector3): RaycastResult?
-		return workspace:Blockcast(frame, size, delta, params)
+		local solid = workspace:Blockcast(frame, size, delta, params)
+		local baffle = if baffleParams then workspace:Blockcast(frame, size, delta, baffleParams) else nil
+		return ThrowArc.FirstHit(solid, baffle)
 	end
-	local duration, landing = ThrowArc.Sweep(origin, velocity, workspace.Gravity, throwConfig.PreviewStepSeconds, throwConfig.PreviewDurationSeconds, ThrowArc.SweepBox(model), Cast)
-	return duration, landing
+	local duration, landing, surface, normal, hit = ThrowArc.Sweep(origin, velocity, workspace.Gravity, throwConfig.PreviewStepSeconds, throwConfig.PreviewDurationSeconds, throwConfig.SweepSize, Cast)
+	local opening, dropZone = Scene.FastChuteOpening, Scene.ChuteDropZone
+	local chuteWall = canEnterChute and opening ~= nil and surface ~= nil and normal ~= nil
+		and ((hit ~= nil and baffles ~= nil and hit:IsDescendantOf(baffles)) or ThrowArc.IsChuteWall(opening.CFrame, opening.Size, surface, normal))
+	local wallStop = normal ~= nil and math.abs(normal.Y) <= 0.2
+	if normal and wallStop and not chuteWall then
+		local function CastFloor(start: Vector3, delta: Vector3): RaycastResult?
+			return workspace:Raycast(start, delta, params)
+		end
+		landing = ThrowArc.WallLanding(landing, normal, CastFloor)
+	end
+	if canEnterChute and opening and dropZone and (chuteWall or Scene.ChuteContains(landing)) then
+		local floorY = dropZone.Position.Y + throwConfig.SweepSize.Y * 0.5
+		local dropFrom = if landing.Y > dropZone.Position.Y + Physics.ChuteWallHeight
+			then ThrowArc.ChuteDropStart(opening.CFrame, opening.Size, landing)
+			else landing
+		return duration, Vector3.new(dropFrom.X, floorY, dropFrom.Z), dropFrom, false
+	end
+	return duration, landing, nil, wallStop
 end
 function Manager.Throw(self: Manager, player: Player, request: Types.Request): ()
 	local record = self.players[player]
@@ -1780,9 +1814,12 @@ function Manager.Throw(self: Manager, player: Player, request: Types.Request): (
 		return
 	end
 	record.lastThrow = now
-	local duration, landing = Manager.SweepThrow(origin, velocity, { character, top.model }, top.model)
+	local ignored: { Instance } = { character }
+	for _, item in stack do table.insert(ignored, item.model) end
+	local canEnterChute = top.stage ~= "Painted" and self:IsFacilityUnlocked("A00")
+	local duration, landing, dropFrom, wallStop = Manager.SweepThrow(origin, velocity, ignored, canEnterChute)
 	local target = CFrame.new(landing) * top.model:GetPivot().Rotation
-	local placed = Carry.BeginManualToss(top, origin, velocity, duration, target, player, #stack == 1)
+	local placed = Carry.BeginManualToss(top, origin, velocity, duration, target, player, #stack == 1, dropFrom, wallStop)
 	if placed then
 		self:SettleThrown(top)
 	end

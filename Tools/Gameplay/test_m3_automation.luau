@@ -240,11 +240,11 @@ do
 
 	local thrownLocked = makeTestBody(manager, 'Unpainted')
 	thrownLocked.location = 'Thrown'
-	thrownLocked.model.WorldPivot = CFrame.new(-47.0, 1.5, -26.0)
-	thrownLocked.model.PrimaryPart.CFrame = CFrame.new(-47.0, 1.5, -26.0)
-	thrownLocked.model.PrimaryPart.Position = Vector3.new(-47.0, 1.5, -26.0)
-	thrownLocked.model.UpperTorso.CFrame = CFrame.new(-47.0, 1.5, -26.0)
-	thrownLocked.model.UpperTorso.Position = Vector3.new(-47.0, 1.5, -26.0)
+	thrownLocked.model.WorldPivot = CFrame.new(-58.8, 1.5, -28.5)
+	thrownLocked.model.PrimaryPart.CFrame = CFrame.new(-58.8, 1.5, -28.5)
+	thrownLocked.model.PrimaryPart.Position = Vector3.new(-58.8, 1.5, -28.5)
+	thrownLocked.model.UpperTorso.CFrame = CFrame.new(-58.8, 1.5, -28.5)
+	thrownLocked.model.UpperTorso.Position = Vector3.new(-58.8, 1.5, -28.5)
 	manager:SettleThrown(thrownLocked)
 	check(thrownLocked.location == 'Ground' and manager:ChuteCount() == 0, 'thrown into chute before A00 settles to Ground')
 
@@ -276,22 +276,22 @@ do
 	-- 斜抛落入井筒与落地缓冲垫均转入 chuteQueue；已画符斜抛落地
 	local thrownOpening = makeTestBody(manager, 'Unpainted')
 	thrownOpening.location = 'Thrown'
-	thrownOpening.model.UpperTorso.CFrame = CFrame.new(-47.0, 15.0, -26.0)
-	thrownOpening.model.UpperTorso.Position = Vector3.new(-47.0, 15.0, -26.0)
+	thrownOpening.model.UpperTorso.CFrame = CFrame.new(-58.8, 15.0, -28.5)
+	thrownOpening.model.UpperTorso.Position = Vector3.new(-58.8, 15.0, -28.5)
 	manager:SettleThrown(thrownOpening)
 	check(manager:ChuteCount() == 9 and #manager.chuteVisible == 6 and manager.chuteOverflowCount == 3, 'thrown into shaft opening enters chuteQueue overflow cleanly')
 
 	local thrownLanding = makeTestBody(manager, 'Unpainted')
 	thrownLanding.location = 'Thrown'
-	thrownLanding.model.UpperTorso.CFrame = CFrame.new(-47.0, 2.0, -26.0)
-	thrownLanding.model.UpperTorso.Position = Vector3.new(-47.0, 2.0, -26.0)
+	thrownLanding.model.UpperTorso.CFrame = CFrame.new(-58.8, 2.0, -28.5)
+	thrownLanding.model.UpperTorso.Position = Vector3.new(-58.8, 2.0, -28.5)
 	manager:SettleThrown(thrownLanding)
 	check(manager:ChuteCount() == 10 and #manager.chuteVisible == 6 and manager.chuteOverflowCount == 4, 'thrown onto FastChuteLanding enters chuteQueue')
 
 	local thrownPainted = makeTestBody(manager, 'Painted')
 	thrownPainted.location = 'Thrown'
-	thrownPainted.model.UpperTorso.CFrame = CFrame.new(-47.0, 2.0, -26.0)
-	thrownPainted.model.UpperTorso.Position = Vector3.new(-47.0, 2.0, -26.0)
+	thrownPainted.model.UpperTorso.CFrame = CFrame.new(-58.8, 2.0, -28.5)
+	thrownPainted.model.UpperTorso.Position = Vector3.new(-58.8, 2.0, -28.5)
 	manager:SettleThrown(thrownPainted)
 	check(thrownPainted.location == 'Ground' and manager:ChuteCount() == 10, 'painted throw into chute lands on Ground')
 

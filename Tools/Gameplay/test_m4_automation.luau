@@ -145,7 +145,6 @@ do
 	local npc1 = makeStreetBody(manager, Vector3.new(-35, 23.0, -60), 0)
 	local observedCarried = false
 	local observedDoorway = false
-	local observedPortal = false
 	local observedChuteStand = false
 	local rejectedPlayerSteal = false
 
@@ -170,11 +169,10 @@ do
 		end
 		if brute1.state == 'CarryToChute' then
 			local p = brute1.floorPos
-			if math.abs(p.Z - (-39.0)) < 3.5 and p.X >= -62.5 and p.X <= -55.5 then
+			if math.abs(p.Z - (-39.0)) < 1 and p.X >= -62.5 and p.X <= -55.5 then
 				observedDoorway = true
-			elseif (p - Vector3.new(-55.5, 21.397, -30.5)).Magnitude < 2.5 then
-				observedPortal = true
-			elseif (p - Vector3.new(-52.5, 21.397, -26.0)).Magnitude < 2.0 then
+			end
+			if (p - Vector3.new(-58.8, 21.397, -37.25)).Magnitude < 0.75 then
 				observedChuteStand = true
 			end
 		end
@@ -184,7 +182,7 @@ do
 	end
 
 	check(observedCarried and rejectedPlayerSteal, 'Brute1 stuns, carries and blocks player steal attempt')
-	check(observedDoorway and observedPortal and observedChuteStand, 'Brute1 carries body legally through NewShop_Noodles doorway -> aisle -> ChuteTopDropAnchor')
+	check(observedDoorway and observedChuteStand, 'Brute1 carries body legally through NewShop_Noodles doorway to the new standing strip')
 	check(manager:ChuteCount() == 1 and manager:PoolCount() == 0 and manager:ShelfCount() == 0, 'Brute1 deposits directly into chuteQueue with zero manual pool/shelf touch')
 	check(manager.agents.targetLocks[npc1.id] == nil, 'Brute1 releases target lock after deposit')
 

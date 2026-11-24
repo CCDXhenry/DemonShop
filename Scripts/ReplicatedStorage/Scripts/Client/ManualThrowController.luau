@@ -15,7 +15,8 @@ Controller.__index = Controller
 export type Host = {
 	TopBody: () -> Types.ItemView?,
 	CanAim: () -> boolean,
-	CanStore: (Vector3) -> boolean,
+	CanStore: (Vector3, Vector3?, boolean?) -> boolean,
+	ChuteBaffles: () -> Instance?,
 	Ignored: () -> { Instance },
 }
 export type Controller = typeof(setmetatable(
@@ -149,7 +150,7 @@ function Controller.Update(self: Controller, now: number): ()
 		local origin = Arc.Origin(basis.CFrame, direction)
 		local ignored = self.host.Ignored()
 		table.insert(ignored, self.preview.model)
-		self.preview:Update(origin, direction, workspace.Gravity, self.host.CanStore, ignored, now, top.model)
+		self.preview:Update(origin, direction, workspace.Gravity, self.host.CanStore, ignored, now, self.host.ChuteBaffles())
 	else
 		self.preview:Hide()
 	end

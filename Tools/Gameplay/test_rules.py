@@ -20,8 +20,6 @@ for name in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerPro
         text="local Color3=require('@lune/roblox').Color3\nlocal game={GameId=0}\n"+text
     if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneStampRules","ThrowArc","AutomationRules","AutoRunePattern"):
         text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame,Color3,Enum=roblox.Vector2,roblox.Vector3,roblox.CFrame,roblox.Color3,roblox.Enum\n"+text
-    if name == "ThrowArc":
-        text=text.replace("model:GetPivot()", "model.WorldPivot")
     (OUT/(name+".luau")).write_text(text,encoding="utf-8")
 (OUT/"test_throw_arc.luau").write_text((ROOT/"Tools/Gameplay/test_throw_arc.luau").read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_throw_arc.luau")],cwd=ROOT,check=True)

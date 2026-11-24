@@ -85,6 +85,7 @@ local autoLine = district:FindFirstChild("AutomationLine")
 Scene.AutomationLine = autoLine
 Scene.FastChuteCover = OptionalModel(autoLine, "FastChuteCover")
 Scene.FastChuteOpening = OptionalPart(autoLine, "FastChuteOpening")
+Scene.ChuteBaffles = if autoLine then autoLine:FindFirstChild("ChuteThrowBaffles") else nil
 Scene.ChuteTopDrop = OptionalPart(autoLine, "ChuteTopDropAnchor")
 Scene.ChutePrompt = OptionalPart(autoLine, "ChutePromptAnchor")
 Scene.ChuteDropZone = OptionalPart(autoLine, "FastChuteLanding", "DropZone")
@@ -225,7 +226,7 @@ function Scene.ChutePose(slot: number): CFrame
 	local index = math.max(0, slot - 1)
 	local col = (index % 3) - 1
 	local layer = math.floor(index / 3) % 2
-	local base = if Scene.ChuteLanding then Scene.ChuteLanding.Position else Vector3.new(-47.0, 1.15, -26.0)
+	local base = if Scene.ChuteLanding then Scene.ChuteLanding.Position else Vector3.new(-58.8, 1.15, -28.5)
 	return CFrame.new(base + Vector3.new(col * 2.3, 0.55 + layer * 0.85, 0)) * CFrame.Angles(math.pi / 2, 0, 0)
 end
 function Scene.AutoOutputPose(slot: number): CFrame

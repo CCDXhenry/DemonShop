@@ -62,39 +62,27 @@ function Arc.LimitDrop(velocity: Vector3): Vector3
 	return Vector3.new(velocity.X, -drop, velocity.Z)
 end
 
--- 以枢轴为中心、包住当前姿态的轴对齐扫掠盒。盒底贴到最低的可碰撞部件。
-function Arc.SweepBox(model: Model): Vector3
-	local pivot = model:GetPivot().Position
-	local reach = Vector3.zero
-	local found = false
-	for _, inst in model:GetDescendants() do
-		if inst:IsA("BasePart") and inst.Name ~= "HumanoidRootPart" then
-			local cf = inst.CFrame
-			local half = inst.Size * 0.5
-			local right, up, look = cf.RightVector, cf.UpVector, cf.LookVector
-			local extent = Vector3.new(
-				math.abs(right.X) * half.X + math.abs(up.X) * half.Y + math.abs(look.X) * half.Z,
-				math.abs(right.Y) * half.X + math.abs(up.Y) * half.Y + math.abs(look.Y) * half.Z,
-				math.abs(right.Z) * half.X + math.abs(up.Z) * half.Y + math.abs(look.Z) * half.Z
-			)
-			local offset = cf.Position - pivot
-			local corner = Vector3.new(math.abs(offset.X) + extent.X, math.abs(offset.Y) + extent.Y, math.abs(offset.Z) + extent.Z)
-			if found then
-				reach = Vector3.new(math.max(reach.X, corner.X), math.max(reach.Y, corner.Y), math.max(reach.Z, corner.Z))
-			else
-				reach = corner
-				found = true
-			end
-		end
+function Arc.FirstHit(solid: RaycastResult?, baffle: RaycastResult?): RaycastResult?
+	if baffle and (not solid or baffle.Distance < solid.Distance) then
+		return baffle
 	end
-	if not found then
-		return Config.SweepSize
-	end
-	return Vector3.new(math.max(reach.X * 2, Config.SweepSize.X), math.max(reach.Y * 2, Config.SweepSize.Y), math.max(reach.Z * 2, Config.SweepSize.Z))
+	return solid
 end
 
--- 第三个返回值是表面命中点，第四个是该点的法线。弧长或时长用尽仍未命中时两者为空。
-function Arc.Sweep(origin: Vector3, velocity: Vector3, gravity: number, step: number, limit: number, size: Vector3, cast: Cast, maxLength: number?): (number, Vector3, Vector3?, Vector3?)
+-- 忽略斜坡和门头底面。竖直墙命中后从扫掠中心向墙外退让，再找下方地面。
+function Arc.WallLanding(center: Vector3, normal: Vector3, castFloor: (Vector3, Vector3) -> RaycastResult?): (Vector3, Vector3?)
+	if math.abs(normal.Y) > 0.2 then return center, nil end
+	local away = Vector3.new(normal.X, 0, normal.Z).Unit
+	local offset = center + away * Config.WallClearanceStuds
+	local floor = castFloor(offset, -Vector3.yAxis * Config.WallFloorProbeStuds)
+	if floor and floor.Normal.Y > 0.5 then
+		return floor.Position + Vector3.yAxis * (Config.SweepSize.Y * 0.5 + Config.GroundGapStuds), floor.Position
+	end
+	return offset, nil
+end
+
+-- 返回扫掠中心、命中表面的位置、法线及实例。弧长或时长用尽时没有命中信息。
+function Arc.Sweep(origin: Vector3, velocity: Vector3, gravity: number, step: number, limit: number, size: Vector3, cast: Cast, maxLength: number?): (number, Vector3, Vector3?, Vector3?, Instance?)
 	local cap = if maxLength and maxLength > 0 then maxLength else Config.MaxArcStuds
 	local last = origin
 	local elapsed = 0
@@ -115,7 +103,7 @@ function Arc.Sweep(origin: Vector3, velocity: Vector3, gravity: number, step: nu
 				local axis = hit.Normal
 				local lift = if axis.Magnitude > 0.001 then axis.Unit else Vector3.yAxis
 				local portion = used / segment
-				return elapsed + (time - elapsed) * portion * alpha, last + probe * alpha + lift * Config.GroundGapStuds, hit.Position, lift
+				return elapsed + (time - elapsed) * portion * alpha, last + probe * alpha + lift * Config.GroundGapStuds, hit.Position, lift, hit.Instance
 			end
 			traveled += used
 			if used < segment - 1e-5 then
@@ -170,6 +158,38 @@ function Arc.Landing(inStrict: boolean, painted: boolean, count: number, capacit
 		return "Ground", true
 	end
 	return "Ground", false
+end
+
+-- 只接收井口三面向内的墙面。门所在的负 Z 边是站立区。
+function Arc.IsChuteWall(opening: CFrame, size: Vector3, point: Vector3, normal: Vector3): boolean
+	local p = opening:PointToObjectSpace(point)
+	local n = opening:VectorToObjectSpace(normal)
+	local half = size * 0.5
+	local tolerance = 0.8
+	if p.Y < -half.Y or p.Y > Config.ChuteWallCatchHeight or math.abs(n.Y) > 0.2 then
+		return false
+	end
+	local side = math.abs(p.Z) <= half.Z + tolerance
+		and ((n.X > 0.8 and math.abs(p.X + half.X) <= tolerance) or (n.X < -0.8 and math.abs(p.X - half.X) <= tolerance))
+	local back = n.Z < -0.8 and math.abs(p.Z - half.Z) <= tolerance and math.abs(p.X) <= half.X + tolerance
+	return side or back
+end
+
+function Arc.ChuteDropStart(opening: CFrame, size: Vector3, position: Vector3): Vector3
+	local point = opening:PointToObjectSpace(position)
+	local limitX = math.max(0, size.X * 0.5 - Config.ChuteDropInsetStuds)
+	local limitZ = math.max(0, size.Z * 0.5 - Config.ChuteDropInsetStuds)
+	return opening:PointToWorldSpace(Vector3.new(math.clamp(point.X, -limitX, limitX), point.Y, math.clamp(point.Z, -limitZ, limitZ)))
+end
+
+function Arc.DropDuration(from: Vector3, target: Vector3, gravity: number): number
+	if gravity <= 0 then return 0 end
+	return math.sqrt(2 * math.max(0, from.Y - target.Y) / gravity)
+end
+
+function Arc.DropPosition(from: Vector3, target: Vector3, gravity: number, elapsed: number): Vector3
+	if gravity <= 0 then return target end
+	return Vector3.new(from.X, math.max(target.Y, from.Y - gravity * math.max(0, elapsed) ^ 2 / 2), from.Z)
 end
 
 -- 判定落点是否位于 NewShop_Noodles 井口竖井或地下 FastChuteLanding 缓冲垫内。

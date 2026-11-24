@@ -7,6 +7,7 @@ local Ragdoll = require(script.Parent.Ragdoll)
 local NPC = require(script.Parent.NPC)
 local Scene = require(script.Parent.Scene)
 local Config = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
+local ThrowArc = require(ReplicatedStorage.Scripts.Shared.ThrowArc)
 local Ground = require(script.Parent.GroundAuthority)
 local Carry = {}
 local random = Random.new()
@@ -311,7 +312,7 @@ function Carry.TossIntoPool(item: Types.Item, restoreTool: boolean?): ()
 		AnchorPool(item)
 	end
 end
-function Carry.BeginManualToss(item: Types.Item, origin: Vector3, velocity: Vector3, duration: number, target: CFrame, thrower: Player?, restoreTool: boolean?): boolean
+function Carry.BeginManualToss(item: Types.Item, origin: Vector3, velocity: Vector3, duration: number, target: CFrame, thrower: Player?, restoreTool: boolean?, chuteDropFrom: Vector3?, wallStop: boolean?): boolean
 	-- 飞行由抛掷客户端按共享抛物线驱动。没有抛掷者时直接放到落点，由调用方判定入池。
 	local character = thrower and thrower.Character
 	local rotation = item.model:GetPivot().Rotation
@@ -343,6 +344,8 @@ function Carry.BeginManualToss(item: Types.Item, origin: Vector3, velocity: Vect
 		origin = origin,
 		velocity = velocity,
 		duration = duration,
+		chuteDropFrom = chuteDropFrom,
+		wallStop = wallStop,
 	}
 	item.motionState = "PoolToss"
 	return false
@@ -425,6 +428,16 @@ function Carry.AdvancePoolToss(item: Types.Item, now: number): boolean
 	return AdvanceToss(item, now, Scene.PoolFloor, Scene.PoolContains, AnchorPool, "Pool")
 end
 function Carry.AdvanceManualToss(item: Types.Item, now: number, onSettled: (Types.Item) -> ()): boolean
+	local toss = item.poolToss
+	local dropFrom = toss and toss.chuteDropFrom
+	if toss and dropFrom and item.model.Parent then
+		local endTime = toss.started + FlightLimit(toss) + ThrowArc.DropDuration(dropFrom, toss.target.Position, workspace.Gravity)
+		if now < endTime and Players:GetPlayerByUserId(toss.owner) then return false end
+		-- 井内全程无碰撞。服务端收口，避免客户端掉线或最后一帧未复制导致漏入队。
+		item.model:PivotTo(toss.target)
+		onSettled(item)
+		return true
+	end
 	return AdvanceToss(item, now, Scene.PoolFloor, Scene.PoolContainsStrict, AnchorPool, "Thrown", onSettled)
 end
 local function AltarRestOffset(part: BasePart, model: Model, pivot: CFrame): CFrame

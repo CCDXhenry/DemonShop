@@ -223,25 +223,25 @@ function B.BuildDistrict(ranges)
 	local cover = Instance.new('Model')
 	cover.Name = 'FastChuteCover'
 	cover.Parent = autoLine
-	local coverPlate = makePart(cover, 'CoverPlate', Vector3.new(-47.0, 21.1, -26.0), Vector3.new(8, 0.5, 8))
+	local coverPlate = makePart(cover, 'CoverPlate', Vector3.new(-58.8, 21.22, -28.75), Vector3.new(18, 0.35, 13.5))
 	coverPlate.CanCollide = true
 	coverPlate.CanQuery = true
 	coverPlate.CanTouch = true
 
-	local opening = makePart(autoLine, 'FastChuteOpening', Vector3.new(-47.0, 21.1, -26.0), Vector3.new(8, 1, 8))
+	local opening = makePart(autoLine, 'FastChuteOpening', Vector3.new(-58.8, 21.397, -28.75), Vector3.new(18, 1, 13.5))
 	opening.CanCollide = false
 	opening.CanQuery = false
-	makePart(autoLine, 'ChuteTopDropAnchor', Vector3.new(-47.0, 21.8, -26.0))
-	local chutePrompt = makePart(autoLine, 'ChutePromptAnchor', Vector3.new(-52.2, 22.4, -26.0))
+	makePart(autoLine, 'ChuteTopDropAnchor', Vector3.new(-58.8, 21.797, -37.25))
+	local chutePrompt = makePart(autoLine, 'ChutePromptAnchor', Vector3.new(-53.6, 22.397, -37.25))
 	attachPrompt(chutePrompt, ranges.Chute or 8)
 
 	local landing = Instance.new('Model')
 	landing.Name = 'FastChuteLanding'
 	landing.Parent = autoLine
-	local dropZone = makePart(landing, 'DropZone', Vector3.new(-47.0, 1.0, -26.0), Vector3.new(8.2, 1.4, 8.2))
+	local dropZone = makePart(landing, 'DropZone', Vector3.new(-58.8, 1.0, -28.5), Vector3.new(24, 1.4, 16))
 	dropZone.CanCollide = false
-	makePart(landing, 'LandingAnchor', Vector3.new(-47.0, 1.15, -26.0))
-	local chutePickup = makePart(landing, 'ChutePickupAnchor', Vector3.new(-47.0, 1.8, -20.2))
+	makePart(landing, 'LandingAnchor', Vector3.new(-58.8, 1.15, -28.5))
+	local chutePickup = makePart(landing, 'ChutePickupAnchor', Vector3.new(-58.8, 1.8, -20.1))
 	attachPrompt(chutePickup, ranges.ChutePickup or 8)
 
 	local autoRune = Instance.new('Model')
@@ -333,7 +333,7 @@ function B.BuildDistrict(ranges)
 		priceStroke.Parent = priceFrame
 		pad.Parent = padsFolder
 	end
-	makePad('A00_FastChute', 'A00', '', 'PRE-REQ: NONE', 250, Vector3.new(-47.0, 21.4, -26.0))
+	makePad('A00_FastChute', 'A00', '', 'PRE-REQ: NONE', 250, Vector3.new(-65.8, 21.4, -37.25))
 	makePad('A01_Brute1', 'A01', 'A00', 'REQUIRES: FAST DROP CHUTE', 1000, Vector3.new(-54.0, 20.345, -44.2))
 	makePad('A02_Brute2', 'A02', 'A01', 'REQUIRES: HELL BRUTE #1', 2500, Vector3.new(-50.2, 20.345, -44.2))
 	makePad('A03_AutoRune', 'A03', 'A00', 'REQUIRES: FAST DROP CHUTE', 2000, Vector3.new(-19.0, 0.0, -19.25))

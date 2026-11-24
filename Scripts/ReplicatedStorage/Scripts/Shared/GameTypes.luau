@@ -23,6 +23,8 @@ export type PoolToss = {
 	origin: Vector3?,
 	velocity: Vector3?,
 	duration: number?,
+	chuteDropFrom: Vector3?,
+	wallStop: boolean?,
 }
 export type AltarToss = {
 	from: CFrame,

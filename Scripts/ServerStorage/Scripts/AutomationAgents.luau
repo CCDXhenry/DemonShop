@@ -120,7 +120,7 @@ local CLERK_PALETTE: Palette = {
 	glow = Color3.fromRGB(46, 229, 145),
 }
 
-local DEFAULT_CHUTE_TOP = Vector3.new(-47.0, 21.8, -26.0)
+local DEFAULT_CHUTE_TOP = Vector3.new(-58.8, 21.797, -37.25)
 local SHOP_FLOOR_Y = 21.397
 local SIDEWALK_Y = 20.345
 local STREET_DECK_Y = 20.08
@@ -130,8 +130,7 @@ local BASEMENT_FLOOR_Y = 0.0
 
 local WAYPOINT_STREET_LANE = Vector3.new(-58.8, STREET_DECK_Y, -51.0)
 local WAYPOINT_DOOR_OUTSIDE = Vector3.new(-59.025, SIDEWALK_Y, -44.5)
-local WAYPOINT_DOOR_INSIDE = Vector3.new(-59.025, SHOP_FLOOR_Y, -36.5)
-local WAYPOINT_CHUTE_APPROACH = Vector3.new(-55.5, SHOP_FLOOR_Y, -30.5)
+local WAYPOINT_DOOR_INSIDE = Vector3.new(-59.025, SHOP_FLOOR_Y, -38.4)
 
 local TORSO_PARTS: { [string]: boolean } = {
 	UpperTorso = true,
@@ -191,9 +190,18 @@ end
 
 local function ChuteStandPos(): Vector3
 	local top = ChuteTopPos()
-	local standX = if Scene.ChutePrompt then math.min(Scene.ChutePrompt.Position.X - 0.3, top.X - 5.2) else top.X - 5.5
 	local floorY = if IsStandardChuteLayout() then SHOP_FLOOR_Y else math.max(0, top.Y - 0.4)
-	return Vector3.new(standX, floorY, top.Z)
+	return Vector3.new(top.X, floorY, top.Z)
+end
+
+local function ChuteDropPos(): Vector3
+	local top = ChuteTopPos()
+	local opening = Scene.FastChuteOpening
+	if opening then
+		local entry = opening.CFrame * Vector3.new(0, 0, -opening.Size.Z * 0.5 + 2)
+		return Vector3.new(entry.X, top.Y, entry.Z)
+	end
+	return top
 end
 
 local function BruteSpawnFloor(variant: number): Vector3
@@ -647,11 +655,9 @@ local function BuildInwardWaypoints(fromPos: Vector3): { Vector3 }
 		return { stand }
 	end
 	if fromPos.Z <= -49.0 then
-		return { WAYPOINT_STREET_LANE, WAYPOINT_DOOR_OUTSIDE, WAYPOINT_DOOR_INSIDE, WAYPOINT_CHUTE_APPROACH, stand }
+		return { WAYPOINT_STREET_LANE, WAYPOINT_DOOR_OUTSIDE, WAYPOINT_DOOR_INSIDE, stand }
 	elseif fromPos.Z <= -39.5 then
-		return { WAYPOINT_DOOR_OUTSIDE, WAYPOINT_DOOR_INSIDE, WAYPOINT_CHUTE_APPROACH, stand }
-	elseif fromPos.Z <= -31.0 then
-		return { WAYPOINT_CHUTE_APPROACH, stand }
+		return { WAYPOINT_DOOR_OUTSIDE, WAYPOINT_DOOR_INSIDE, stand }
 	end
 	return { stand }
 end
@@ -660,7 +666,7 @@ local function BuildOutwardWaypoints(): { Vector3 }
 	if not IsStandardChuteLayout() then
 		return {}
 	end
-	return { WAYPOINT_CHUTE_APPROACH, WAYPOINT_DOOR_INSIDE, WAYPOINT_DOOR_OUTSIDE, WAYPOINT_STREET_LANE }
+	return { WAYPOINT_DOOR_INSIDE, WAYPOINT_DOOR_OUTSIDE, WAYPOINT_STREET_LANE }
 end
 
 local function BuildReturnPostWaypoints(fromPos: Vector3, variant: number): { Vector3 }
@@ -993,7 +999,7 @@ local function StepBrute(host: Host, state: State, agent: BruteAgent, now: numbe
 	if agent.state == "DropInChute" then
 		local item = if agent.carryingId then host.items[agent.carryingId] else nil
 		if item and item.model.Parent ~= nil then
-			local topPos = ChuteTopPos()
+			local topPos = ChuteDropPos()
 			local startPos = agent.dropStartPos or ShoulderPose(agent).Position
 			local duration = math.max(Config.BruteDropDuration, 0.01)
 			local remaining = math.max(0, agent.stateEndsAt - now)
@@ -1025,7 +1031,7 @@ local function StepBrute(host: Host, state: State, agent: BruteAgent, now: numbe
 			wantMotion = "Carry"
 			local arrived = AdvanceWaypoints(host, state, agent, speed, dt)
 			if arrived then
-				agent.facing = FlatUnit(ChuteTopPos() - agent.floorPos, agent.facing)
+				agent.facing = FlatUnit(ChuteDropPos() - agent.floorPos, agent.facing)
 				agent.dropStartPos = ShoulderPose(agent).Position
 				agent.state = "DropInChute"
 				agent.stateEndsAt = now + Config.BruteDropDuration

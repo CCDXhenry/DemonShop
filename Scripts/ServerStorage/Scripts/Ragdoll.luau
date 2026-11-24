@@ -81,7 +81,13 @@ function Ragdoll.SetMode(model: Model, mode: string, owner: Player?): ()
 	if loose then
 		humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 	end
-	for _, v in model:GetDescendants() do
+	local descendants = model:GetDescendants()
+	if not static then
+		for _, part in descendants do
+			if part:IsA("BasePart") then part.Anchored = false end
+		end
+	end
+	for _, v in descendants do
 		if v:IsA("Motor6D") then
 			v.Enabled = not loose or v.Name == "Root" or v.Name == "RootJoint"
 			if static then
@@ -102,8 +108,8 @@ function Ragdoll.SetMode(model: Model, mode: string, owner: Player?): ()
 			end
 			v.UpperAngle = settings.cone * (if mode == "Carried" then Config.CarrySwingScale else 1)
 		elseif v:IsA("BasePart") then
-			v.Anchored = static
 			if static then
+				v.Anchored = true
 				local rest = v:GetAttribute("RestPose")
 				if typeof(rest) == "CFrame" then
 					v.CFrame = base * rest
@@ -118,11 +124,21 @@ function Ragdoll.SetMode(model: Model, mode: string, owner: Player?): ()
 			if mode ~= "Loose" then
 				v.AssemblyLinearVelocity, v.AssemblyAngularVelocity = Vector3.zero, Vector3.zero
 			end
-			if not static then
-				local networkOwner = owner
-				pcall(function(): ()
-					v:SetNetworkOwner(networkOwner)
-				end)
+		end
+	end
+	if not static then
+		-- 布娃娃的刚性装配在全部解锚并切换关节后才确定。
+		local assigned: { [BasePart]: boolean } = {}
+		for _, part in descendants do
+			local root = if part:IsA("BasePart") then part.AssemblyRootPart else nil
+			if root and not assigned[root] then
+				assigned[root] = true
+				local canSet, reason = root:CanSetNetworkOwnership()
+				if canSet then
+					root:SetNetworkOwner(owner)
+				elseif owner then
+					warn("Cannot transfer ragdoll ownership:", root:GetFullName(), reason)
+				end
 			end
 		end
 	end

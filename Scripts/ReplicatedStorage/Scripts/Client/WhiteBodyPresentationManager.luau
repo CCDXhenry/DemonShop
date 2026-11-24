@@ -781,6 +781,12 @@ local function DrivePoolToss(item: Types.ItemView, now: number): ()
 	local manual = toss.kind == "Manual" and launchOrigin ~= nil and launchVelocity ~= nil
 	local duration = if manual then (toss.duration or Physics.ManualThrow.PreviewDurationSeconds) else Physics.PoolTossSeconds
 	local elapsed = now - toss.started
+	local dropFrom = toss.chuteDropFrom
+	if dropFrom and elapsed >= duration then
+		local point = ThrowArc.DropPosition(dropFrom, toss.target.Position, workspace.Gravity, elapsed - duration)
+		model:PivotTo(CFrame.new(point) * toss.target.Rotation)
+		return
+	end
 	if elapsed < duration then
 		local rotation = toss.from.Rotation
 		local position: Vector3
@@ -803,7 +809,9 @@ local function DrivePoolToss(item: Types.ItemView, now: number): ()
 	model:PivotTo(toss.target)
 	local velocity = Vector3.new(0, -Physics.PoolDropSpeed, 0)
 	local spin = Vector3.zero
-	if manual and launchVelocity then
+	if toss.wallStop then
+		velocity = Vector3.zero
+	elseif manual and launchVelocity then
 		velocity = ThrowArc.Velocity(launchVelocity, workspace.Gravity, duration)
 		if velocity.Magnitude > Physics.MaximumLinearSpeed then
 			velocity = velocity.Unit * Physics.MaximumLinearSpeed
