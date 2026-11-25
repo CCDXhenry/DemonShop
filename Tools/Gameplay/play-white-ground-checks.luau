@@ -13,7 +13,7 @@ local fixtures={}
 local report={}
 local cfg=Tuning.GetEffectiveConfig()
 local function Start(id: string,distance: number)
-	local rig=rs.Models.WhiteR15:Clone()
+	local rig=rs.Models.Characters.WhiteR15:Clone()
 	table.insert(fixtures,rig)
 	local camera=assert(workspace.CurrentCamera)
 	local pose=camera.CFrame*CFrame.new(0,0,-distance)

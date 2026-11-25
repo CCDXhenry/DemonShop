@@ -1,6 +1,7 @@
 -- 世界交互纯规则：按携带物与共享工位状态生成原生提示及长按状态签名
 --!strict
 local Config = require(script.Parent.GameConfig)
+local GameData = require(script.Parent.GameData)
 local Types = require(script.Parent.GameTypes)
 local GameTexts = require(script.Parent.GameTexts)
 local Rules = {}
@@ -50,7 +51,10 @@ function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[strin
 		if not snapshot.painter then
 			if snapshot.tableId then
 				local item = items[snapshot.tableId]
-				if not carrying and item then action = if item.stage == "Painted" then "CollectRuneBody" else "ContinuePainting" end
+				if item then
+					if item.stage ~= "Painted" then action = "ContinuePainting"
+					elseif not carrying then action = "CollectRuneBody" end
+				end
 			elseif load.unfinished then action = "PlaceBody"
 			elseif not carrying and snapshot.pool > 0 then action = "FetchAndPaint" end
 		end
@@ -65,7 +69,7 @@ function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[strin
 		if potions and (potions.equipped or potions.stored > 0) then action = "PromptOffer" end
 	elseif target == "Chute" then
 		object = "PromptChute"
-		if snapshot.unlockedFacilities and snapshot.unlockedFacilities.A00 and load.unfinished then action = "DepositBodies" end
+		if snapshot.unlockedFacilities and snapshot.unlockedFacilities[GameData.FacilityId.FastChute] and load.unfinished then action = "DepositBodies" end
 	elseif target == "ChutePickup" then
 		object = "PromptChuteLanding"
 		if not load.other and (snapshot.chuteQueue or 0) > 0 then action = "TakeChuteBody" end

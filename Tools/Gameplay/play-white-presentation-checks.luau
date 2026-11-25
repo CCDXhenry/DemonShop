@@ -5,7 +5,7 @@ local WhiteBodies=require(client.WhiteBodyPresentationManager)
 local TableView=require(client.BodyPresentation)
 local HitView=require(client.HitPresentation)
 local Adapter=require(client.JointAdapter)
-local template=game:GetService("ReplicatedStorage").Models.WhiteR15
+local template=game:GetService("ReplicatedStorage").Models.Characters.WhiteR15
 local rig=template:Clone()
 rig.Name="Phase1Fixture"
 -- 测试在单次同步调用内结束，不改正式实例或运行中玩家。

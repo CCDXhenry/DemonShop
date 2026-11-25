@@ -5,6 +5,8 @@ local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
+local GameData = require(ReplicatedStorage.Scripts.Shared.GameData)
+local ModelTemplates = require(ReplicatedStorage.Scripts.Shared.ModelTemplates)
 
 local Manager = {}
 
@@ -31,17 +33,17 @@ local DummyPartTransparency = 1
 local generation = 0
 local characterConnection: RBXScriptConnection? = nil
 local heldAnimations: { Animation } = {}
-local heldSlashSound: Sound? = nil
+local heldSlashSounds: { Sound } = {}
 
 local function IsCurrent(token: number): boolean
 	return token == generation
 end
 
-local function ReleaseAssets(animations: { Animation }, sound: Sound?)
+local function ReleaseAssets(animations: { Animation }, sounds: { Sound })
 	for _, animation in animations do
 		animation:Destroy()
 	end
-	if sound ~= nil then
+	for _, sound in sounds do
 		sound:Destroy()
 	end
 end
@@ -177,41 +179,50 @@ end
 
 local function CreateConfiguredAnimations(): { Animation }
 	local animations: { Animation } = {}
-	local animationIds = {
+	local seen: { [string]: boolean } = {}
+	local function AddAnimation(animationId: string)
+		if animationId ~= "" and not seen[animationId] then
+			seen[animationId] = true
+			table.insert(animations, CreateAnimation(animationId))
+		end
+	end
+	local baseIds = {
 		Config.WeaponSlashAnimation,
 		Config.BodyCarryAnimation,
 		Config.IdleAnimation,
 		Config.WalkAnimation,
 	}
-	for _, animationId in animationIds do
-		if animationId ~= "" then
-			table.insert(animations, CreateAnimation(animationId))
-		end
+	for _, animationId in baseIds do
+		AddAnimation(animationId)
+	end
+	for _, weapon in GameData.GetAllWeapons() do
+		AddAnimation(weapon.slashAnim)
 	end
 	return animations
 end
 
-local function CreateSlashSound(): Sound?
-	if Config.WeaponSlashSound == "" then
-		return nil
+local function CreateSlashSounds(): { Sound }
+	local sounds: { Sound } = {}
+	local seen: { [string]: boolean } = {}
+	local function AddSound(soundId: string, suffix: string)
+		if soundId ~= "" and not seen[soundId] then
+			seen[soundId] = true
+			local sound = Instance.new("Sound")
+			sound.Name = SlashSoundName .. suffix
+			sound.SoundId = soundId
+			table.insert(sounds, sound)
+		end
 	end
-	local sound = Instance.new("Sound")
-	sound.Name = SlashSoundName
-	sound.SoundId = Config.WeaponSlashSound
-	return sound
+	AddSound(Config.WeaponSlashSound, "")
+	for _, weapon in GameData.GetAllWeapons() do
+		AddSound(weapon.slashSound, "_" .. tostring(weapon.id))
+	end
+	return sounds
 end
 
 local function CollectModels(assets: { Instance }, templates: { Instance })
-	local folder = ReplicatedStorage:FindFirstChild("Models")
-	if folder == nil then
+	if not ModelTemplates.CollectPreloadable(assets, templates) then
 		warn(string.format("%s missing ReplicatedStorage.Models", LogPrefix))
-		return
-	end
-	for _, child in folder:GetChildren() do
-		if child.Archivable and (child:IsA("Model") or child:IsA("Tool")) then
-			table.insert(assets, child)
-			table.insert(templates, child)
-		end
 	end
 end
 
@@ -383,9 +394,9 @@ end
 function Manager.PrepareGame()
 	local token = generation
 	local animations = CreateConfiguredAnimations()
-	local slashSound = CreateSlashSound()
+	local slashSounds = CreateSlashSounds()
 	heldAnimations = animations
-	heldSlashSound = slashSound
+	heldSlashSounds = slashSounds
 	local assets: { Instance } = {}
 	local templates: { Instance } = {}
 	for _, animation in animations do
@@ -394,7 +405,7 @@ function Manager.PrepareGame()
 	CollectModels(assets, templates)
 	CollectUserInterface(assets)
 	CollectSounds(assets)
-	if slashSound ~= nil then
+	for _, slashSound in slashSounds do
 		table.insert(assets, slashSound)
 	end
 	if not IsCurrent(token) then
@@ -414,9 +425,9 @@ function Manager.Cancel()
 		characterConnection:Disconnect()
 		characterConnection = nil
 	end
-	ReleaseAssets(heldAnimations, heldSlashSound)
+	ReleaseAssets(heldAnimations, heldSlashSounds)
 	table.clear(heldAnimations)
-	heldSlashSound = nil
+	table.clear(heldSlashSounds)
 end
 
 return Manager

@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Physics = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
 local Arc = require(ReplicatedStorage.Scripts.Shared.ThrowArc)
+local ModelTemplates = require(ReplicatedStorage.Scripts.Shared.ModelTemplates)
 local Config = Physics.ManualThrow
 local Preview = {}
 Preview.__index = Preview
@@ -93,7 +94,7 @@ function Preview.Update(self: Preview, origin: Vector3, direction: Vector3, grav
 end
 
 function Preview.new(): Preview
-	local template = ReplicatedStorage.Models:WaitForChild("ThrowAim") :: Model
+	local template = ModelTemplates.WaitEffect("ThrowAim")
 	local model = template:Clone()
 	local ring = model:WaitForChild("Ring") :: Model
 	local disc = ring.PrimaryPart or ring:FindFirstChild("RingPart")

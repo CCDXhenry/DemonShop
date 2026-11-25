@@ -144,18 +144,18 @@ GameConfig.GameAnalyticsEnabled = false -- 独立 GA 开关；需服务端配置
 GameConfig.AnalyticsEnabled = false -- 外部统计默认关闭，需本项目有效配置
 GameConfig.AnalyticsEndpoint = "" -- 未配置不发送 HTTP 请求
 GameConfig.AnalyticsProjectId = "" -- 外部统计项目标识，不使用旧项目值
-GameConfig.MaximumBodies = 32 -- 同服身体总量保护，避免反复丢弃后无限堆积
-GameConfig.StreetPopulation = 6 -- 街道闲逛或晕倒的目标总数，具
-GameConfig.SpawnInterval = 5 -- 捕获后补充间隔，秒
-GameConfig.WeaponSourceAsset = 47433 -- Roblox 官方经典剑；Edit 模板保留内部名 Club
-GameConfig.WeaponSlashAnimation = "rbxassetid://18297503195" -- 高跳场景铲子攻击动画
-GameConfig.WeaponSlashSound = "rbxassetid://12222216" -- 官方经典剑 SwordSlash
+GameConfig.MaximumBodies = 60 -- 同服身体总量保护，避免反复丢弃后无限堆积
+GameConfig.StreetPopulation = 18 -- 街道闲逛或晕倒的目标总数，具
+GameConfig.SpawnInterval = 2 -- 捕获后补充间隔，秒
+GameConfig.WeaponSourceAsset = 47433 -- 历史经典剑参考资产（Assets/Models/ClassicSword.rbxm）
+GameConfig.WeaponSlashAnimation = "rbxassetid://18297503195" -- 单武器配置以武器表为准，此处仅作空值回退与 AI 共用默认值
+GameConfig.WeaponSlashSound = "rbxassetid://12222216" -- 单武器配置以武器表为准，此处仅作空值回退默认值
 GameConfig.WeaponAnimationFade = 0.05
 GameConfig.BodyCarryAnimation = "rbxassetid://99312106507906" -- 玩家肩扛身体动画资产
 GameConfig.CarryAnimationFade = 0.15 -- 拾取肩扛动作淡入淡出时间，秒
 GameConfig.AttackRange = 7 -- 近战命中距离，studs
 GameConfig.AttackServerRange = 14 -- 服务端攻击校验的宽松距离上限，覆盖移动与网络延迟差，studs
-GameConfig.AttackCooldown = 0.6 -- 两次有效挥击的最小间隔，秒
+GameConfig.AttackCooldown = 0.6 -- 单武器配置以武器表为准，此处仅作空值回退默认值
 GameConfig.AttackCooldownTolerance = 0.06 -- 服务端冷却的网络抖动宽限，秒
 GameConfig.AttackWindup = 0.16 -- 前摇后进行一次服务端空间命中校验
 GameConfig.AttackComboSeconds = 1.4 -- 连续挥击保持有效范围内的同一目标
@@ -211,6 +211,8 @@ GameConfig.PaintRasterBudgetSeconds = 0.004
 GameConfig.PaintActiveRasterBudgetSeconds = 0.010 -- 活跃操作者画布优先帧预算，秒
 GameConfig.HitStaggerSeconds = 0.75 -- 命中后短暂停步，让连续三击可读且可追击
 GameConfig.StunImpulseSpeed = 3 -- 最后一击的受控水平倒地冲量，studs/s
+GameConfig.StreetNpcMaxHp = 30
+GameConfig.BruteDamage = 10
 GameConfig.StunHits = 3 -- 累计命中次数，无自动苏醒
 GameConfig.InteractionRange = 8 -- 工位与物品交互距离，studs
 GameConfig.PoolCapacity = 8 -- 兼容旧字段：渲染上限以 PoolVisibleLimit 为准，逻辑容量无限
@@ -260,6 +262,8 @@ GameConfig.MaximumCoins = 9007199254740000 -- 保持整数精确的金币上限
 GameConfig.WalkAnimation = "rbxassetid://507777826" -- Roblox 标准 R15 行走动画
 GameConfig.PaintLiePitch = math.pi / 2 -- 仰卧绕 X 轴的转角，面朝上、头朝世界 +Z
 GameConfig.PaintCameraHeight = 10.5 -- 俯视绘制镜头高度，studs
+GameConfig.PaintMediumBatchCameraHeight = 13.5
+GameConfig.PaintLargeBatchCameraHeight = 15.5
 GameConfig.PaintFlySeconds = 1.2 -- 画完后飞向祭坛的时长，秒
 GameConfig.PaintFlyHeight = 6 -- 飞向祭坛的弧线抬升，studs
 GameConfig.AltarPileStep = 0.55 -- 后落到祭坛的白膜再抬高的高度，studs
@@ -275,31 +279,12 @@ GameConfig.PaintFlipFlashBrightness = 0.65 -- 自动翻面闪烁峰值亮度（0
 GameConfig.SessionOnlyEconomy = true -- 本局化经济：进服金币归零，写库时金币固定归零
 GameConfig.PoolVisibleLimit = 8 -- 存放池实体白膜渲染上限，超出转入虚拟计数
 GameConfig.ShelfVisibleLimit = 6 -- 手动药水架每档瓶身实体渲染上限，逻辑容量无限
-export type AutomationFacilityConfig = {
-	id: string,
-	name: string,
-	desc: string,
-	nameTextId: string,
-	descTextId: string,
-	cost: number,
-	prerequisite: string?,
-	padName: string,
-}
 GameConfig.AutoRuneSeconds = 2.0 -- A03 自动符文台单具画符节拍，秒
 GameConfig.AutoSmelterSeconds = 2.5 -- A04 自动炼化台单具炼化节拍，秒
 GameConfig.AutoQueueVisibleLimit = 6 -- 自动线三处断点（落料垫/符文出料垫/自动药水架）各自场景实体渲染上限
 GameConfig.UnlockPadTriggerRadius = 2.4 -- 踩踏解锁底盘水平判定半径，studs
 GameConfig.UnlockPadHeightTolerance = 5.5 -- 踩踏解锁底盘垂直高度容差，studs
 GameConfig.AutoPaintedColor = Color3.fromRGB(196, 152, 255) -- 保留的自动符文色值；白膜本身不再整身染色，符文由落印笔段显示
-GameConfig.AutomationFacilityOrder = { "A00", "A01", "A02", "A03", "A04", "A05" }
-GameConfig.AutomationFacilities = {
-	A00 = { id = "A00", name = "FAST DROP CHUTE", desc = "OPENS AN IN-SHOP CHUTE TO THE BASEMENT", nameTextId = "PadNameA00", descTextId = "PadDescA00", cost = 250, prerequisite = nil, padName = "A00_FastChute" },
-	A01 = { id = "A01", name = "HELL BRUTE #1", desc = "AUTO-STUNS CITIZENS AND DROPS INTO CHUTE", nameTextId = "PadNameA01", descTextId = "PadDescA01", cost = 1000, prerequisite = "A00", padName = "A01_Brute1" },
-	A02 = { id = "A02", name = "HELL BRUTE #2", desc = "ADDS A SECOND BRUTE TO DOUBLE SUPPLY", nameTextId = "PadNameA02", descTextId = "PadDescA02", cost = 2500, prerequisite = "A01", padName = "A02_Brute2" },
-	A03 = { id = "A03", name = "AUTO RUNE TABLE", desc = "AUTO-PULLS BODIES AND ENGRAVES RUNES", nameTextId = "PadNameA03", descTextId = "PadDescA03", cost = 2000, prerequisite = "A00", padName = "A03_AutoRune" },
-	A04 = { id = "A04", name = "AUTO SMELTER", desc = "AUTO-SMELTS RUNE BODIES INTO POTIONS", nameTextId = "PadNameA04", descTextId = "PadDescA04", cost = 4500, prerequisite = "A03", padName = "A04_AutoSmelter" },
-	A05 = { id = "A05", name = "AUTO CLERK", desc = "AUTO-DELIVERS POTIONS FOR COINS", nameTextId = "PadNameA05", descTextId = "PadDescA05", cost = 9000, prerequisite = nil, padName = "A05_AutoClerk" },
-} :: { [string]: AutomationFacilityConfig }
 GameConfig.BruteWalkSpeed = 20 -- A01/A02 地狱打手巡逻与搬运移动速度（studs/s）
 GameConfig.BruteHitInterval = 0.65 -- A01/A02 地狱打手近战击打节拍，秒
 GameConfig.BruteHitRange = 6.5 -- A01/A02 地狱打手近战攻击距离，studs
@@ -311,39 +296,6 @@ GameConfig.AutoClerkPickupRange = 4.0 -- A05 自动售货员在自动药水架�
 GameConfig.AutoClerkSubmitRange = 5.0 -- A05 自动售货员在召唤法阵提交距离，studs
 GameConfig.AgentRootHeight = 3.01 -- R15 AI 代理根节点相对地面的标准站立高度，studs
 
--- 个人等级与价格仅用于本局。后续阶段按同一档位启用画符、搬运和战斗能力。
-GameConfig.PersonalUpgradeOrder = { "moveSpeed", "runeBatch", "sellBonus", "weapon", "carryTool" }
-GameConfig.PersonalUpgradeCosts = {
-	moveSpeed = { 0, 50, 200, 600, 2000 },
-	runeBatch = { 0, 250, 800, 2000, 4500 },
-	sellBonus = { 0, 150, 600, 2000, 7500 },
-	weapon = { 0, 80, 350, 1500, 5500, 18000 },
-	carryTool = { 0, 100, 450, 1800, 6000 },
-} :: { [string]: { number } }
-GameConfig.PersonalMoveTiers = {
-	{ walk = 16, sprint = 22, unlimited = false },
-	{ walk = 19, sprint = 26, unlimited = false },
-	{ walk = 22, sprint = 30, unlimited = false },
-	{ walk = 25, sprint = 34, unlimited = false },
-	{ walk = 28, sprint = 38, unlimited = true },
-}
-GameConfig.PersonalRuneBatches = { 1, 2, 3, 4, 5 }
-GameConfig.PersonalSellBonuses = { 0, 0.1, 0.25, 0.5, 1 }
-GameConfig.PersonalWeaponTiers = {
-	{ id = "W01", model = "W01_RustyPan", damage = 10, targets = 1, shape = "Single", range = 7 },
-	{ id = "W02", model = "W02_IronCrowbar", damage = 15, targets = 1, shape = "Single", range = 7 },
-	{ id = "W03", model = "W03_DemonScimitar", damage = 30, targets = 3, shape = "Cone", range = 8, angle = 120 },
-	{ id = "W04", model = "W04_ReaperScythe", damage = 60, targets = 8, shape = "Spin", range = 10 },
-	{ id = "W05", model = "W05_VoidCannon", damage = 120, targets = 20, shape = "Line", range = 20, width = 5 },
-	{ id = "W06", model = "W06_AbyssalHammer", damage = 250, targets = 30, shape = "Slam", range = 18 },
-}
-GameConfig.PersonalCarryTiers = {
-	{ id = "T0", model = "", capacity = 1 },
-	{ id = "T1", model = "CarryRig_T1", capacity = 3 },
-	{ id = "T2", model = "CarryRig_T2", capacity = 8 },
-	{ id = "T3", model = "CarryRig_T3", capacity = 15 },
-	{ id = "T4", model = "CarryRig_T4", capacity = 30 },
-}
 GameConfig.CarryVisibleLimit = 8
 GameConfig.ExpandedStreet = { population = 18, spawnInterval = 2, maximumBodies = 60, citizenHP = 30 }
 GameConfig.Sprint = {

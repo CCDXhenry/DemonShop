@@ -1,7 +1,7 @@
 -- 曲面白膜 Edit 模板安装器：保留 R15 关节契约，仅替换可视身体，不覆写脚本
 assert(game.PlaceId==110812537538556 and not game:GetService("RunService"):IsRunning(),"Place1 Edit required")
 local rs=game:GetService("ReplicatedStorage")
-local models=rs:WaitForChild("Models")
+local models=rs:WaitForChild("Models"):WaitForChild("Characters")
 local function CompleteRig(rig)
  rig.HumanoidRootPart.CanQuery=false
  if not rig:GetAttribute("RigRetargeted") then
@@ -32,7 +32,7 @@ local function CompleteRig(rig)
   end
  end
 end
-local existing=rs.Models.WhiteR15
+local existing=models.WhiteR15
 if existing:GetAttribute("SurfaceVersion")==1 then CompleteRig(existing);return "Already installed; rig verified" end
 local source=models:FindFirstChild("WhiteBodyImport")
 if not source then source=game:GetService("InsertService"):LoadAsset(84781021841961);source.Name="WhiteBodyImport";source.Parent=models end

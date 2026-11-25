@@ -4,6 +4,7 @@ local B=require("./AttackFeedbackBoundary")
 local Rules=require("./HitFeedbackRules")
 local Client=require("./AttackFeedbackClient")
 local Server=require("./AttackFeedbackServer")
+local GameData=require("./GameData")
 local checks=0
 local function Check(value,message) assert(value,message); checks+=1 end
 local Protocol=require("./VisualProtocol")
@@ -27,7 +28,7 @@ local function Body(name,position)
 end
 local character=Body("Character",R.Vector3.zero)
 local humanoid=R.Instance.new("Humanoid"); humanoid.Parent=character; humanoid.Health=100
-local tool=R.Instance.new("Tool"); tool.Name="Club"; tool.Parent=character
+local tool=R.Instance.new("Tool"); tool.Name="W01_RustyPan"; tool.Parent=character
 B.player.Character=character
 local item={id="A",model=Body("WhiteNPC",R.Vector3.new(0,0,-4)),kind="Body",location="Street",hits=0,version=1}
 local calls={pose=0,burst=0,stop=0,shake=0,upgrade=0,remove=0}
@@ -72,7 +73,7 @@ Check(client.hitState.pending[4].resolved,"painting cancels waiting feedback")
 client.paintId=nil
 local Config=require("./GameConfig")
 local nearRange=0
-local server=setmetatable({players={[B.player]={lastAttack=0}},items={A=item},scope={Spawn=function(_,callback) callback() end}}, {__index=Server})
+local server=setmetatable({players={[B.player]={lastAttack=0,levels={weapon=1}}},items={A=item},scope={Spawn=function(_,callback) callback() end}}, {__index=Server})
 function server:Root() return character.PrimaryPart end
 function server:Held() return nil end
 function server:Near(_, _, range) nearRange=range; return true end
@@ -99,4 +100,70 @@ Check(B.hits==2 and not B.notices[#B.notices].hit,"empty swing returns miss")
 function server:Near() return false end
 B.now=24; server:Attack(B.player,{target="A",version=3,attackSequence=14})
 Check(B.hits==2 and not B.notices[#B.notices].hit,"out of range or wall-blocked rejected")
+
+local record = server.players[B.player]
+server.runtime = world
+local ignoredOccluders
+function server:Near(_, _, _, model, ignored)
+	ignoredOccluders = ignored
+	return model.Name ~= "Blocked"
+end
+local function Citizen(id, position)
+	return {id=id, model=Body(id,position), kind="Body", location="Street", hits=0, hp=30, version=1}
+end
+local function Swing(level, request)
+	record.levels.weapon = level
+	tool.Name = GameData.GetWeaponByLevel(level).model
+	B.now += 1
+	server:Attack(B.player, request or {})
+end
+local target = Citizen("Target", R.Vector3.new(0,0,-4))
+server.items={Target=target}
+Swing(2, {target="Target",version=1})
+Check(target.hp==15 and target.hits<3,"W02 first hit removes half HP")
+Swing(2, {target="Target",version=2})
+Check(target.hp==0 and target.hits==3,"W02 second hit stuns")
+local a = Citizen("A", R.Vector3.new(0,0,-3))
+local b = Citizen("B", R.Vector3.new(0,0,-4))
+local c = Citizen("C", R.Vector3.new(0,0,-5))
+local distant = Citizen("D", R.Vector3.new(0,0,-6))
+local behind = Citizen("Behind", R.Vector3.new(0,0,3))
+local blocked = Citizen("Blocked", R.Vector3.new(0,0,-2))
+server.items={A=a,B=b,C=c,D=distant,Behind=behind,Blocked=blocked}
+Swing(3, {target="Behind",version=999})
+Check(a.hp==0 and b.hp==0 and c.hp==0 and distant.hp==30,"W03 stuns nearest three inside its cone regardless of request target")
+Check(behind.hp==30 and blocked.hp==30,"W03 excludes rear and occluded NPCs")
+Swing(4)
+Check(behind.hp==0 and distant.hp==0 and blocked.hp==30,"W04 hits behind and respects occlusion")
+local line = Citizen("Line", R.Vector3.new(2,0,-19))
+local side = Citizen("Side", R.Vector3.new(3,0,-12))
+server.items={Line=line,Side=side}
+Swing(5)
+Check(line.hp==0 and side.hp==30,"W05 uses a width-limited line through 20 studs")
+Check(ignoredOccluders==server.runtime,"penetrating attacks ignore NPC occluders but still check scene obstruction")
+local pull = Citizen("Pull", R.Vector3.new(0,0,10))
+server.items={Pull=pull}
+Swing(6)
+Check(pull.hp==0 and B.hitTravel==7 and B.hitDirection.Z==-1,"W06 stuns and pulls toward the attacker with a 3-stud stopping distance")
+record.levels.weapon = 1
+B.now += 1
+server:Attack(B.player,{})
+Check(B.notices[#B.notices].hit==false,"mismatched weapon cannot attack even while equipped")
+for level, limit in {[4]=8, [5]=20, [6]=30} do
+	server.items={}
+	for index=1,limit+2 do
+		local id = tostring(index)
+		server.items[id] = Citizen(id,R.Vector3.new(0,0,-(2+index/10)))
+	end
+	Swing(level)
+	Check(server.items[tostring(limit)].hp==0 and server.items[tostring(limit+1)].hp==30,
+		"target limit and distance ordering respected at tier " .. level)
+end
+local w1Cooldown = GameData.GetWeaponByLevel(1).attackCooldown
+Check(w1Cooldown > 0, "W01 attackCooldown configured in GameData")
+local broadcastSwing = nil
+for _, notice in B.broadcasts do
+	if notice.kind == "Swing" then broadcastSwing = notice end
+end
+Check(broadcastSwing ~= nil and typeof(broadcastSwing.weaponLevel) == "number" and broadcastSwing.weaponLevel >= 1, "Swing broadcast includes weaponLevel")
 print(string.format("PASS: %d attack feedback flow assertions (production methods; network/clock/physics mocked)",checks))

@@ -1,7 +1,7 @@
 -- 二次重构 Edit 样板：白膜曝光、笔尖反馈、克制 HUD 与分层药水；不创建或覆写脚本
 assert(game.PlaceId == 110812537538556 and not game:GetService("RunService"):IsRunning(), "Place1 Edit required")
 local rs = game:GetService("ReplicatedStorage")
-local rig = rs.Models.WhiteR15
+local rig = rs.Models.Characters.WhiteR15
 local white = if rig:GetAttribute("SurfaceVersion")==1 then Color3.fromRGB(220,220,231) else Color3.fromRGB(205,204,216)
 for _, part in rig:GetChildren() do if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then part.Color = white end end
 local colors = rig:FindFirstChildOfClass("BodyColors")
@@ -64,7 +64,7 @@ status.BackgroundTransparency=.05
 local paint=root.PaintFrame
 paint.BackgroundTransparency=.04
 -- 复用既有药水模板，只扩充层次，保留 Bottle 主部件与承载契约。
-local potion=rs.Models.Potion
+local potion=rs.Models.Items.Potion
 local bottle=potion.Bottle
 bottle.Color=Color3.fromRGB(157,141,181);bottle.Material=Enum.Material.SmoothPlastic;bottle.Reflectance=.12;bottle.Transparency=.35;bottle.Size=Vector3.new(.9,1.1,.9)
 local stopper=potion.Stopper
@@ -85,7 +85,7 @@ extra("SealBand",Vector3.new(.4,.11,.4),Vector3.new(0,.65,0),Color3.fromRGB(222,
 local light=core:FindFirstChildOfClass("PointLight")
 if not light then light=Instance.new("PointLight");light.Parent=core end
 light.Color=Color3.fromRGB(176,83,255);light.Brightness=.5;light.Range=4
--- 出生方向与最初验收的通道对齐；不改变街道和楼梯几何。M2 自动化设施与 UnlockPad 见 build-automation-assets.luau。
+-- 出生方向与最初验收的通道对齐；不改变街道和楼梯几何。M2 自动化设施见 build-automation-assets.luau。
 local spawn=workspace.NeonContractDistrict.StreetSpawn
 spawn.CFrame=CFrame.new(55,spawn.Position.Y,29)
 -- 文案迁移与 update-processing-localization.luau 保持一致（离线测试校验）。
@@ -99,8 +99,9 @@ for _, value in gui:GetDescendants() do
 	if value:IsA("TextLabel") then
 		local dynamic = value.Name == "CoinsText" or value.Name == "CarryText" or value.Name == "StockText"
 			or value.Name == "HintText" or value.Name == "NoticeText" or value.Name == "ProgressText"
+			or value.Name == "ToolNameText" or value.Name == "ToolLvText" or value.Name == "KeyCodeText"
 		value.AutoLocalize = not dynamic and not string.find(value.Name, "KeyText")
-		if dynamic and value.Name ~= "ProgressText" then value.Text = "" end
+		if dynamic and value.Name ~= "ProgressText" and value.Name ~= "KeyCodeText" then value.Text = "" end
 	end
 end
 for _, node in gui:GetDescendants() do

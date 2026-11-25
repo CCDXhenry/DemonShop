@@ -386,7 +386,7 @@ bodyModel:Destroy()
 do
 	local fs = require('@lune/fs')
 	local Pose = require('./PaintBodyPose')
-	local source = R.deserializeModel(fs.readFile('Assets/Models/GameModels.rbxm'))[1].WhiteR15
+	local source = R.deserializeModel(fs.readFile('Assets/Models/GameModels.rbxm'))[1].Characters.WhiteR15
 	local motors = {}
 	local rootDrive = nil
 	for _, node in source:GetDescendants() do

@@ -5,6 +5,7 @@ local Types = require(script.Parent.GameTypes)
 local Surface = require(script.Parent.PaintSurface)
 local VisualRules = require(script.Parent.VisualRules)
 local Config = require(script.Parent.GameConfig)
+local GameData = require(script.Parent.GameData)
 local Curve = require(script.Parent.CurvedSurface)
 local BodyPose = require(script.Parent.PaintBodyPose)
 local folder = ReplicatedStorage:WaitForChild("RemoteEvents")
@@ -27,12 +28,17 @@ function Net.Validate(value: unknown): boolean
 		return false
 	end
 	if r.action == "PersonalUpgrade" then
-		return typeof(r.category) == "string" and Config.PersonalUpgradeCosts[r.category] ~= nil
+		if typeof(r.category) ~= "string" then return false end
+		local maxLevel = GameData.GetMaxUpgradeLevel(r.category)
+		return maxLevel >= 2
 			and Surface.IsFinite(r.expectedNextLevel) and (r.expectedNextLevel :: number) % 1 == 0
-			and (r.expectedNextLevel :: number) >= 2 and (r.expectedNextLevel :: number) <= #Config.PersonalUpgradeCosts[r.category]
+			and (r.expectedNextLevel :: number) >= 2 and (r.expectedNextLevel :: number) <= maxLevel
 	end
 	if r.action == "Sprint" then
 		return typeof(r.sprint) == "boolean"
+	end
+	if r.facilityId ~= nil and (not Surface.IsFinite(r.facilityId) or (r.facilityId :: number) < 1 or (r.facilityId :: number) % 1 ~= 0) then
+		return false
 	end
 	if r.target ~= nil and (typeof(r.target) ~= "string" or #r.target > 80) then
 		return false

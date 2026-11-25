@@ -29,7 +29,7 @@ local function check(condition,label) assert(condition,label);checks+=1 end
 local serial=0
 local function item(kind)
  serial+=1
- local model=(if kind=='Body' then RS.Models.WhiteR15 else RS.Models.Potion):Clone()
+ local model=(if kind=='Body' then RS.Models.Characters.WhiteR15 else RS.Models.Items.Potion):Clone()
  model.Parent=manager.runtime
  if kind=='Body' then Ragdoll.Setup(model) end
  local value={id='test-'..serial,kind=kind,stage=if kind=='Body' then 'Unpainted' else 'Ready',location='Carried',version=1,model=model,holder=a,hits=3,covered={},strokes={},strokePoints=0,area=0,totalArea=if kind=='Body' then Surface.Total(model) else 0,progress=0,paintSeconds=0,streetSlot=false,nextWalk=0}
@@ -51,7 +51,7 @@ local ok,result=pcall(function()
  manager:Table(a);check(manager.tableId==oldest and manager.paint.player==a,'carried body enters table')
  local token=manager.paint.token;manager:Table(b);check(manager.paint.player==a,'second painter cannot seize occupied table')
  local body=manager.items[oldest];body.progress=.42
- manager:EndPaint(a);check(a.Character:FindFirstChild("Club")~=nil,"leaving paint re-equips club");manager:Table(b);check(manager.paint.player==b and body.progress==.42,'interrupted painting retains progress for handoff')
+ manager:EndPaint(a);check(a.Character:FindFirstChild("W01_RustyPan")~=nil,"leaving paint re-equips initial weapon");manager:Table(b);check(manager.paint.player==b and body.progress==.42,'interrupted painting retains progress for handoff')
  local area=body.area;manager:Paint(a,{action='Paint',session=token,samples={}});check(body.area==area and manager.paint.player==b,'stale session rejected')
  manager:EndPaint(b);Carry.Take(body,a);manager.tableId=nil
  manager:Altar(a);check(manager.altarId==nil and body.holder==a,'unpainted altar input rejected')

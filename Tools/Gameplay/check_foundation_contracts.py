@@ -55,7 +55,9 @@ for row in manifest['rows']:
  if row['class']=='RemoteEvent':
   name=row['path'].split('.')[-1]
   check('"'+name+'"' in installer and '"'+name+'"' in net,'Missing reference event '+name)
-config=(shared/'GameConfig.luau').read_text(encoding='utf-8')
+config_path=shared/'GameConfig'/'init.luau'
+if not config_path.exists():config_path=shared/'GameConfig.luau'
+config=config_path.read_text(encoding='utf-8')
 check('local GameConfig = {}' in config and 'return GameConfig' in config,'reference configuration module shape')
 sections=['GameConfig.GameVersion =','GameConfig.ABTestVersion =','GameConfig.PlayerSaveInfoDataVersion =','GameConfig.GameId =','GameConfig.GamePassId =','GameConfig.GamePassPrice =','export type SettingInfo =','export type PlayerConfigInfo =','export type PlayerSaveInfo =','export type PlayerInfo = PlayerSaveInfo &','export type ReceiptInfo =','function GameConfig.CreateDefaultPlayerSaveInfo(','export type ClientLocalPlayerSaveInfo =','export type ClientOtherPlayerSaveInfo =']
 check(all(section in config for section in sections) and [config.index(section) for section in sections]==sorted(config.index(section) for section in sections),'reference configuration section order')

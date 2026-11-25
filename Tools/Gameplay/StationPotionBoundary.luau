@@ -333,12 +333,12 @@ function B.BuildDistrict(ranges)
 		priceStroke.Parent = priceFrame
 		pad.Parent = padsFolder
 	end
-	makePad('A00_FastChute', 'A00', '', 'PRE-REQ: NONE', 250, Vector3.new(-65.8, 21.4, -37.25))
-	makePad('A01_Brute1', 'A01', 'A00', 'REQUIRES: FAST DROP CHUTE', 1000, Vector3.new(-54.0, 20.345, -44.2))
-	makePad('A02_Brute2', 'A02', 'A01', 'REQUIRES: HELL BRUTE #1', 2500, Vector3.new(-50.2, 20.345, -44.2))
-	makePad('A03_AutoRune', 'A03', 'A00', 'REQUIRES: FAST DROP CHUTE', 2000, Vector3.new(-19.0, 0.0, -19.25))
-	makePad('A04_AutoSmelter', 'A04', 'A03', 'REQUIRES: AUTO RUNE TABLE', 4500, Vector3.new(-1.0, 0.0, -17.25))
-	makePad('A05_AutoClerk', 'A05', '', 'PRE-REQ: NONE', 9000, Vector3.new(22.0, 0.0, -19.25))
+	makePad('A00_FastChute', 1, 0, 'PRE-REQ: NONE', 250, Vector3.new(-65.8, 21.4, -37.25))
+	makePad('A01_Brute1', 2, 1, 'REQUIRES: FAST DROP CHUTE', 1000, Vector3.new(-54.0, 20.345, -44.2))
+	makePad('A02_Brute2', 3, 2, 'REQUIRES: HELL BRUTE #1', 2500, Vector3.new(-50.2, 20.345, -44.2))
+	makePad('A03_AutoRune', 4, 1, 'REQUIRES: FAST DROP CHUTE', 2000, Vector3.new(-19.0, 0.0, -19.25))
+	makePad('A04_AutoSmelter', 5, 4, 'REQUIRES: AUTO RUNE TABLE', 4500, Vector3.new(-1.0, 0.0, -17.25))
+	makePad('A05_AutoClerk', 6, 0, 'PRE-REQ: NONE', 9000, Vector3.new(22.0, 0.0, -19.25))
 
 	B.district = d
 	B.wallPart = makePart(d, 'OccludingWall', Vector3.new(0, 100, 0), Vector3.new(4, 4, 4))
@@ -412,22 +412,41 @@ B.PhysicsService = {
 
 local modelsFolder = Instance.new('Folder')
 modelsFolder.Name = 'Models'
+local charactersFolder = Instance.new('Folder')
+charactersFolder.Name = 'Characters'
+charactersFolder.Parent = modelsFolder
+local weaponsFolder = Instance.new('Folder')
+weaponsFolder.Name = 'Weapons'
+weaponsFolder.Parent = modelsFolder
+local carryRigsFolder = Instance.new('Folder')
+carryRigsFolder.Name = 'CarryRigs'
+carryRigsFolder.Parent = modelsFolder
+local itemsFolder = Instance.new('Folder')
+itemsFolder.Name = 'Items'
+itemsFolder.Parent = modelsFolder
+local effectsFolder = Instance.new('Folder')
+effectsFolder.Name = 'Effects'
+effectsFolder.Parent = modelsFolder
+local previewsFolder = Instance.new('Folder')
+previewsFolder.Name = 'Previews'
+previewsFolder.Parent = modelsFolder
+
 local potionTemplate = Instance.new('Tool')
 potionTemplate.Name = 'Potion'
 local potionHandle = Instance.new('Part')
 potionHandle.Name = 'Handle'
 potionHandle.Parent = potionTemplate
-potionTemplate.Parent = modelsFolder
+potionTemplate.Parent = itemsFolder
 
 local clubTemplate = Instance.new('Tool')
-clubTemplate.Name = 'Club'
+clubTemplate.Name = 'W01_RustyPan'
 local clubHandle = Instance.new('Part')
 clubHandle.Name = 'Handle'
 clubHandle.Parent = clubTemplate
 local slashSound = Instance.new('Sound')
 slashSound.Name = 'SwordSlash'
 slashSound.Parent = clubHandle
-clubTemplate.Parent = modelsFolder
+clubTemplate.Parent = weaponsFolder
 
 local whiteTemplate = Instance.new('Model')
 whiteTemplate.Name = 'WhiteR15'
@@ -447,11 +466,11 @@ whiteTorso.Parent = whiteTemplate
 local whiteHum = Instance.new('Humanoid')
 whiteHum.Parent = whiteTemplate
 whiteTemplate.PrimaryPart = whiteHrp
-whiteTemplate.Parent = modelsFolder
+whiteTemplate.Parent = charactersFolder
 for _, bruteName in { 'HellBrute_1', 'HellBrute_2', 'AutoClerk' } do
 	local brute = whiteTemplate:Clone()
 	brute.Name = bruteName
-	brute.Parent = modelsFolder
+	brute.Parent = charactersFolder
 end
 
 B.ModelsFolder = modelsFolder

@@ -1,23 +1,23 @@
 -- 自动化公共解锁规则：前置校验、三态 UI 状态计算及 UnlockPad 外观同步
 --!strict
-local Config = require(script.Parent.GameConfig)
+local GameData = require(script.Parent.GameData)
 local Texts = require(script.Parent.GameTexts)
 export type PadState = string -- "Unlocked" | "Locked" | "Insufficient" | "Ready"
 export type SyncOptions = {
 	skipText: boolean?,
 }
 type AutomationRulesApi = {
-	GetFacility: (facilityId: string) -> Config.AutomationFacilityConfig?,
-	ArePrerequisitesMet: (facilityId: string, unlocked: { [string]: boolean }?) -> boolean,
-	ComputePadState: (facilityId: string, unlocked: { [string]: boolean }?, coins: number) -> PadState,
+	GetFacility: (facilityId: number) -> GameData.AutomationFacilityConfig?,
+	ArePrerequisitesMet: (facilityId: number, unlocked: { [number]: boolean }?) -> boolean,
+	ComputePadState: (facilityId: number, unlocked: { [number]: boolean }?, coins: number) -> PadState,
 	FormatCost: (cost: number) -> string,
-	DescribeTitle: (facilityId: string) -> Texts.Description?,
-	DescribeDesc: (facilityId: string) -> Texts.Description?,
-	DescribePrereq: (facilityId: string, state: PadState) -> Texts.Description,
-	DescribePrice: (facilityId: string) -> Texts.Description?,
-	FormatPrereqLabel: (facilityId: string, state: PadState, defaultLabel: string?) -> string,
+	DescribeTitle: (facilityId: number) -> string?,
+	DescribeDesc: (facilityId: number) -> string?,
+	DescribePrereq: (facilityId: number, state: PadState) -> Texts.Description,
+	DescribePrice: (facilityId: number) -> Texts.Description?,
+	FormatPrereqLabel: (facilityId: number, state: PadState, defaultLabel: string?) -> string,
 	ApplyPadVisual: (pad: Model, state: PadState, prereqLabel: string?, options: SyncOptions?) -> (),
-	SyncPad: (pad: Model, unlocked: { [string]: boolean }?, coins: number, options: SyncOptions?) -> PadState,
+	SyncPad: (pad: Model, unlocked: { [number]: boolean }?, coins: number, options: SyncOptions?) -> PadState,
 }
 
 local DefaultLockedColor = Color3.fromRGB(130, 136, 150)
@@ -30,30 +30,31 @@ local VisibleParts: { [string]: boolean } = {
 	CenterGlyph = true,
 }
 
-local function GetFacility(facilityId: string): Config.AutomationFacilityConfig?
-	return Config.AutomationFacilities[facilityId]
+local function GetFacility(facilityId: number): GameData.AutomationFacilityConfig?
+	return GameData.GetFacility(facilityId)
 end
 
-local function ArePrerequisitesMet(facilityId: string, unlocked: { [string]: boolean }?): boolean
-	local def = Config.AutomationFacilities[facilityId]
+local function ArePrerequisitesMet(facilityId: number, unlocked: { [number]: boolean }?): boolean
+	local def = GameData.GetFacility(facilityId)
 	if not def then
 		return false
 	end
-	if not def.prerequisite or def.prerequisite == "" then
+	if not def.prerequisite then
 		return true
 	end
 	return unlocked ~= nil and unlocked[def.prerequisite] == true
 end
 
-local function ComputePadState(facilityId: string, unlocked: { [string]: boolean }?, coins: number): PadState
+local function ComputePadState(facilityId: number, unlocked: { [number]: boolean }?, coins: number): PadState
 	local result: PadState
+	local def = GameData.GetFacility(facilityId)
 	if unlocked and unlocked[facilityId] == true then
 		result = "Unlocked"
-	elseif not Config.AutomationFacilities[facilityId] then
+	elseif not def then
 		result = "Locked"
 	elseif not ArePrerequisitesMet(facilityId, unlocked) then
 		result = "Locked"
-	elseif coins ~= coins or coins < Config.AutomationFacilities[facilityId].cost then
+	elseif coins ~= coins or coins < def.cost then
 		result = "Insufficient"
 	else
 		result = "Ready"
@@ -73,55 +74,55 @@ local function FormatCost(cost: number): string
 	return rounded
 end
 
-local function DescribeTitle(facilityId: string): Texts.Description?
-	local def = Config.AutomationFacilities[facilityId]
+local function DescribeTitle(facilityId: number): string?
+	local def = GameData.GetFacility(facilityId)
 	if not def then
 		return nil
 	end
-	return { textId = def.nameTextId :: Texts.TextId }
+	return def.name_t
 end
 
-local function DescribeDesc(facilityId: string): Texts.Description?
-	local def = Config.AutomationFacilities[facilityId]
+local function DescribeDesc(facilityId: number): string?
+	local def = GameData.GetFacility(facilityId)
 	if not def then
 		return nil
 	end
-	return { textId = def.descTextId :: Texts.TextId }
+	return def.desc_t
 end
 
-local function DescribePrereq(facilityId: string, state: PadState): Texts.Description
-	local def = Config.AutomationFacilities[facilityId]
-	if not def or not def.prerequisite or def.prerequisite == "" then
+local function DescribePrereq(facilityId: number, state: PadState): Texts.Description
+	local def = GameData.GetFacility(facilityId)
+	if not def or not def.prerequisite then
 		return { textId = "PadPrereqNone" }
 	end
 	if state == "Locked" then
-		local prereq = Config.AutomationFacilities[def.prerequisite]
-		local targetName = if prereq then prereq.name else def.prerequisite
-		local argTextIds = if prereq then { [1] = prereq.nameTextId :: Texts.TextId } else nil
-		return { textId = "PadPrereqRequires", args = { targetName }, argTextIds = argTextIds }
+		local prereq = GameData.GetFacility(def.prerequisite)
+		local targetName = if prereq then prereq.name_t else tostring(def.prerequisite)
+		local argSources = if prereq then { [1] = prereq.name_t } else nil
+		return { textId = "PadPrereqRequires", args = { targetName }, argSources = argSources }
 	end
 	return { textId = "PadPrereqUnlocked" }
 end
 
-local function DescribePrice(facilityId: string): Texts.Description?
-	local def = Config.AutomationFacilities[facilityId]
+local function DescribePrice(facilityId: number): Texts.Description?
+	local def = GameData.GetFacility(facilityId)
 	if not def then
 		return nil
 	end
 	return { textId = "PadPrice", args = { FormatCost(def.cost) } }
 end
 
-local function FormatPrereqLabel(facilityId: string, state: PadState, defaultLabel: string?): string
-	local def = Config.AutomationFacilities[facilityId]
-	if not def or not def.prerequisite or def.prerequisite == "" then
+local function FormatPrereqLabel(facilityId: number, state: PadState, defaultLabel: string?): string
+	local def = GameData.GetFacility(facilityId)
+	if not def or not def.prerequisite then
 		return defaultLabel or Texts.Automation.PadPrereqNone.source
 	end
 	if state == "Locked" then
 		if defaultLabel and defaultLabel ~= "" then
 			return defaultLabel
 		end
-		local prereq = Config.AutomationFacilities[def.prerequisite]
-		local name = if prereq then prereq.name else def.prerequisite
+		local prereq = GameData.GetFacility(def.prerequisite)
+		local name = if prereq then prereq.name_t else tostring(def.prerequisite)
 		return (string.gsub(Texts.Automation.PadPrereqRequires.source, "{1}", name))
 	end
 	return Texts.Automation.PadPrereqUnlocked.source
@@ -185,7 +186,7 @@ local function ApplyPadVisual(pad: Model, state: PadState, prereqLabel: string?,
 		if pLabel and pLabel:IsA("TextLabel") then
 			if not (options and options.skipText) then
 				local facilityId = pad:GetAttribute("FacilityId")
-				if typeof(facilityId) == "string" then
+				if typeof(facilityId) == "number" and facilityId >= 1 and facilityId % 1 == 0 then
 					pLabel.Text = FormatPrereqLabel(facilityId, state, prereqLabel)
 				elseif prereqLabel then
 					pLabel.Text = prereqLabel
@@ -206,9 +207,9 @@ local function ApplyPadVisual(pad: Model, state: PadState, prereqLabel: string?,
 	end
 end
 
-local function SyncPad(pad: Model, unlocked: { [string]: boolean }?, coins: number, options: SyncOptions?): PadState
+local function SyncPad(pad: Model, unlocked: { [number]: boolean }?, coins: number, options: SyncOptions?): PadState
 	local facilityId = pad:GetAttribute("FacilityId")
-	if typeof(facilityId) ~= "string" or facilityId == "" then
+	if typeof(facilityId) ~= "number" or facilityId < 1 or facilityId % 1 ~= 0 then
 		return "Locked"
 	end
 	local state = ComputePadState(facilityId, unlocked, coins)

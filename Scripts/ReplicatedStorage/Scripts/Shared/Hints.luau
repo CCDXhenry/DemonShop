@@ -2,6 +2,7 @@
 --!strict
 local Types = require(script.Parent.GameTypes)
 local Config = require(script.Parent.GameConfig)
+local GameData = require(script.Parent.GameData)
 local GameTexts = require(script.Parent.GameTexts)
 local Hints = {}
 export type Potions = { stored: number, equipped: boolean, reward: number? }
@@ -47,7 +48,7 @@ function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?, potions: P
 		if snapshot.tableId then return Describe("ReturnTable") end
 		if snapshot.pool > 0 then return Describe("FetchPool") end
 	end
-	return Describe("StunNpc", { tostring(Config.StunHits) })
+	return Describe("StunNpc")
 end
 function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.ItemView?, userId: number, potions: Potions?, stack: { Types.ItemView }?): GameTexts.Description
 	local load = ReadCarry(held, stack)
@@ -58,15 +59,14 @@ function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.Ite
 		return if snapshot and snapshot.pool > 0 then Describe("TakeSharedBody") else Describe("PoolEmpty")
 	elseif target == "Table" then
 		if snapshot and snapshot.painter and snapshot.painter ~= userId then return Describe("TableOtherPainter") end
-		if carrying then
-			if snapshot and snapshot.tableId then return Describe("TableOccupied") end
-			return if load.unfinished then Describe("PlaceBody") else Describe("TableNeedsBody")
-		end
 		if snapshot and snapshot.tableId then
 			for _, item in snapshot.items do
-				if item.id == snapshot.tableId then return if item.stage == "Painted" then Describe("CollectRuneBody") else Describe("ContinuePainting") end
+				if item.id ~= snapshot.tableId then continue end
+				if item.stage ~= "Painted" then return Describe("ContinuePainting") end
+				return Describe(if carrying then "TableOccupied" else "CollectRuneBody")
 			end
 		end
+		if carrying then return if load.unfinished then Describe("PlaceBody") else Describe("TableNeedsBody") end
 		return if snapshot and snapshot.pool > 0 then Describe("FetchAndPaint") else Describe("TableEmpty")
 	elseif target == "Altar" then
 		if load.painted then return Describe("InsertRuneBody") end
@@ -81,7 +81,7 @@ function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.Ite
 		if potions and (potions.equipped or potions.stored > 0) then return Describe("OfferPotion", { tostring(potions.reward or Config.PotionReward) }) end
 		return Describe("BringPotion")
 	elseif target == "Chute" then
-		if not (snapshot and snapshot.unlockedFacilities and snapshot.unlockedFacilities.A00) then return Describe("ChuteLocked") end
+		if not (snapshot and snapshot.unlockedFacilities and snapshot.unlockedFacilities[GameData.FacilityId.FastChute]) then return Describe("ChuteLocked") end
 		if load.unfinished then return Describe("DepositBodies") end
 		if carrying then return Describe("ChuteUnfinishedOnly") end
 		return Describe("ChuteNeedsBody")

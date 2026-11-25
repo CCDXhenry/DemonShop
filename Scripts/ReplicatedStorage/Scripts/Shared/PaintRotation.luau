@@ -7,6 +7,31 @@ local Rotation = {}
 local FullSpeedRadius = 0.45 -- 视口短边的比例
 export type Geometry = { center: Vector3, rest: CFrame, radius: number, halfExtents: Vector3? }
 
+-- 偏移沿俯视镜头的左右和上下轴，保留同批白膜的相同朝向。
+local BatchHorizontalSpacing = 5.55
+local BatchVerticalSpacing = 3.25
+local BatchOffsets = {
+	Vector3.zero, -Vector3.xAxis * BatchHorizontalSpacing, Vector3.xAxis * BatchHorizontalSpacing,
+	Vector3.zAxis * BatchVerticalSpacing, -Vector3.zAxis * BatchVerticalSpacing,
+}
+
+function Rotation.BatchOffset(slot: number): Vector3
+	return BatchOffsets[slot]
+end
+
+function Rotation.BatchCameraHeight(count: number): number
+	if count <= 1 then return Config.PaintCameraHeight end
+	return if count <= 3 then Config.PaintMediumBatchCameraHeight else Config.PaintLargeBatchCameraHeight
+end
+
+function Rotation.BatchCameraFov(count: number, aspect: number): number
+	if count <= 1 then return 45 end
+	local halfWidth = BatchHorizontalSpacing + 3
+	local halfHeight = if count <= 3 then 2 else BatchVerticalSpacing + 2
+	local fit = math.max(halfHeight, halfWidth / math.max(aspect, 0.1))
+	return math.clamp(math.deg(2 * math.atan(fit / Rotation.BatchCameraHeight(count))), 45, 120)
+end
+
 Rotation.FlipOrientation = CFrame.Angles(0, math.pi, 0)
 
 function Rotation.FlatOrientation(flipped: boolean): CFrame
@@ -33,9 +58,9 @@ function Rotation.TablePose(position: Vector3): CFrame
 	return CFrame.fromMatrix(position, -Vector3.zAxis, Vector3.xAxis)
 end
 
-function Rotation.CameraPose(position: Vector3): CFrame
+function Rotation.CameraPose(position: Vector3, count: number?): CFrame
 	-- 正上方。画面右侧朝世界 -X，画面上方朝世界 +Z（台子远处、牌子在画面下方）。
-	local eye = position + Vector3.yAxis * Config.PaintCameraHeight
+	local eye = position + Vector3.yAxis * Rotation.BatchCameraHeight(count or 1)
 	return CFrame.fromMatrix(eye, -Vector3.xAxis, Vector3.zAxis)
 end
 

@@ -23,7 +23,7 @@ Check(Action('Table',raw)=='PlaceBody' and Action('Table',potion)==nil,'table re
 snapshot.pool=0
 Check(Action('Table',nil)==nil,'empty table hidden')
 snapshot.tableId='raw'
-Check(Action('Table',nil)=='ContinuePainting' and Action('Table',raw)==nil,'occupied table continues with empty hands')
+Check(Action('Table',nil)=='ContinuePainting' and Action('Table',raw)=='ContinuePainting','unfinished table can be resumed while carrying batch material')
 snapshot.tableId='painted'
 Check(Action('Table',nil)=='CollectRuneBody','completed table pickup')
 snapshot.painter=2
@@ -47,7 +47,7 @@ Check(Action('Pool',nil,nil,{painted,raw})=='StoreBody','pool matches a lower un
 Check(Action('Altar',nil,nil,{raw,painted})=='InsertRuneBody','altar matches a lower rune body')
 Check(Action('Shelf',nil,nil,{raw})==nil,'shelf hidden while a body stack is carried')
 Check(Action('Chute',raw)==nil,'chute prompt hidden until A00 unlocked')
-snapshot.unlockedFacilities={A00=true}
+snapshot.unlockedFacilities={[1]=true}
 Check(Action('Chute',raw)=='DepositBodies' and Action('Chute',painted)==nil,'chute accepts unfinished bodies after A00 unlock')
 Check(Action('Chute',nil,nil,{painted,raw})=='DepositBodies','chute matches any unfinished body in carried stack')
 Check(Action('ChutePickup',nil)==nil,'empty chute pickup hidden')

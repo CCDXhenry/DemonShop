@@ -6,10 +6,12 @@ local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Scripts.Shared
 local Config = require(Shared.GameConfig)
+local GameData = require(Shared.GameData)
 local GameTexts = require(Shared.GameTexts)
 local Types = require(Shared.GameTypes)
 local Net = require(Shared.ProcessingNet)
 local Lifecycle = require(Shared.LifecycleTool)
+local ModelTemplates = require(Shared.ModelTemplates)
 local Rules = require(Shared.PersonalUpgradeRules)
 local UIManager = require(script.Parent.UIManager)
 local WindowBase = require(script.Parent.UIManager.WindowBase)
@@ -20,15 +22,15 @@ local Sprint = require(script.Parent.SprintController)
 local Shop = {}
 local player = Players.LocalPlayer
 local WindowId = "PersonalShop"
-local AbilityCategories = {"moveSpeed", "runeBatch", "sellBonus"}
-local ToolCategories = {"weapon", "carryTool"}
+local AbilityCategories: {GameData.UpgradeCategory} = {"moveSpeed", "runeBatch", "sellBonus"}
+local ToolCategories: {GameData.UpgradeCategory} = {"weapon", "carryTool"}
 local Titles: {[string]: GameTexts.TextId} = {
 	moveSpeed = "ShopMove", runeBatch = "ShopRunes", sellBonus = "ShopSales",
 	weapon = "ShopWeapon", carryTool = "ShopCarry",
 }
-local TierNames: {[string]: GameTexts.TextId} = {
-	W01 = "ShopW01", W02 = "ShopW02", W03 = "ShopW03", W04 = "ShopW04", W05 = "ShopW05", W06 = "ShopW06",
-	T0 = "ShopT0", T1 = "ShopT1", T2 = "ShopT2", T3 = "ShopT3", T4 = "ShopT4",
+local WeaponShapes: {[string]: GameTexts.TextId} = {
+	Single = "ShopWeaponSingle", Cone = "ShopWeaponCone", Spin = "ShopWeaponSpin",
+	Line = "ShopWeaponLine", Slam = "ShopWeaponSlam",
 }
 local CompletedColor = Color3.fromRGB(255, 223, 81)
 local CurrentColor = Color3.fromRGB(222, 153, 56)
@@ -41,13 +43,18 @@ local function Bind(text: Text.Controller, parent: Instance, name: string, id: G
 	text:Bind(label, {textId = id, args = args})
 end
 
-local function RenderPreview(card: Frame, previews: Folder, id: string): ()
+local function RenderPreview(card: Frame, id: string, source: Instance?): ()
 	if card:GetAttribute("PreviewId") == id then return end
 	local viewport = card:FindFirstChild("ToolViewport") :: ViewportFrame
-	local world = viewport:FindFirstChildOfClass("WorldModel") :: WorldModel
-	local source = previews:FindFirstChild(id) :: Model
+	if source and source:IsA("Tool") then source = source:FindFirstChild("Visual") end
+	if not source or not source:IsA("Model") then return end
+	local world = viewport:FindFirstChildOfClass("WorldModel") or ModelTemplates.WaitViewportWorld():Clone()
+	world.Parent = viewport
 	world:ClearAllChildren()
 	local clone = source:Clone()
+	for _, child in clone:GetDescendants() do
+		if child:IsA("BasePart") then child.Anchored = true end
+	end
 	clone.Parent = world
 	local camera: Camera = viewport:FindFirstChildOfClass("Camera") or Instance.new("Camera")
 	camera.Parent = viewport
@@ -59,7 +66,7 @@ local function RenderPreview(card: Frame, previews: Folder, id: string): ()
 	card:SetAttribute("PreviewId", id)
 end
 
-local function RefreshComparison(text: Text.Controller, card: Frame, previews: Folder, category: string, current: number, nextLevel: number?): ()
+local function RefreshComparison(text: Text.Controller, card: Frame, category: string, current: number, nextLevel: number?): ()
 	local compare = card:FindFirstChild("CompareFrame") :: Frame
 	if category == "moveSpeed" then
 		local now = Rules.GetMoveTier(current)
@@ -78,7 +85,7 @@ local function RefreshComparison(text: Text.Controller, card: Frame, previews: F
 		else
 			Bind(text, compare, "PrimaryText", "ShopRuneValue", now)
 		end
-		Bind(text, compare, "SecondaryText", "ShopPendingAbility")
+		Bind(text, compare, "SecondaryText", "ShopRuneBatchHint")
 	elseif category == "sellBonus" then
 		local now = math.round(Rules.GetSellBonus(current) * 100)
 		if nextLevel then
@@ -89,25 +96,27 @@ local function RefreshComparison(text: Text.Controller, card: Frame, previews: F
 		Bind(text, compare, "SecondaryText", "ShopPrice", Rules.ComputePlayerPayout(Config.PotionReward, current))
 	elseif category == "weapon" then
 		local now = Rules.GetWeaponTier(current)
-		RenderPreview(card, previews, now.id)
-		Bind(text, card, "TierText", TierNames[now.id])
+		RenderPreview(card, now.model, ModelTemplates.FindWeapon(now.model))
+		text:BindSource(card:FindFirstChild("TierText") :: TextLabel, now.name_t)
 		if nextLevel then
 			local next = Rules.GetWeaponTier(nextLevel)
 			Bind(text, compare, "PrimaryText", "ShopWeaponCompare", now.damage, next.damage, now.targets, next.targets)
 		else
 			Bind(text, compare, "PrimaryText", "ShopWeaponValue", now.damage, now.targets)
 		end
-		Bind(text, compare, "SecondaryText", "ShopPendingWeapon")
+		Bind(text, compare, "SecondaryText", WeaponShapes[now.shape])
 	else
 		local now = Rules.GetCarryTier(current)
-		RenderPreview(card, previews, now.id)
-		Bind(text, card, "TierText", TierNames[now.id])
+		local previewId = if now.previewModel ~= "" then now.previewModel else now.model
+		local source: Instance? = if now.previewModel ~= "" then ModelTemplates.FindPreview(now.previewModel) else ModelTemplates.FindCarryRig(now.model)
+		RenderPreview(card, previewId, source)
+		text:BindSource(card:FindFirstChild("TierText") :: TextLabel, now.name_t)
 		if nextLevel then
 			Bind(text, compare, "PrimaryText", "ShopCarryCompare", now.capacity, Rules.GetCarryTier(nextLevel).capacity)
 		else
 			Bind(text, compare, "PrimaryText", "ShopCarryValue", now.capacity)
 		end
-		Bind(text, compare, "SecondaryText", "ShopPendingCarry")
+		(compare:FindFirstChild("SecondaryText") :: TextLabel).Visible = false
 	end
 end
 
@@ -115,7 +124,7 @@ local function Coins(): number
 	return player:GetAttribute("Coins") :: number? or 0
 end
 
-local function CanBuyAny(levels: Rules.Levels, categories: {string}, coins: number): boolean
+local function CanBuyAny(levels: Rules.Levels, categories: {GameData.UpgradeCategory}, coins: number): boolean
 	for _, category in categories do
 		if Rules.IsAffordable(levels, category, coins) then return true end
 	end
@@ -142,14 +151,13 @@ function Shop.Init(gui: ScreenGui, sprintButton: ImageButton, scope: Lifecycle.L
 		if not allowed then UIManager.CloseWindow(WindowId) end
 		shortcut.Visible = allowed
 		local coins = Coins()
-		shortcutAlert.Visible = allowed and CanBuyAny(levels, Config.PersonalUpgradeOrder, coins)
+		shortcutAlert.Visible = allowed and CanBuyAny(levels, GameData.GetPersonalUpgradeOrder(), coins)
 		if refreshWindow then refreshWindow() end
 	end
 
 	local function NewWindow(frame: Frame, id: string, actions: UIActions.UIActions): WindowBase.WindowBase
 		local window = WindowBase.new(frame, id, actions)
 		local panel = frame:FindFirstChild("PanelFrame") :: Frame
-		local previews = frame:FindFirstChild("Previews") :: Folder
 		local windowText = Text.new()
 		local abilityPage = panel:FindFirstChild("AbilitiesFrame") :: Frame
 		local toolPage = panel:FindFirstChild("ToolsFrame") :: Frame
@@ -166,7 +174,7 @@ function Shop.Init(gui: ScreenGui, sprintButton: ImageButton, scope: Lifecycle.L
 		Bind(windowText, panel:FindFirstChild("HeaderFrame") :: Frame, "TitleText", "ShopTitle")
 		Bind(windowText, abilityTab, "TitleText", "ShopAbilities")
 		Bind(windowText, toolTab, "TitleText", "ShopTools")
-		for _, category in Config.PersonalUpgradeOrder do
+		for _, category in GameData.GetPersonalUpgradeOrder() do
 			local page = if category == "weapon" or category == "carryTool" then toolPage else abilityPage
 			local card = page:FindFirstChild(category) :: Frame
 			cards[category] = card
@@ -191,7 +199,7 @@ function Shop.Init(gui: ScreenGui, sprintButton: ImageButton, scope: Lifecycle.L
 			toolAlert.Visible = not toolPage.Visible and CanBuyAny(levels, ToolCategories, coins)
 			for category, card in cards do
 				local level = levels[category]
-				local costs = Config.PersonalUpgradeCosts[category]
+				local maxLevel = GameData.GetMaxUpgradeLevel(category)
 				local cost = Rules.GetPurchaseCost(levels, category, level + 1)
 				local affordable = Rules.IsAffordable(levels, category, coins)
 				local buy = card:FindFirstChild("BuyButton") :: ImageButton
@@ -205,12 +213,12 @@ function Shop.Init(gui: ScreenGui, sprintButton: ImageButton, scope: Lifecycle.L
 					Bind(windowText, buy, "TitleText", "ShopMax")
 				end
 				local route = card:FindFirstChild("ProgressFrame") :: Frame
-				for i = 1, #costs do
+				for i = 1, maxLevel do
 					local step = route:FindFirstChild("Step" .. i) :: Frame
 					local evolution = card.Parent == toolPage
 					step.BackgroundColor3 = if i > level then LockedColor elseif evolution and i ~= level then CurrentColor else CompletedColor
 				end
-				RefreshComparison(windowText, card, previews, category, level, if cost then level + 1 else nil)
+				RefreshComparison(windowText, card, category, level, if cost then level + 1 else nil)
 			end
 		end
 

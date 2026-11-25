@@ -2,6 +2,13 @@
 
 用于新增独立刚性道具、动物/生物、装备与表现预制体的通用规范。已有资产优先兼容实际消费代码。
 
+## 存储边界与目录分类
+
+- **静态常驻场景直接放 `Workspace`**：地图、建筑、工位、静态锚点与已在 Edit 模式摆放好的固定设施常驻 `Workspace`，不放进 `ReplicatedStorage.Models`，不在服务端启动时从 `ReplicatedStorage` 克隆整张静态地图，也不塞入运行时模板恢复包。
+- **`ReplicatedStorage.Models` 仅放运行时动态创建/克隆的模板**：凡在运行中通过 `Clone()` 实例化的角色/NPC、装备武器、角色挂件、道具、表现/瞄准特效与 3D 视口预览模板，统一以 `ReplicatedStorage.Models` 作为唯一实例来源，避免多份副本漂移。
+- **分类明确，禁止根目录散放**：`ReplicatedStorage.Models` 根目录只放置语义明确的分类 `Folder`（如 `Characters`、`Weapons`、`CarryRigs`、`Items`、`Effects`、`Previews`），禁止在根目录直接平铺 `Model`、`Tool` 或 `WorldModel`；业务代码通过共享模板索引模块或明确分类路径读取，预加载逻辑需遍历分类子目录。
+- **Edit 专用或废弃原型不留驻 `Models`**：仅用于 Edit 构建期且运行时不克隆的静态设施母版、已退役的旧原型模型，不长期滞留在 `ReplicatedStorage.Models`。
+
 ## 锚点与边界
 
 - 需要统一放置锚点时，以 RootPart 为 Model.PrimaryPart。新建辅助 RootPart 默认 Part 尺寸 0.2×0.2×0.2，位于模型底部中心，底面与视觉包围盒底面对齐。

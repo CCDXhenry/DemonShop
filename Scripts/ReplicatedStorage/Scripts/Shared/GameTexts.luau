@@ -1,7 +1,7 @@
 -- 加工多语言文案：业务分组、TextId 查询、插件扁平采集及旧通知解析
 --!strict
-export type TextId = "ShopTitle" | "ShopAbilities" | "ShopTools" | "ShopMove" | "ShopRunes" | "ShopSales" | "ShopWeapon" | "ShopCarry" | "ShopSprint" | "ShopStamina" | "ShopEquipped" | "ShopMax" | "ShopPrice" | "ShopWalkValue" | "ShopUnlimitedSprint" | "ShopRuneValue" | "ShopSellValue" | "ShopWeaponValue" | "ShopCarryValue" | "ShopWalkCompare" | "ShopSprintCompare" | "ShopSprintUnlimitedCompare" | "ShopRuneCompare" | "ShopSellCompare" | "ShopCarryCompare" | "ShopWeaponCompare" | "ShopPendingAbility" | "ShopPendingWeapon" | "ShopPendingCarry" | "ShopW01" | "ShopW02" | "ShopW03" | "ShopW04" | "ShopW05" | "ShopW06" | "ShopT0" | "ShopT1" | "ShopT2" | "ShopT3" | "ShopT4" | "PromptPickUp" | "PromptPool" | "PromptTable" | "PromptAltar" | "PromptShelf" | "PromptSigil" | "PromptBody" | "PromptPotion" | "PromptOffer" | "PromptChute" | "PromptChuteLanding" | "PromptAutoOutput" | "PromptAutoShelf" | "DepositBodies" | "TakeChuteBody" | "TakeAutoRuneBody" | "CollectAutoPotion" | "TakePotion" | "TakeRuneBody" | "TakeBody" | "PotionReady" | "AltarWorking" | "ReturnTable" | "FetchPool" | "StunNpc" | "PoolUnfinishedOnly" | "StoreBody" | "TakeSharedBody" | "PoolEmpty" | "TableOtherPainter" | "TableOccupied" | "PlaceBody" | "TableNeedsBody" | "CollectRuneBody" | "ContinuePainting" | "FetchAndPaint" | "TableEmpty" | "ShelfFull" | "AltarBusy" | "InsertRuneBody" | "AltarNeedsRuneBody" | "HandsFullHint" | "CollectPotion" | "NoPotion" | "OfferPotion" | "EquipPotion" | "BringPotion" | "CarryBody" | "ChuteLocked" | "ChuteUnfinishedOnly" | "ChuteNeedsBody" | "ChuteEmpty" | "AutoOutputEmpty" | "NoAutoPotion" | "TableInUse" | "StoreUnfinished" | "PoolFull" | "PoolIsEmpty" | "TableIsOccupied" | "BringUnfinished" | "BringStunned" | "AltarOccupied" | "AltarNeedsCompleted" | "HandsFull" | "PotionsNotReady" | "BringPotionSigil" | "CoinLimit" | "RuneComplete" | "StationChanged" | "StationTooFar" | "ItemChanged" | "ItemUnavailable" | "PaintOutOfSequence" | "PaintRateExceeded" | "InvalidPaintPart" | "PaintVersionMismatch" | "PaintRejected" | "InvalidVisualSegment" | "DuplicateVisualSegment" | "SegmentOriginChanged" | "PaintBudgetReached" | "Coins" | "Stock" | "AltarCountdown" | "AltarShelfFull" | "CarryingPotion" | "CarryingRuneBody" | "CarryingBody" | "CarryingBodies" | "HandsEmpty" | "Painting" | "PaintingFlat" | "PaintFlipped" | "TakeTableBody" | "ThrowAim" | "TargetStunned" | "HitCount" | "StunnedCarry" | "CoinsAwarded" | "FacilityUnlocked" | "PaintSyncFailed" | "PaintSurfaceUnavailable" | "PaintSegmentLimit" | "UnknownNotice" | "PadNameA00" | "PadNameA01" | "PadNameA02" | "PadNameA03" | "PadNameA04" | "PadNameA05" | "PadDescA00" | "PadDescA01" | "PadDescA02" | "PadDescA03" | "PadDescA04" | "PadDescA05" | "PadPrereqNone" | "PadPrereqUnlocked" | "PadPrereqRequires" | "PadPrice"
-export type Description = { textId: TextId, args: {string}?, argTextIds: {[number]: TextId}? }
+export type TextId = "ShopTitle" | "ShopAbilities" | "ShopTools" | "ShopMove" | "ShopRunes" | "ShopSales" | "ShopWeapon" | "ShopCarry" | "ShopSprint" | "ShopStamina" | "ShopEquipped" | "ShopMax" | "ShopPrice" | "ShopWalkValue" | "ShopUnlimitedSprint" | "ShopRuneValue" | "ShopSellValue" | "ShopWeaponValue" | "ShopCarryValue" | "ShopWalkCompare" | "ShopSprintCompare" | "ShopSprintUnlimitedCompare" | "ShopRuneCompare" | "ShopSellCompare" | "ShopCarryCompare" | "ShopWeaponCompare" | "ShopRuneBatchHint" | "ShopWeaponSingle" | "ShopWeaponCone" | "ShopWeaponSpin" | "ShopWeaponLine" | "ShopWeaponSlam" | "ToolbarPotion" | "PromptPickUp" | "PromptPool" | "PromptTable" | "PromptAltar" | "PromptShelf" | "PromptSigil" | "PromptBody" | "PromptPotion" | "PromptOffer" | "PromptChute" | "PromptChuteLanding" | "PromptAutoOutput" | "PromptAutoShelf" | "DepositBodies" | "TakeChuteBody" | "TakeAutoRuneBody" | "CollectAutoPotion" | "TakePotion" | "TakeRuneBody" | "TakeBody" | "PotionReady" | "AltarWorking" | "ReturnTable" | "FetchPool" | "StunNpc" | "PoolUnfinishedOnly" | "StoreBody" | "TakeSharedBody" | "PoolEmpty" | "TableOtherPainter" | "TableOccupied" | "PlaceBody" | "TableNeedsBody" | "CollectRuneBody" | "ContinuePainting" | "FetchAndPaint" | "TableEmpty" | "ShelfFull" | "AltarBusy" | "InsertRuneBody" | "AltarNeedsRuneBody" | "HandsFullHint" | "CollectPotion" | "NoPotion" | "OfferPotion" | "EquipPotion" | "BringPotion" | "CarryBody" | "ChuteLocked" | "ChuteUnfinishedOnly" | "ChuteNeedsBody" | "ChuteEmpty" | "AutoOutputEmpty" | "NoAutoPotion" | "TableInUse" | "StoreUnfinished" | "PoolFull" | "PoolIsEmpty" | "TableIsOccupied" | "BringUnfinished" | "BringStunned" | "AltarOccupied" | "AltarNeedsCompleted" | "HandsFull" | "PotionsNotReady" | "BringPotionSigil" | "CoinLimit" | "RuneComplete" | "StationChanged" | "StationTooFar" | "ItemChanged" | "ItemUnavailable" | "PaintOutOfSequence" | "PaintRateExceeded" | "InvalidPaintPart" | "PaintVersionMismatch" | "PaintRejected" | "InvalidVisualSegment" | "DuplicateVisualSegment" | "SegmentOriginChanged" | "PaintBudgetReached" | "Coins" | "Stock" | "AltarCountdown" | "AltarShelfFull" | "CarryingPotion" | "CarryingRuneBody" | "CarryingBody" | "CarryingBodies" | "HandsEmpty" | "Painting" | "PaintingFlat" | "PaintFlipped" | "TakeTableBody" | "ThrowAim" | "TargetStunned" | "HitCount" | "StunnedCarry" | "CoinsAwarded" | "FacilityUnlocked" | "PaintSyncFailed" | "PaintSurfaceUnavailable" | "PaintSegmentLimit" | "UnknownNotice" | "PadPrereqNone" | "PadPrereqUnlocked" | "PadPrereqRequires" | "PadPrice"
+export type Description = { textId: TextId, args: {string}?, argTextIds: {[number]: TextId}?, argSources: {[number]: string}? }
 export type Entry = { source: string, key: string }
 
 -- UI 路径以 ReplicatedStorage.UI 唯一模板为准；屏幕界面和目标标牌运行时克隆至本地 PlayerGui。
@@ -35,7 +35,7 @@ local GameTexts = {
 		AltarWorking = { source = "THE ALTAR IS WORKING - CHECK THE COUNTDOWN", key = "" }, -- 用途：祭坛转化中引导查看倒计时；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
 		ReturnTable = { source = "RETURN TO THE RUNE TABLE TO CONTINUE OR COLLECT THE BODY", key = "" }, -- 用途：工作台有布娃娃时引导返回继续绘制或取走；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
 		FetchPool = { source = "THE RUNE TABLE CAN FETCH A BODY FROM THE SHARED POOL", key = "" }, -- 用途：共享池有库存时提示通过工作台取出布娃娃；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
-		StunNpc = { source = "STUN A WHITE NPC WITH {1} CLUB HITS", key = "Processing.StunNpc" }, -- 用途：引导击晕白色 NPC；{1} 为所需命中次数；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
+		StunNpc = { source = "STUN A WHITE NPC", key = "" }, -- 引导玩家用当前武器击晕白色 NPC
 	},
 	Interactions = {
 		PoolUnfinishedOnly = { source = "POOL ACCEPTS UNFINISHED BODIES ONLY", key = "" }, -- 用途：解释存放池仅接收未完成布娃娃；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
@@ -76,11 +76,12 @@ local GameTexts = {
 		CarryingPotion = { source = "CARRYING POTION", key = "" }, -- 用途：状态栏显示正在携带药水；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
 		CarryingRuneBody = { source = "CARRYING RUNE BODY", key = "" }, -- 用途：状态栏显示正在携带完成画符的布娃娃；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
 		CarryingBody = { source = "CARRYING BODY", key = "" }, -- 用途：状态栏显示正在携带未完成布娃娃；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
-		CarryingBodies = { source = "CARRYING {1} BODIES", key = "Processing.CarryingBodies" }, -- 用途：状态栏显示同时肩扛的白膜数量；{1} 为具数；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
+		CarryingBodies = { source = "CARRYING {1} / {2} BODIES", key = "Processing.CarryingBodies" }, -- 用途：显示携带总量和当前搬运上限；{1} 为具数，{2} 为上限；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
 		HandsEmpty = { source = "HANDS EMPTY", key = "" }, -- 用途：状态栏显示双手空闲；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CarryText
 		Painting = { source = "HOLD AND DRAG TO PAINT AND ROTATE", key = "" }, -- 用途：绘制模式下提示按住拖动旋转白膜并自动连续涂画；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
 		PaintingFlat = { source = "HOLD AND DRAG TO PAINT RUNES", key = "" }, -- 用途：非旋转绘制模式下提示按住拖动在躯体上绘制符文；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
 		TakeTableBody = { source = "TAKE TABLE BODY", key = "" }, -- 用途：空手靠近已占用工作台时按 Q 取回台上的身体；没有对应屏幕按钮
+		ToolbarPotion = { source = "POTION {1}", key = "Processing.ToolbarPotion" }, -- 用途：底部工具栏显示药水名称与堆叠数；{1} 为当前堆叠数量；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.BottomButtonsFrame.ToolButton.ToolNameText
 	},
 	Combat = {
 		TargetStunned = { source = "STUNNED", key = "" }, -- 用途：击晕状态文案；头顶标牌在击晕后直接隐藏，不再显示这段文字
@@ -124,22 +125,10 @@ local GameTexts = {
 		UnknownNotice = { source = "Unable to complete this action. Please try again.", key = "" }, -- 用途：未知通知或未知文案 ID 的统一失败回退提示；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.NoticeText
 	},
 	Automation = {
-		PadNameA00 = { source = "FAST DROP CHUTE", key = "" }, -- 用途：A00 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
-		PadNameA01 = { source = "HELL BRUTE #1", key = "" }, -- 用途：A01 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
-		PadNameA02 = { source = "HELL BRUTE #2", key = "" }, -- 用途：A02 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
-		PadNameA03 = { source = "AUTO RUNE TABLE", key = "" }, -- 用途：A03 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
-		PadNameA04 = { source = "AUTO SMELTER", key = "" }, -- 用途：A04 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
-		PadNameA05 = { source = "AUTO CLERK", key = "" }, -- 用途：A05 解锁底盘标题；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.TitleText
-		PadDescA00 = { source = "OPENS AN IN-SHOP CHUTE TO THE BASEMENT", key = "" }, -- 用途：A00 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
-		PadDescA01 = { source = "AUTO-STUNS CITIZENS AND DROPS INTO CHUTE", key = "" }, -- 用途：A01 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
-		PadDescA02 = { source = "ADDS A SECOND BRUTE TO DOUBLE SUPPLY", key = "" }, -- 用途：A02 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
-		PadDescA03 = { source = "AUTO-PULLS BODIES AND ENGRAVES RUNES", key = "" }, -- 用途：A03 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
-		PadDescA04 = { source = "AUTO-SMELTS RUNE BODIES INTO POTIONS", key = "" }, -- 用途：A04 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
-		PadDescA05 = { source = "AUTO-DELIVERS POTIONS FOR COINS", key = "" }, -- 用途：A05 解锁底盘功能说明；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.DescText
-		PadPrereqNone = { source = "PRE-REQ: NONE", key = "" }, -- 用途：无前置条件解锁底盘的前置状态标签；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.PrereqText
-		PadPrereqUnlocked = { source = "PRE-REQ: UNLOCKED", key = "" }, -- 用途：前置设施已解锁时显示的前置状态标签；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.PrereqText
-		PadPrereqRequires = { source = "REQUIRES: {1}", key = "Processing.PadPrereqRequires" }, -- 用途：前置未解锁时提示需先解锁的目标设施；{1} 为前置设施名称；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.PrereqText
-		PadPrice = { source = "{1} COINS", key = "Processing.PadPrice" }, -- 用途：解锁底盘价格胶囊文本；{1} 为格式化金币数值；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.PriceFrame.PriceText
+		PadPrereqNone = { source = "PRE-REQ: NONE", key = "" }, -- 用途：无前置条件解锁底盘的前置状态标签；UI：Workspace.NeonContractDistrict.AutomationLine.UnlockPads.<Pad>.GuiAnchor.PadGui.CardFrame.PrereqText
+		PadPrereqUnlocked = { source = "PRE-REQ: UNLOCKED", key = "" }, -- 用途：前置设施已解锁时显示的前置状态标签；UI：Workspace.NeonContractDistrict.AutomationLine.UnlockPads.<Pad>.GuiAnchor.PadGui.CardFrame.PrereqText
+		PadPrereqRequires = { source = "REQUIRES: {1}", key = "Processing.PadPrereqRequires" }, -- 用途：前置未解锁时提示需先解锁的目标设施；{1} 为前置设施名称；UI：Workspace.NeonContractDistrict.AutomationLine.UnlockPads.<Pad>.GuiAnchor.PadGui.CardFrame.PrereqText
+		PadPrice = { source = "{1} COINS", key = "Processing.PadPrice" }, -- 用途：解锁底盘价格胶囊文本；{1} 为格式化金币数值；UI：Workspace.NeonContractDistrict.AutomationLine.UnlockPads.<Pad>.GuiAnchor.PadGui.CardFrame.PriceFrame.PriceText
 	},
 	PersonalShop = {
 		ShopTitle = { source = "SHOP", key = "" },
@@ -168,20 +157,12 @@ local GameTexts = {
 		ShopSellCompare = { source = "+{1}% > +{2}% SALE VALUE", key = "Processing.ShopSellCompare" },
 		ShopCarryCompare = { source = "HOLDS {1} > {2}", key = "Processing.ShopCarryCompare" },
 		ShopWeaponCompare = { source = "{1} > {2} DAMAGE / {3} > {4} TARGETS", key = "Processing.ShopWeaponCompare" },
-		ShopPendingAbility = { source = "RUNE BATCH PREVIEW", key = "" },
-		ShopPendingWeapon = { source = "WEAPON PREVIEW", key = "" },
-		ShopPendingCarry = { source = "CARRY TOOL PREVIEW", key = "" },
-		ShopW01 = { source = "RUSTY PAN", key = "" },
-		ShopW02 = { source = "IRON CROWBAR", key = "" },
-		ShopW03 = { source = "DEMON SCIMITAR", key = "" },
-		ShopW04 = { source = "REAPER SCYTHE", key = "" },
-		ShopW05 = { source = "VOID CANNON", key = "" },
-		ShopW06 = { source = "ABYSSAL HAMMER", key = "" },
-		ShopT0 = { source = "BARE SHOULDER", key = "" },
-		ShopT1 = { source = "DEMON SACK", key = "" },
-		ShopT2 = { source = "HELL WHEELBARROW", key = "" },
-		ShopT3 = { source = "DEMON TETHER", key = "" },
-		ShopT4 = { source = "GRAVITY PACK", key = "" },
+		ShopRuneBatchHint = { source = "PAINT BODIES TOGETHER", key = "" },
+		ShopWeaponSingle = { source = "MELEE", key = "" },
+		ShopWeaponCone = { source = "WIDE SWEEP", key = "" },
+		ShopWeaponSpin = { source = "SPIN ATTACK", key = "" },
+		ShopWeaponLine = { source = "PIERCING WAVE", key = "" },
+		ShopWeaponSlam = { source = "SLAM AND PULL", key = "" },
 	},
 }
 

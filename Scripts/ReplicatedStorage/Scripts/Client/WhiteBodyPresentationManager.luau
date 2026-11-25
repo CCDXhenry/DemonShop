@@ -6,6 +6,7 @@ local GameConfig = require(script.Parent.Parent.Shared.GameConfig)
 local Physics = require(script.Parent.Parent.Shared.PhysicsConfig)
 local ThrowArc = require(script.Parent.Parent.Shared.ThrowArc)
 local HitRules = require(script.Parent.Parent.Shared.HitFeedbackRules)
+local Rotation = require(script.Parent.Parent.Shared.PaintRotation)
 local Types = require(script.Parent.Parent.Shared.GameTypes)
 local Adapter = require(script.Parent.JointAdapter)
 local TableView = require(script.Parent.BodyPresentation)
@@ -175,10 +176,10 @@ local function Prepare(self: Manager, v: BodyView, receivedPose: Types.BodyPose?
 	Sanitize(clone,clone,forTable or forAltar,forTable)
 	v.jointMap = Adapter.Map(clone)
 	v.rootTarget = source.PrimaryPart
-	if forTable then
+	if forTable and not self.items[v.id].paintSlot then
 		self.tableView:Attach(source,clone,v.jointMap.Root.drive,receivedPose)
-	elseif forAltar or v.requested=="Ground" then
-		if forAltar then
+	elseif forTable or forAltar or v.requested=="Ground" then
+		if forTable or forAltar then
 			for _, joint in v.jointMap do
 				local drive = joint.drive
 				if drive:IsA("Motor6D") then
@@ -889,6 +890,25 @@ function Manager.Step(self: Manager, now: number, seconds: number, painting: boo
 		Mixer.Commit(v.jointMap,v.sourceJoints,v.physicsMask,root.CFrame,self.contacts[v.id],rotations,shift,legacy,self.step,v.offsets,dt,cfg.Limits.AngularSpeed)
 	end
 end
+function Manager.SyncPaintBatch(self: Manager): ()
+	local center = self.tableView.model
+	if not center then return end
+	for id, item in self.items do
+		local slot = item.paintSlot
+		local view = self.views[id]
+		local model = if view and view.mode == "Table" then view.visualModel else nil
+		if not slot or not model then continue end
+		local offset = Rotation.BatchOffset(slot)
+		for _, part in model:GetChildren() do
+			if not part:IsA("BasePart") then continue end
+			local source = center:FindFirstChild(part.Name)
+			if source and source:IsA("BasePart") then
+				part.CFrame = source.CFrame + offset
+			end
+		end
+	end
+end
+
 function Manager.GetDebugStats(self: Manager)
 	local views = {}
 	local connections = 0

@@ -3,18 +3,19 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local Rules = require(ReplicatedStorage.Scripts.Shared.HitFeedbackRules)
+local TweenService = game:GetService("TweenService")
 local Presentation = {}
 Presentation.__index = Presentation
 type Pose = { model: Model, joints: {Motor6D}, started: number, direction: Vector3, hits: number }
 type JointOffset = { base: CFrame, applied: CFrame, offset: CFrame }
 type JointCache = {model: Model, joints: {Motor6D}}
-type Effect = { id: string, model: Model, parts: {BasePart}, started: number, frame: CFrame, final: boolean, flashSeconds: number, active: boolean }
+type Effect = { id: string, model: Folder, parts: {BasePart}, started: number, frame: CFrame, final: boolean, flashSeconds: number, active: boolean }
 export type Presentation = typeof(setmetatable({} :: {
 	poses: {[string]: Pose}, cache: {[string]: JointCache}, offsets: {[Motor6D]: JointOffset}, pool: {Effect},
 	managed: ((string, Model) -> boolean)?,
 	camera: Camera?, cameraOffset: CFrame, cameraApplied: CFrame?, shakeStarted: number?, shakeFinal: boolean,
 }, Presentation))
-local function CreatePart(parent: Model, name: string, color: Color3): Part
+local function CreatePart(parent: Folder, name: string, color: Color3): Part
 	local part = Instance.new("Part")
 	part.Name, part.Color, part.Material = name, color, Enum.Material.Neon
 	part.Anchored, part.CanCollide, part.CanTouch, part.CanQuery = true, false, false, false
@@ -110,7 +111,7 @@ function Presentation.Burst(self: Presentation, id: string, position: Vector3, d
 	local effect: Effect? = nil
 	for _, candidate in self.pool do if not candidate.active then effect=candidate; break end end
 	if not effect and #self.pool<Config.HitEffectPoolSize then
-		local model=Instance.new("Model")
+		local model=Instance.new("Folder")
 		model.Name="LocalHitBurst"
 		local flash=CreatePart(model,"Flash",Config.HitFlashColor)
 		flash.Shape=Enum.PartType.Ball
@@ -200,6 +201,46 @@ end
 function Presentation.ResetCamera(self: Presentation): ()
 	self:RestoreCamera()
 	self.shakeStarted=nil
+end
+function Presentation.WeaponEffect(self: Presentation, shape: string, pose: CFrame, range: number, width: number?): ()
+	local effect = Instance.new("Folder")
+	effect.Name = "WeaponEffect"
+	local origin = pose * CFrame.new(0, -1.5, 0)
+	local function Add(frame: CFrame, size: Vector3, color: Color3, goal: CFrame, endSize: Vector3, duration: number): ()
+		local part = Instance.new("Part")
+		part.Name = "Energy"
+		part.Material, part.Color = Enum.Material.Neon, color
+		part.Anchored, part.CanCollide, part.CanQuery, part.CanTouch, part.CastShadow = true, false, false, false, false
+		part.CFrame, part.Size, part.Transparency = frame, size, 0.18
+		part.Parent = effect
+		TweenService:Create(part, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{CFrame = goal, Size = endSize, Transparency = 1}):Play()
+	end
+	if shape == "Line" then
+		local lane = width or 5
+		local start = origin * CFrame.new(0, 1, -2)
+		local finish = origin * CFrame.new(0, 1, -range / 2)
+		Add(start, Vector3.new(lane * 0.6, 0.32, 3), Color3.fromRGB(113, 47, 192), finish, Vector3.new(lane, 0.14, range), 0.32)
+		Add(start, Vector3.new(0.22, 0.44, 3), Color3.fromRGB(211, 133, 255), finish, Vector3.new(0.12, 0.16, range), 0.28)
+	else
+		local cone, slam = shape == "Cone", shape == "Slam"
+		local segments = if cone then 8 else 16
+		local angle = if cone then math.rad(120) else 2 * math.pi
+		local color = if cone then Color3.fromRGB(237, 38, 67) elseif slam then Color3.fromRGB(253, 113, 53) else Color3.fromRGB(163, 61, 245)
+		for index = 1, segments do
+			local axis = origin * CFrame.Angles(0, (index - 0.5) * angle / segments - angle / 2, 0)
+			local thickness = if slam then 0.38 else 0.16
+			local span = 2 * math.sin(angle / segments / 2)
+			Add(axis * CFrame.new(0, 0, -range * 0.45), Vector3.new(range * 0.45 * span, thickness, 0.45), color,
+				axis * CFrame.new(0, 0, -range), Vector3.new(range * span, 0.08, 0.18), 0.30)
+			if slam then
+				Add(axis * CFrame.new(0, 0.3, -range * 0.85), Vector3.new(0.2, 0.25, 2.8), Color3.fromRGB(172, 72, 255),
+					axis * CFrame.new(0, 0.5, -3), Vector3.new(0.09, 0.1, 1.2), 0.39)
+			end
+		end
+	end
+	effect.Parent = workspace
+	game:GetService("Debris"):AddItem(effect, 0.4)
 end
 function Presentation.Clear(self: Presentation): ()
 	self:Restore()

@@ -1,15 +1,24 @@
 -- 药水架陈列回归：验证批量出货、动作打断、槽位复用与重同步
 local Roblox = require("@lune/roblox")
 local Instance, CFrame, Vector3 = Roblox.Instance, Roblox.CFrame, Roblox.Vector3
-local template = Instance.new("Model")
+local rs = Instance.new("Folder")
+local models = Instance.new("Folder")
+models.Name = "Models"
+models.Parent = rs
+local items = Instance.new("Folder")
+items.Name = "Items"
+items.Parent = models
+local template = Instance.new("Tool")
+template.Name = "Potion"
 local body = Instance.new("Part")
 body.Name = "Handle"
 body.Parent = template
 local light = Instance.new("PointLight")
 light.Brightness = 2
 light.Parent = body
+template.Parent = items
 local Boundary = {
-	ReplicatedStorage = { Models = { Potion = template } },
+	ReplicatedStorage = rs,
 	workspace = Instance.new("Folder"),
 	PivotTo = function(model, pose)
 		model.WorldPivot = pose

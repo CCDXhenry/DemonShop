@@ -1,24 +1,54 @@
--- 玩家动作表现：肩扛原生动画与铲子挥击动画；本地播放由引擎复制
+-- 玩家动作表现：肩扛原生动画与武器挥击动画；本地播放由引擎复制
 --!strict
 local Players = game:GetService("Players")
 local Config = require(game:GetService("ReplicatedStorage").Scripts.Shared.GameConfig)
+local PersonalRules = require(script.Parent.Parent.Shared.PersonalUpgradeRules)
 local Presentation = {}
 Presentation.__index = Presentation
 type Joint = Motor6D | AnimationConstraint
-type AttackCache = { character: Model, tool: Tool, humanoid: Humanoid, track: AnimationTrack?, connections: { RBXScriptConnection }, stopStarted: number?, stopEnds: number?, resumeSpeed: number? }
+type AttackCache = {
+	character: Model,
+	tool: Tool,
+	humanoid: Humanoid,
+	track: AnimationTrack?,
+	tracks: { [string]: AnimationTrack },
+	failedLoads: { [string]: boolean },
+	boundTools: { [Tool]: boolean },
+	activeAnimationId: string?,
+	connections: { RBXScriptConnection },
+	stopStarted: number?,
+	stopEnds: number?,
+	resumeSpeed: number?,
+}
 type CarryCache = { character: Model, humanoid: Humanoid, track: AnimationTrack?, connections: { RBXScriptConnection } }
 type CharacterCache = { model: Model, joints: { Joint }, added: RBXScriptConnection }
 export type Presentation = typeof(setmetatable({} :: {
 	carriers: { [number]: boolean }, offsets: { [Joint]: CFrame },
-	attack: AttackCache?, carry: CarryCache?, animation: Animation, carryAnimation: Animation,
+	attack: AttackCache?, carry: CarryCache?, animations: { [string]: Animation }, carryAnimation: Animation,
 	characters: { [Player]: CharacterCache },
 }, Presentation))
-function Presentation.new(): Presentation
+local function GetAnimation(self: Presentation, animationId: string): Animation
+	local cached = self.animations[animationId]
+	if cached then
+		return cached
+	end
 	local animation = Instance.new("Animation")
-	animation.AnimationId = Config.WeaponSlashAnimation
+	animation.AnimationId = animationId
+	self.animations[animationId] = animation
+	return animation
+end
+function Presentation.new(): Presentation
 	local carryAnimation = Instance.new("Animation")
 	carryAnimation.AnimationId = Config.BodyCarryAnimation
-	local self = setmetatable({ carriers = {}, offsets = {}, characters = {}, animation = animation, carryAnimation = carryAnimation, attack = nil :: AttackCache?, carry = nil :: CarryCache? }, Presentation)
+	local self = setmetatable({
+		carriers = {},
+		offsets = {},
+		characters = {},
+		animations = {} :: { [string]: Animation },
+		carryAnimation = carryAnimation,
+		attack = nil :: AttackCache?,
+		carry = nil :: CarryCache?,
+	}, Presentation)
 	return self
 end
 function Presentation.Joints(self: Presentation, player: Player, character: Model): { Joint }
@@ -47,10 +77,13 @@ function Presentation.StopSwing(self: Presentation): ()
 	self.attack = nil
 	if not attack then return end
 	for _, connection in attack.connections do connection:Disconnect() end
-	if attack.track then
-		attack.track:Stop(Config.WeaponAnimationFade)
-		attack.track:Destroy()
+	for _, track in attack.tracks do
+		track:Stop(Config.WeaponAnimationFade)
+		track:Destroy()
 	end
+	table.clear(attack.tracks)
+	attack.track = nil
+	attack.activeAnimationId = nil
 end
 function Presentation.StopCarry(self: Presentation): ()
 	local carry = self.carry
@@ -85,40 +118,85 @@ function Presentation.StartCarry(self: Presentation, character: Model, humanoid:
 	created.track = result
 	result:Play(Config.CarryAnimationFade)
 end
-function Presentation.Swing(self: Presentation, userId: number, _started: number): ()
+function Presentation.Swing(self: Presentation, userId: number, _started: number, animationId: string?): ()
 	local player = Players.LocalPlayer
 	if userId ~= player.UserId then return end
 	local character = player.Character
-	local tool = character and character:FindFirstChild("Club")
+	local tool = PersonalRules.FindWeapon(character)
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not character or not tool or not tool:IsA("Tool") or not humanoid or humanoid.Health <= 0
 		or self.carriers[userId] or player:GetAttribute("Painting") == true then return end
+	local resolvedAnimId: string
+	if animationId and animationId ~= "" then
+		resolvedAnimId = animationId
+	else
+		local weaponLevel = PersonalRules.WeaponLevel(tool.Name)
+		local candidate = if weaponLevel then PersonalRules.GetWeaponTier(weaponLevel).slashAnim else Config.WeaponSlashAnimation
+		resolvedAnimId = if candidate ~= "" then candidate else Config.WeaponSlashAnimation
+	end
 	local attack = self.attack
-	if attack and (attack.character ~= character or attack.tool ~= tool) then self:StopSwing(); attack = nil end
+	if attack and attack.character ~= character then
+		self:StopSwing()
+		attack = nil
+	end
+	local animator = humanoid:FindFirstChildOfClass("Animator")
+	if not animator then warn("[Weapon] 缺少服务端 Animator，跳过攻击动画"); return end
 	if not attack then
-		local animator = humanoid:FindFirstChildOfClass("Animator")
-		if not animator then warn("[Sword] 缺少服务端 Animator，跳过攻击动画"); return end
-		local created: AttackCache = { character = character, tool = tool, humanoid = humanoid, track = nil, connections = {} }
+		local created: AttackCache = {
+			character = character,
+			tool = tool,
+			humanoid = humanoid,
+			track = nil,
+			tracks = {},
+			failedLoads = {},
+			boundTools = {},
+			activeAnimationId = nil,
+			connections = {},
+		}
 		self.attack, attack = created, created
 		local function OnStop(): () self:StopSwing() end
-		table.insert(created.connections, tool.Unequipped:Connect(OnStop))
 		table.insert(created.connections, humanoid.Died:Connect(OnStop))
 		table.insert(created.connections, player.CharacterRemoving:Connect(OnStop))
 		table.insert(created.connections, player:GetAttributeChangedSignal("Painting"):Connect(function(): ()
 			if player:GetAttribute("Painting") == true then OnStop() end
 		end))
-		if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
-			warn("[Sword] 铲子挥击动画需要 R15，跳过攻击动画")
-			return
-		end
-		local ok, result = pcall(function(): AnimationTrack return animator:LoadAnimation(self.animation) end)
-		if not ok then warn("[Sword] 无法加载铲子挥击动画", result); return end
-		result.Priority = Enum.AnimationPriority.Action
-		result.Looped = false
-		created.track = result
 	end
-	local track = if attack then attack.track else nil
-	if track and attack then
+	assert(attack ~= nil)
+	attack.tool = tool
+	if not attack.boundTools[tool] then
+		attack.boundTools[tool] = true
+		local currentAttack = attack
+		local currentTool = tool
+		table.insert(attack.connections, currentTool.Unequipped:Connect(function(): ()
+			if self.attack == currentAttack and currentAttack.tool == currentTool then
+				self:StopSwing()
+			end
+		end))
+	end
+	if humanoid.RigType ~= Enum.HumanoidRigType.R15 then
+		warn("[Weapon] 武器挥击动画需要 R15，跳过攻击动画")
+		return
+	end
+	local track = attack.tracks[resolvedAnimId]
+	if not track and not attack.failedLoads[resolvedAnimId] then
+		local animObj = GetAnimation(self, resolvedAnimId)
+		local ok, result = pcall(function(): AnimationTrack return animator:LoadAnimation(animObj) end)
+		if not ok then
+			attack.failedLoads[resolvedAnimId] = true
+			warn("[Weapon] 无法加载武器挥击动画", result)
+		else
+			result.Priority = Enum.AnimationPriority.Action
+			result.Looped = false
+			attack.tracks[resolvedAnimId] = result
+			track = result
+		end
+	end
+	if attack.activeAnimationId ~= resolvedAnimId and attack.track and attack.track ~= track and attack.track.IsPlaying then
+		attack.track:Stop(Config.WeaponAnimationFade)
+	end
+	attack.activeAnimationId = resolvedAnimId
+	attack.track = track
+	if track then
 		attack.stopStarted, attack.stopEnds = nil, nil
 		track:AdjustSpeed(1)
 		track:Play(Config.WeaponAnimationFade)
@@ -166,7 +244,10 @@ function Presentation.Destroy(self: Presentation): ()
 	self:Restore()
 	self:StopSwing()
 	self:StopCarry()
-	self.animation:Destroy()
+	for _, animation in self.animations do
+		animation:Destroy()
+	end
+	table.clear(self.animations)
 	self.carryAnimation:Destroy()
 	for _, cached in self.characters do cached.added:Disconnect() end
 	table.clear(self.characters)

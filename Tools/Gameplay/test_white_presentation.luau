@@ -5,7 +5,7 @@ local B = require("./Boundary")
 local Adapter = require("./JointAdapter")
 local Manager = require("./WhiteBodyPresentationManager")
 local Tuning = require("./PresentationTuning")
-local template = R.deserializeModel(fs.readFile("Assets/Models/GameModels.rbxm"))[1].WhiteR15
+local template = R.deserializeModel(fs.readFile("Assets/Models/GameModels.rbxm"))[1].Characters.WhiteR15
 local count = 0
 local function check(value, message)
 	assert(value,message)

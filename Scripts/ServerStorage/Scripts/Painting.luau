@@ -10,6 +10,7 @@ local Rotation = require(Shared.PaintRotation)
 local BodyPose = require(Shared.PaintBodyPose)
 local Painting = {}
 export type Session = {
+	batch: { Types.Item }?,
 	player: Player, id: string, token: string, last: number, sequence: number,
 	orientation: CFrame, jumpPower: number, jumpHeight: number,
 	geometry: Rotation.Geometry?,

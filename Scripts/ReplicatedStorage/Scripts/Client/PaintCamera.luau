@@ -32,13 +32,13 @@ function Controller.Restore(self: Controller): ()
 	saved.camera.CameraSubject = humanoid or saved.subject
 	saved.camera.CameraType = saved.kind
 end
-function Controller.Enter(self: Controller, pose: CFrame): ()
+function Controller.Enter(self: Controller, pose: CFrame, fov: number?): ()
 	self:Restore()
 	local camera = workspace.CurrentCamera
 	if not camera then return end
 	self.saved = {camera=camera,kind=camera.CameraType,subject=camera.CameraSubject,pose=camera.CFrame,fov=camera.FieldOfView}
 	camera.CameraType = Enum.CameraType.Scriptable
-	local tween = TweenService:Create(camera,TweenInfo.new(Config.PaintCameraSeconds,Enum.EasingStyle.Quad,Enum.EasingDirection.InOut),{CFrame=pose,FieldOfView=45})
+	local tween = TweenService:Create(camera,TweenInfo.new(Config.PaintCameraSeconds,Enum.EasingStyle.Quad,Enum.EasingDirection.InOut),{CFrame=pose,FieldOfView=fov or 45})
 	self.tween = tween
 	self.completed = tween.Completed:Connect(function(state: Enum.PlaybackState): ()
 		if state == Enum.PlaybackState.Completed then self.ready = true end

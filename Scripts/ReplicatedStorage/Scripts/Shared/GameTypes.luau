@@ -11,7 +11,7 @@ export type Sample = { part: string, face: number, u: number, v: number, breakBe
 export type Stroke = { key: string, samples: { Sample } }
 export type VisualSegment = { key: string, version: number, gesture: number, part: string, face: number, u: number, v: number, glyph: number, angle: number, scale: number, triangle: number?, surfaceVersion: number? }
 export type VisualState = { segments: { [string]: VisualSegment }, count: number, revision: number }
-export type Request = { action: string, category: string?, expectedNextLevel: number?, sprint: boolean?, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, orientation: CFrame?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose?, direction: Vector3? }
+export type Request = { action: string, category: string?, expectedNextLevel: number?, facilityId: number?, sprint: boolean?, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, orientation: CFrame?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose?, direction: Vector3? }
 export type GroundFall = {target: CFrame, started: number, velocity: Vector3}
 export type PoolToss = {
 	from: CFrame,
@@ -56,7 +56,7 @@ export type Item = {
 	owner: Player?,
 	quality: number?,
 	stack: number?,
-	hits: number,
+	hits: number, hp: number?, maxHp: number?,
 	covered: { [string]: boolean },
 	strokes: { Stroke },
 	strokePoints: number,
@@ -66,6 +66,7 @@ export type Item = {
 	exteriorMeasured: boolean?,
 	progress: number,
 	paintSeconds: number,
+	paintSlot: number?,
 	paintOrientation: CFrame?,
 	paintFlipped: boolean?,
 	poseBody: BodyPose?,
@@ -99,7 +100,7 @@ export type Item = {
 	altarHeld: boolean?,
 }
 export type ItemView =
-	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, progress: number, holder: number?, carryOrder: number?, visualCount: number?, paintFlipped: boolean?, fall: GroundFall?, flyEnds: number?, convertEnds: number?, toss: PoolToss?, altarToss: AltarTossView?, altarTossStarted: number? }
+	{ id: string, kind: string, stage: string, location: string, version: number, model: Model, hits: number, hp: number?, maxHp: number?, progress: number, holder: number?, carryOrder: number?, paintSlot: number?, visualCount: number?, paintFlipped: boolean?, fall: GroundFall?, flyEnds: number?, convertEnds: number?, toss: PoolToss?, altarToss: AltarTossView?, altarTossStarted: number? }
 export type Snapshot = {
 	bodyPose: BodyPose?,
 	revision: number,
@@ -115,7 +116,7 @@ export type Snapshot = {
 	altarEnds: number,
 	painter: number?,
 	session: string?,
-	unlockedFacilities: { [string]: boolean }?,
+	unlockedFacilities: { [number]: boolean }?,
 	chuteQueue: number?,
 	autoPaintedQueue: number?,
 	autoShelfCount: number?,
@@ -123,5 +124,5 @@ export type Snapshot = {
 	autoRuneEnds: number?,
 	autoSmelterEnds: number?,
 }
-export type Notice = { kind: string, personalLevels: { [string]: number }?, attackSequence: number?, hit: boolean?, version: number?, hits: number?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, flipped: boolean?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
+export type Notice = { kind: string, paintBatch: { string }?, personalLevels: { [string]: number }?, attackSequence: number?, hit: boolean?, version: number?, hits: number?, hp: number?, maxHp: number?, weaponLevel: number?, attackPose: CFrame?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, flipped: boolean?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
 return {}

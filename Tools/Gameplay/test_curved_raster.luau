@@ -28,6 +28,19 @@ local texture = view.textures.body
 check(view:IsReady('body') and #texture.image.writes == 1, 'empty active texture initialized and ready')
 check(texture.size == 1024 and model.meshes[1].TextureContent == texture.image, 'active texture attached at full resolution')
 
+-- 副白膜共用中心图集。流送重绑和离开批次会重新绑定或解除引用。
+local follower = B.Model(parts)
+view:SetMirror('follower', 'body')
+view:Bind('follower', follower, {})
+check(follower.meshes[1].TextureContent == texture.image and view.textures.follower == nil, 'follower renders the same live pixels without an extra atlas')
+view:Remove('follower')
+local rebound = B.Model(parts)
+view:Bind('follower', rebound, {})
+check(rebound.meshes[1].TextureContent == texture.image, 'streaming rebind restores the shared atlas')
+view:ReleaseMirrors('body')
+check(rebound.meshes[1].TextureContent == B.Content.none and not texture.image.destroyed, 'unlink clears only the follower texture')
+view:Remove('follower')
+
 local serial = 0
 local function runeStamp(part, sample, glyph, angle, scale)
 	serial += 1

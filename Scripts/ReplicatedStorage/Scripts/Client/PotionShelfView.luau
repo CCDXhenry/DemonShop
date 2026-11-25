@@ -1,6 +1,7 @@
 -- 药水架客户端陈列：按权威槽位摆瓶，播放落位与整批领取动画
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ModelTemplates = require(ReplicatedStorage.Scripts.Shared.ModelTemplates)
 local View = {}
 View.__index = View
 
@@ -38,7 +39,7 @@ function View.new(pickup: Vector3, folderName: string?): View
 end
 
 local function CreateBottle(id: string, pose: CFrame, initialPose: CFrame, parent: Folder): Bottle
-	local model = ReplicatedStorage.Models.Potion:Clone() :: Model
+	local model = ModelTemplates.WaitItem("Potion"):Clone() :: Model
 	local parts: { BasePart } = {}
 	local lights: { [PointLight]: number } = {}
 	model:SetAttribute("ItemId", id)

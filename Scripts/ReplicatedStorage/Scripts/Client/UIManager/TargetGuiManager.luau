@@ -6,11 +6,11 @@ local Config = require(script.Parent.Parent.Parent.Shared.GameConfig)
 local Lifecycle = require(script.Parent.Parent.Parent.Shared.LifecycleTool)
 local Manager = {}
 Manager.__index = Manager
-export type DisplayState = { id: string?, adornee: BasePart?, visible: boolean, hits: number, touch: boolean }
+export type DisplayState = { id: string?, adornee: BasePart?, visible: boolean, hits: number, hp: number?, maxHp: number?, touch: boolean }
 type HitBar = { gui: BillboardGui, fill: ImageLabel, version: number, expiresAt: number, bound: boolean }
 export type Manager = typeof(setmetatable(
 	{} :: {
-		gui: BillboardGui?, fill: ImageLabel?, shownHits: number?, scope: Lifecycle.Lifecycle,
+		gui: BillboardGui?, fill: ImageLabel?, shownFraction: number?, scope: Lifecycle.Lifecycle,
 		hitBars: { [string]: HitBar }, stunnedUntil: { [string]: number },
 	},
 	Manager
@@ -18,10 +18,9 @@ export type Manager = typeof(setmetatable(
 function Manager.new(): Manager
 	return setmetatable({ scope = Lifecycle.new(), hitBars = {}, stunnedUntil = {} }, Manager)
 end
-local function SetFill(fill: ImageLabel, hits: number): ()
-	local total = Config.StunHits
-	local remaining = if total > 0 then math.clamp((total - hits) / total, 0, 1) else 0
-	fill.Size = UDim2.fromScale(remaining, 1)
+local function Remaining(hits: number, hp: number?, maxHp: number?): number
+	if hp ~= nil and maxHp and maxHp > 0 then return math.clamp(hp / maxHp, 0, 1) end
+	return math.clamp((Config.StunHits - hits) / Config.StunHits, 0, 1)
 end
 function Manager.Refresh(self: Manager, state: DisplayState): ()
 	self:Init()
@@ -38,9 +37,10 @@ function Manager.Refresh(self: Manager, state: DisplayState): ()
 	local id = state.id or ""
 	gui.Enabled = state.visible and state.adornee ~= nil and not stunned and self.hitBars[id] == nil and self.stunnedUntil[id] == nil
 	local fill = self.fill
-	if fill and not stunned and self.shownHits ~= state.hits then
-		self.shownHits = state.hits
-		SetFill(fill, state.hits)
+	local fraction = Remaining(state.hits, state.hp, state.maxHp)
+	if fill and not stunned and self.shownFraction ~= fraction then
+		self.shownFraction = fraction
+		fill.Size = UDim2.fromScale(fraction, 1)
 	end
 end
 function Manager.RemoveHit(self: Manager, id: string): ()
@@ -55,7 +55,7 @@ local function CreateHitBar(version: number, expiresAt: number): HitBar
 	gui.ResetOnSpawn = false
 	return { gui = gui, fill = gui:FindFirstChild("FillImage", true) :: ImageLabel, version = version, expiresAt = expiresAt, bound = false }
 end
-function Manager.ShowHit(self: Manager, id: string, version: number, hits: number, started: number, head: BasePart?): ()
+function Manager.ShowHit(self: Manager, id: string, version: number, hits: number, started: number, head: BasePart?, hp: number?, maxHp: number?): ()
 	if self.stunnedUntil[id] then return end
 	local existing = self.hitBars[id]
 	if existing and version <= existing.version then return end
@@ -70,7 +70,7 @@ function Manager.ShowHit(self: Manager, id: string, version: number, hits: numbe
 	local bar = existing or CreateHitBar(version, expiresAt)
 	bar.version = version
 	bar.expiresAt = expiresAt
-	SetFill(bar.fill, hits)
+	bar.fill.Size = UDim2.fromScale(Remaining(hits, hp, maxHp), 1)
 	if head then
 		bar.bound = true
 		bar.gui.Adornee = head
@@ -106,7 +106,7 @@ function Manager.Init(self: Manager): ()
 	local gui = (ReplicatedStorage.UI:WaitForChild("TargetGui") :: BillboardGui):Clone()
 	self.gui = gui
 	self.fill = gui:FindFirstChild("FillImage", true) :: ImageLabel
-	self.shownHits = nil
+	self.shownFraction = nil
 	gui.Enabled = false
 	gui.Parent = Players.LocalPlayer:WaitForChild("PlayerGui")
 	self.scope:Connect(gui.Destroying:Connect(function(): ()
@@ -119,7 +119,7 @@ function Manager.Destroy(self: Manager): ()
 	for id in self.hitBars do self:RemoveHit(id) end
 	table.clear(self.stunnedUntil)
 	local gui = self.gui
-	self.gui, self.fill, self.shownHits = nil, nil, nil
+	self.gui, self.fill, self.shownFraction = nil, nil, nil
 	if gui then
 		gui:Destroy()
 	end

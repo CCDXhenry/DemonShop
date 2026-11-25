@@ -249,6 +249,45 @@ sendRequest(playerA, { action = 'Interact', target = 'Table', version = manager.
 check(manager.tableId == rawBody.id and rawBody.location == 'Table' and #B.broadcasts == 1, 'Table within 6 studs fetches body from pool and begins paint')
 manager:EndPaint(playerA)
 
+-- M6：已有中心白膜仍按接手者等级，从肩扛和共享池补料。
+do
+	local carried = makeBodyItem('batch-carried', 'Unpainted', 'Carried')
+	carried.holder = playerA
+	local pooled = makeBodyItem('batch-pooled', 'Unpainted', 'Pool')
+	table.insert(manager.pool, pooled.id)
+	manager.players[playerA].levels.runeBatch = 5
+	check(manager:Table(playerA), 'batch resumes the center while carrying a body')
+	check(manager.tableId == rawBody.id and carried.paintSlot == 2 and pooled.paintSlot == 3, 'batch fills from carry before pool')
+	check(manager:PoolCount() == 0, 'batch works with fewer bodies than the upgrade allows')
+	rawBody.model.UpperTorso:SetAttribute('Paintable', true)
+	local token = manager.paint.token
+	local stroke = {key = token .. ':1:1', version = 1, gesture = 1, part = 'UpperTorso', face = 1, u = 0.5, v = 0.5, glyph = 1, angle = 0, scale = 1}
+	manager:PaintVisual(playerA, {session = token, sequence = 1, segments = {stroke}})
+	check(rawBody.visualState.count == 1 and pooled.visualState == rawBody.visualState and carried.visualState == rawBody.visualState, 'one accepted network stroke mirrors to all tables')
+	rawBody.progress = 0.55
+	manager:EndPaint(playerA)
+	check(rawBody.progress == 0.55 and rawBody.visualState.count == 1 and manager.tableId == rawBody.id and manager:PoolCount() == 2, 'abort keeps center progress and ink and returns both followers')
+	check(pooled.paintSlot == nil and pooled.visualState == nil, 'abort clears temporary follower paint')
+	manager.players[playerA].levels.runeBatch = 1
+	check(manager:Table(playerA) and #manager.paint.batch == 0, 'level one resumes only the center')
+	manager:EndPaint(playerA)
+	manager.players[playerA].levels.runeBatch = 3
+	check(manager:Table(playerA) and #manager.paint.batch == 2, 'level three reserves both returned bodies')
+	manager:ReleasePlayer(playerA)
+	check(manager.paint == nil and manager:PoolCount() == 2 and rawBody.progress == 0.55, 'player release clears the batch and keeps center progress')
+	check(manager:Table(playerA) and #manager.paint.batch == 2, 'the returned batch can be reserved again')
+	rawBody.progress = 1
+	manager:EndPaint(playerA)
+	check(manager.tableId == nil and rawBody.location == 'Altar' and carried.location == 'Altar' and pooled.location == 'Altar', 'completion launches every body to the altar')
+	check(carried.progress == 1 and pooled.visualState == rawBody.visualState and manager:PoolCount() == 0, 'finish retains center ink on every body')
+	check(carried.altarToss.started == rawBody.altarToss.started and pooled.altarToss.started == rawBody.altarToss.started, 'batch shares one altar launch timestamp')
+	manager.players[playerA].levels.runeBatch = 1
+	manager.items[carried.id], manager.items[pooled.id], manager.items[rawBody.id] = nil, nil, nil
+	carried.model:Destroy()
+	pooled.model:Destroy()
+	rawBody.model:Destroy()
+end
+
 -- Shelf 在 4.5 studs (<= 5) 领取成品药水
 manager:SpawnAltarPotion(tableBody)
 check(manager:ShelfCount() == 1, 'SpawnAltarPotion places potion on shelf')
@@ -280,7 +319,7 @@ do
 	playerA:SetAttribute('GameReady', true)
 	B.Players.LocalPlayer = playerA
 	Client = require('./StationClient')
-	local foreignTool = B.ModelsFolder.Potion:Clone()
+	local foreignTool = B.ModelsFolder.Items.Potion:Clone()
 	foreignTool:SetAttribute('StackCount', 4)
 	foreignTool:SetAttribute('OwnerUserId', playerB.UserId)
 	foreignTool.Parent = charB
@@ -303,7 +342,7 @@ do
 	local p0 = client:Potions()
 	check(p0.stored == 0 and p0.equipped == false, 'Client:Potions() ignores other players Toolbar potions in self.items')
 
-	local localPotion = B.ModelsFolder.Potion:Clone()
+	local localPotion = B.ModelsFolder.Items.Potion:Clone()
 	localPotion:SetAttribute('StackCount', 3)
 	localPotion.Parent = backpackA
 	local p1 = client:Potions()
@@ -550,6 +589,7 @@ do
 		ut.CFrame = CFrame.new(-20, 2, 0)
 		ut.Parent = m
 		m.PrimaryPart = rp
+		m.WorldPivot = rp.CFrame
 		m.Parent = m1.runtime
 		local item = {
 			id = id,
@@ -578,6 +618,48 @@ do
 		B.now += 0.2
 		m1:OnRequest(player, req)
 	end
+
+	-- M7: use the same server pickup and station requests as a player.
+	local function pickUp(id)
+		local body = makeWorldBody(id, 'Unpainted', 'Ground')
+		movePlayer(p1Root, body.model.PrimaryPart.Position + Vector3.new(0, 0, 2))
+		sendM1(p1, {action = 'Interact', target = id, version = body.version})
+		return body
+	end
+	pickUp('m7-first')
+	local extra = pickUp('m7-over-capacity')
+	check(#m1:Carried(p1) == 1 and extra.holder == nil, 'T0 refuses a second white body')
+	m1.players[p1].levels.carryTool = 4
+	for i = 2, 15 do pickUp('m7-tier3-' .. i) end
+	check(#m1:Carried(p1) == 8 and m1.players[p1].carryOverflowCount == 7, 'T3 stores seven virtual bodies after eight visible')
+	local top = m1:Carried(p1)[1]
+	sendM1(p1, {action = 'Throw', target = top.id, version = top.version, direction = Vector3.zAxis})
+	check(top.holder == nil and #m1:Carried(p1) == 8 and m1.players[p1].carryOverflowCount == 6, 'throw removes one logical body and replenishes the visible slot')
+	movePlayer(p1Root, stationPositions.Pool + Vector3.new(0, 0, 4))
+	sendM1(p1, {action = 'Interact', target = 'Pool', version = m1.stationVersions.Pool})
+	check(#m1:Carried(p1) == 0 and m1.players[p1].carryOverflowCount == 0 and m1:PoolCount() == 14, 'one pool request deposits the full remaining load')
+	check(p1:GetAttribute('CarryBodyCount') == 0 and #m1.pool == 8, 'HUD count resets and only eight bodies remain visible in the pool')
+	for _, item in m1.items do item.model:Destroy() end
+	table.clear(m1.items)
+	table.clear(m1.pool)
+	m1.poolOverflowCount = 0
+	m1.players[p1].levels.carryTool = 4
+	for i = 1, 12 do pickUp('m7-death-' .. i) end
+	spendable[p1] = 6000
+	sendM1(p1, {action = 'PersonalUpgrade', category = 'carryTool', expectedNextLevel = 5})
+	check(p1:GetAttribute('CarryCapacity') == 30 and m1:CarryCount(p1) == 12, 'upgrading keeps visible and virtual bodies while increasing capacity')
+	for i = 13, 31 do pickUp('m7-death-' .. i) end
+	check(m1:CarryCount(p1) == 30 and #m1:Carried(p1) == 8 and p1:GetAttribute('CarryBodyCount') == 30, 'T4 caps pickup at thirty and replicates the logical count')
+	m1:ReleasePlayer(p1)
+	local released = 0
+	for id, item in m1.items do
+		if id ~= 'm7-death-31' and item.location == 'Ground' and item.holder == nil then released += 1 end
+		item.model:Destroy()
+	end
+	check(released == 30 and m1:CarryCount(p1) == 0, 'death release restores all virtual bodies as ground items exactly once')
+	table.clear(m1.items)
+	m1.players[p1].levels.carryTool = 1
+	m1:Changed()
 
 	-- 7a. 存放池逻辑无限 + 8 实体限流 + 斜抛入池超限回收 + 取用后自动补位
 	movePlayer(p1Root, stationPositions.Pool + Vector3.new(0, 0, 4))

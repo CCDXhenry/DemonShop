@@ -208,20 +208,22 @@ local function weldAllToRoot(model: Model, root: BasePart): ()
 end
 
 -- ============================================================================
--- 1. 创建统一解锁底盘圈模板 ReplicatedStorage.Models.UnlockPad
+-- 1. 构造内存态解锁底盘圈样板（仅 Edit 期克隆至 Workspace 静态场景，不留驻 ReplicatedStorage.Models）
 -- ============================================================================
-local modelsFolder = ensureFolder(RS, "Models")
-local function buildUnlockPadTemplate(): Model
-	local existing = modelsFolder:FindFirstChild("UnlockPad")
-	if existing then
-		existing:Destroy()
+local modelsFolder = RS:FindFirstChild("Models")
+if modelsFolder then
+	local legacyPad = modelsFolder:FindFirstChild("UnlockPad")
+	if legacyPad then
+		legacyPad:Destroy()
 	end
+end
+local function buildUnlockPadTemplate(): Model
 	local pad = Instance.new("Model")
 	pad.Name = "UnlockPad"
-	pad:SetAttribute("FacilityId", "A00")
+	pad:SetAttribute("FacilityId", 1)
 	pad:SetAttribute("FacilityName", "FAST DROP CHUTE")
 	pad:SetAttribute("FacilityDesc", "OPENS AN IN-SHOP CHUTE TO THE BASEMENT")
-	pad:SetAttribute("PrerequisiteId", "")
+	pad:SetAttribute("PrerequisiteId", 0)
 	pad:SetAttribute("PrerequisiteLabel", "PRE-REQ: NONE")
 	pad:SetAttribute("Cost", 250)
 	pad:SetAttribute("PadState", "Ready")
@@ -386,13 +388,10 @@ local function buildUnlockPadTemplate(): Model
 	priceTextStroke.Parent = priceLbl
 
 	weldAllToRoot(pad, root)
-	pad.Parent = modelsFolder
 	return pad
 end
 
-local existingPadTemplate = modelsFolder:FindFirstChild("UnlockPad")
-local unlockPadTemplate = if chuteOnly and existingPadTemplate and existingPadTemplate:IsA("Model")
-	then existingPadTemplate else buildUnlockPadTemplate()
+local unlockPadTemplate = buildUnlockPadTemplate()
 
 local function applyPadState(pad: Model, state: string, prereqLabel: string, costText: string): ()
 	local stateColor = if state == "Locked"
@@ -450,10 +449,10 @@ local function spawnUnlockPad(
 	parent: Instance,
 	nodeName: string,
 	pos: Vector3,
-	facilityId: string,
+	facilityId: number,
 	title: string,
 	desc: string,
-	prereqId: string,
+	prereqId: number,
 	prereqLabel: string,
 	cost: number,
 	costText: string,
@@ -700,7 +699,7 @@ local a00 = padsFolder:FindFirstChild("A00_FastChute")
 if a00 and a00:IsA("Model") then
 	a00:PivotTo(CFrame.new(a00Position))
 else
-	spawnUnlockPad(padsFolder, "A00_FastChute", a00Position, "A00", "FAST DROP CHUTE", "OPENS AN IN-SHOP CHUTE TO THE BASEMENT", "", "PRE-REQ: NONE", 250, "250 COINS", "Insufficient")
+	spawnUnlockPad(padsFolder, "A00_FastChute", a00Position, 1, "FAST DROP CHUTE", "OPENS AN IN-SHOP CHUTE TO THE BASEMENT", 0, "PRE-REQ: NONE", 250, "250 COINS", "Insufficient")
 end
 local function BuildSummary()
 	return {
@@ -850,10 +849,11 @@ weldAllToRoot(clerkModel, clerkRoot)
 -- ============================================================================
 -- 5. 放置 6 处解锁底盘圈（A00 ~ A05，使用英文基准词条 + PadGui.AutoLocalize=false）
 -- ============================================================================
-spawnUnlockPad(padsFolder, "A01_Brute1", Vector3.new(-54.0, streetTopY, -44.2), "A01", "HELL BRUTE #1", "AUTO-STUNS CITIZENS AND DROPS INTO CHUTE", "A00", "REQUIRES: FAST DROP CHUTE", 1000, "1,000 COINS", "Locked")
-spawnUnlockPad(padsFolder, "A02_Brute2", Vector3.new(-50.2, streetTopY, -44.2), "A02", "HELL BRUTE #2", "ADDS A SECOND BRUTE TO DOUBLE SUPPLY", "A01", "REQUIRES: HELL BRUTE #1", 2500, "2,500 COINS", "Locked")
-spawnUnlockPad(padsFolder, "A03_AutoRune", Vector3.new(-19.0, 0.0, -19.25), "A03", "AUTO RUNE TABLE", "AUTO-PULLS BODIES AND ENGRAVES RUNES", "A00", "REQUIRES: FAST DROP CHUTE", 2000, "2,000 COINS", "Locked")
-spawnUnlockPad(padsFolder, "A04_AutoSmelter", Vector3.new(-1.0, 0.0, -17.25), "A04", "AUTO SMELTER", "AUTO-SMELTS RUNE BODIES INTO POTIONS", "A03", "REQUIRES: AUTO RUNE TABLE", 4500, "4,500 COINS", "Locked")
-spawnUnlockPad(padsFolder, "A05_AutoClerk", Vector3.new(22.0, 0.0, -19.25), "A05", "AUTO CLERK", "AUTO-DELIVERS POTIONS FOR COINS", "", "PRE-REQ: NONE", 9000, "9,000 COINS", "Insufficient")
+spawnUnlockPad(padsFolder, "A01_Brute1", Vector3.new(-54.0, streetTopY, -44.2), 2, "HELL BRUTE #1", "AUTO-STUNS CITIZENS AND DROPS INTO CHUTE", 1, "REQUIRES: FAST DROP CHUTE", 1000, "1,000 COINS", "Locked")
+spawnUnlockPad(padsFolder, "A02_Brute2", Vector3.new(-50.2, streetTopY, -44.2), 3, "HELL BRUTE #2", "ADDS A SECOND BRUTE TO DOUBLE SUPPLY", 2, "REQUIRES: HELL BRUTE #1", 2500, "2,500 COINS", "Locked")
+spawnUnlockPad(padsFolder, "A03_AutoRune", Vector3.new(-19.0, 0.0, -19.25), 4, "AUTO RUNE TABLE", "AUTO-PULLS BODIES AND ENGRAVES RUNES", 1, "REQUIRES: FAST DROP CHUTE", 2000, "2,000 COINS", "Locked")
+spawnUnlockPad(padsFolder, "A04_AutoSmelter", Vector3.new(-1.0, 0.0, -17.25), 5, "AUTO SMELTER", "AUTO-SMELTS RUNE BODIES INTO POTIONS", 4, "REQUIRES: AUTO RUNE TABLE", 4500, "4,500 COINS", "Locked")
+spawnUnlockPad(padsFolder, "A05_AutoClerk", Vector3.new(22.0, 0.0, -19.25), 6, "AUTO CLERK", "AUTO-DELIVERS POTIONS FOR COINS", 0, "PRE-REQ: NONE", 9000, "9,000 COINS", "Insufficient")
 
+unlockPadTemplate:Destroy()
 return BuildSummary()

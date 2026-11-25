@@ -22,8 +22,13 @@ end
 local single = Roblox.deserializeModel(fs.readFile("Assets/Models/ClassicSword.rbxm"))
 local full = Roblox.deserializeModel(fs.readFile("Assets/Models/GameModels.rbxm"))
 CheckSword(single[1])
-CheckSword(full[1]:FindFirstChild("Club"))
-Check(single[1].Grip == full[1].Club.Grip, "restore archives share grip")
+Check(full[1]:FindFirstChild("Club") == nil, "retired Club excluded from GameModels.rbxm")
+local weapons = full[1]:FindFirstChild("Weapons")
+Check(weapons ~= nil and weapons:IsA("Folder"), "GameModels.rbxm contains Weapons folder")
+for _, name in { "W01_RustyPan", "W02_IronCrowbar", "W03_DemonScimitar", "W04_ReaperScythe", "W05_VoidCannon", "W06_AbyssalHammer" } do
+	local tool = weapons and weapons:FindFirstChild(name)
+	Check(tool and tool:IsA("Tool") and not tool.CanBeDropped, "active weapon template exists under Weapons: " .. name)
+end
 
 local character = Boundary.Character()
 local view = Presentation.new()
@@ -79,6 +84,16 @@ Check(ok and view.attack.track == nil, "unavailable animation does not block req
 local loads = Boundary.loads
 view:Swing(1, 8)
 Check(Boundary.loads == loads, "failed loads do not retry every attack")
+Boundary.failLoad = false
+view:Swing(1, 9, "rbxassetid://111111")
+local loadsAfterFirstCustom = Boundary.loads
+Check(loadsAfterFirstCustom == loads + 1, "loads first custom weapon animationId")
+view:Swing(1, 10, "rbxassetid://222222")
+Check(Boundary.loads == loadsAfterFirstCustom + 1, "loads second custom weapon animationId")
+view:Swing(1, 11, "rbxassetid://111111")
+Check(Boundary.loads == loadsAfterFirstCustom + 1, "reuses cached AnimationTrack when switching back")
+local destroyedBeforeCleanup = Boundary.destroyed
 view:Destroy()
+Check(Boundary.destroyed == destroyedBeforeCleanup + 2, "releases all cached weapon tracks on destroy")
 Check(view.attack == nil and view.preload == nil, "owner releases resources")
 print(string.format("PASS: %d sword asset and presentation assertions (production module; mocked animator/events)", assertions))

@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Scripts"):WaitForChild("Shared")
 local Config = require(Shared:WaitForChild("GameConfig"))
+local GameData = require(Shared:WaitForChild("GameData"))
 local Types = require(Shared:WaitForChild("GameTypes"))
 local GameTexts = require(Shared.GameTexts)
 local Sound = require(Shared:WaitForChild("GameSoundTool"))
@@ -42,6 +43,14 @@ local TouchJumpController = require(script.Parent.TouchJumpController)
 local Client = {}
 Client.__index = Client
 local player = Players.LocalPlayer
+local function PlayWeaponSlashSound(soundId: string, position: Vector3): ()
+	if not Sound then return end
+	if Sound.PlaySoundId then
+		Sound.PlaySoundId(soundId, position, "AttackSwing")
+	else
+		Sound.Play("AttackSwing", position)
+	end
+end
 export type Client = typeof(setmetatable(
 	{} :: {
 		scope: Lifecycle.Lifecycle,
@@ -78,6 +87,7 @@ export type Client = typeof(setmetatable(
 		snapshot: Types.Snapshot?,
 		items: { [string]: Types.ItemView },
 		paintId: string?,
+		paintBatch: { string }?,
 		session: string?,
 		drawing: boolean,
 		finishPaint: boolean,
@@ -111,8 +121,8 @@ export type Client = typeof(setmetatable(
 		hidePlayersScope: Lifecycle.Lifecycle?,
 		ignoreMouseMove: boolean,
 		catchHardwareOrigin: boolean,
-		completeFlash: { id: string, started: number }?,
-		flipFlash: { id: string, started: number }?,
+		completeFlash: { id: string, started: number, batch: { string }? }?,
+		flipFlash: { id: string, started: number, batch: { string }? }?,
 		initialized: boolean,
 		throw: ManualThrow.Controller?,
 		touchJump: TouchJumpController.Controller?,
@@ -182,9 +192,6 @@ if autoShelfPickup then
 end
 local function TablePose(): CFrame
 	return Rotation.TablePose(tablePlacement.Position)
-end
-local function CameraPose(): CFrame
-	return Rotation.CameraPose(tablePlacement.Position)
 end
 local function ActivePaintTarget(): number
 	local flatTarget: number? = (Config :: any).PaintFlatTarget
@@ -386,6 +393,31 @@ local function HidePlayersForPaint(self: Client): ()
 	HidePlayerCharactersForPaint(self)
 end
 
+local function SetBatchFlash(view: PaintView.View, id: string, batch: { string }?, brightness: number?): ()
+	if brightness then
+		view:SetSacrifice(id, brightness, 0)
+		for _, follower in ipairs(batch or {}) do view:SetSacrifice(follower, brightness, 0) end
+	else
+		view:ClearSacrifice(id)
+		for _, follower in ipairs(batch or {}) do view:ClearSacrifice(follower) end
+	end
+end
+
+local function SnapshotBatch(items: { [string]: Types.ItemView }): { string }
+	local ids = {}
+	for id, item in items do
+		if item.paintSlot then table.insert(ids, id) end
+	end
+	return ids
+end
+
+local function FlashCompletion(self: Client, id: string, batch: { string }?): ()
+	if Config.RuneCompleteFlashSeconds <= 0 then return end
+	self.flipFlash = nil
+	self.completeFlash = { id = id, batch = batch, started = os.clock() }
+	SetBatchFlash(self.view, id, batch, 1)
+end
+
 function Client.TriggerAutoFlip(self: Client, animate: boolean): ()
 	if Config.PaintRotationEnabled or self.paintFlipped then
 		return
@@ -399,7 +431,7 @@ function Client.TriggerAutoFlip(self: Client, animate: boolean): ()
 		self:Text("NoticeText", { textId = "PaintFlipped" })
 		self.messageEnds = os.clock() + 2.2
 		if self.paintId and Config.PaintFlipFlashSeconds > 0 then
-			self.flipFlash = { id = self.paintId, started = os.clock() }
+			self.flipFlash = { id = self.paintId, batch = self.paintBatch, started = os.clock() }
 		end
 		if Sound then
 			Sound.Play("PaintFlip")
@@ -411,11 +443,11 @@ function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	if not id then
 		return
 	end
-	self.paintId = nil
+	self.paintId, self.paintBatch = nil, nil
 	self.paintFlipped = false
 	if self.flipFlash then
 		if not self.completeFlash or self.completeFlash.id ~= self.flipFlash.id then
-			self.view:ClearSacrifice(self.flipFlash.id)
+			SetBatchFlash(self.view, self.flipFlash.id, self.flipFlash.batch, nil)
 		end
 		self.flipFlash = nil
 	end
@@ -455,7 +487,7 @@ function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	self.touchGuiEnabled = nil
 	self.ui:SetPainting(false)
 end
-function Client.EnterView(self: Client, id: string, session: string, frames: Types.BodyPose?, initialFlipped: boolean?): ()
+function Client.EnterView(self: Client, id: string, session: string, frames: Types.BodyPose?, initialFlipped: boolean?, batch: { string }?): ()
 	if self.paintId then
 		self:ExitView()
 	end
@@ -464,7 +496,7 @@ function Client.EnterView(self: Client, id: string, session: string, frames: Typ
 		return
 	end
 	self:CancelHitFeedback()
-	self.paintId, self.session = id, session
+	self.paintId, self.session, self.paintBatch = id, session, batch
 	self.visualUpload:Begin(session)
 	self.visualClosing = false
 	self.paintSequence = 0
@@ -504,7 +536,9 @@ function Client.EnterView(self: Client, id: string, session: string, frames: Typ
 		self.touchGuiEnabled = touchGui.Enabled
 		touchGui.Enabled = false
 	end
-	self.paintCamera:Enter(CameraPose())
+	local count = 1 + #(batch or {})
+	local viewport = camera.ViewportSize
+	self.paintCamera:Enter(Rotation.CameraPose(tablePlacement.Position, count), Rotation.BatchCameraFov(count, viewport.X / math.max(viewport.Y, 1)))
 	HidePlayersForPaint(self)
 	self.ui:SetPainting(true)
 end
@@ -518,7 +552,7 @@ function Client.HitFeedback(self: Client, now: number, final: boolean, upgrade: 
 	if now-self.lastAttack>Config.HitFeedbackWindow or self.paintId or self:Held() then return end
 	local character=player.Character
 	local humanoid=character and character:FindFirstChildOfClass("Humanoid")
-	if not humanoid or humanoid.Health<=0 or not character or not character:FindFirstChild("Club") then return end
+	if not humanoid or humanoid.Health<=0 or not character or not PersonalRules.FindWeapon(character) then return end
 	self.characterView:HitStop(now,final)
 	if not self.bodies.pureModel then self.hitView:Shake(now,final,upgrade) end
 	if Sound then
@@ -529,7 +563,7 @@ function Client.UpdateHits(self: Client, now: number): ()
 	local character=player.Character
 	local humanoid=character and character:FindFirstChildOfClass("Humanoid")
 	local root=character and character:FindFirstChild("HumanoidRootPart")
-	if self.paintId or self:Held() or not humanoid or humanoid.Health<=0 or not character or not character:FindFirstChild("Club") then
+	if self.paintId or self:Held() or not humanoid or humanoid.Health<=0 or not character or not PersonalRules.FindWeapon(character) then
 		self:CancelHitFeedback()
 	else
 		for sequence, prediction in self.hitState.pending do
@@ -547,7 +581,10 @@ function Client.UpdateHits(self: Client, now: number): ()
 			local torso=item.model:FindFirstChild("UpperTorso")
 			local position=item.model.PrimaryPart.Position
 			if torso and torso:IsA("BasePart") then position=torso.Position-root.CFrame.LookVector*torso.Size.Z*0.5 end
-			local hits=item.hits+1
+			local weapon = PersonalRules.FindWeapon(character)
+			local level = if weapon then PersonalRules.WeaponLevel(weapon.Name) or 1 else 1
+			local hp = PersonalRules.RemainingNpcHp(item.hp, item.hits, PersonalRules.GetWeaponTier(level).damage)
+			local hits = math.min(Config.StunHits - 1, Config.StunHits - math.ceil(hp / Config.BruteDamage))
 			if not self.bodies:Hit(id,player.UserId,sequence,item.version+1,hits,root.CFrame.LookVector,position,now,false,true) then
 				self.hitView:Play(id,item.model,hits,root.CFrame.LookVector,now)
 			end
@@ -569,9 +606,9 @@ function Client.OnHit(self: Client, notice: Types.Notice): ()
 		return
 	end
 	if age >= 0 and age < Config.HitHealthSeconds and item.location == "Street"
-		and item.hits < Config.StunHits and (item.version <= version or item.hits == hits)
+		and item.hits < Config.StunHits and (item.version <= version or (item.hits == hits and item.hp == notice.hp))
 	then
-		UIManager.GetTargetGuiManager():ShowHit(id, version, hits, started, self.bodies:GetVisualPart(id, "Head"))
+		UIManager.GetTargetGuiManager():ShowHit(id, version, hits, started, self.bodies:GetVisualPart(id, "Head"), notice.hp, notice.maxHp)
 	end
 	if not self.bodies:AcceptNotice(id,version,hits,started) then return end
 	local localActor=notice.actor==player.UserId
@@ -599,6 +636,14 @@ function Client.OnHit(self: Client, notice: Types.Notice): ()
 end
 function Client.OnNotice(self: Client, notice: Types.Notice): ()
 	if notice.kind=="Hit" then self:OnHit(notice); return end
+	if notice.kind == "WeaponEffect" and notice.weaponLevel and notice.attackPose and notice.started then
+		local age = workspace:GetServerTimeNow() - notice.started
+		if age >= 0 and age < 0.4 then
+			local weapon = PersonalRules.GetWeaponTier(notice.weaponLevel)
+			self.hitView:WeaponEffect(weapon.shape, notice.attackPose, weapon.range, weapon.width)
+		end
+		return
+	end
 	if notice.kind=="AttackResult" and notice.attackSequence then
 		local pending=self.hitState.pending[notice.attackSequence]
 		if pending and notice.hit~=true then self.bodies:Reject(pending.target,player.UserId,notice.attackSequence) end
@@ -637,7 +682,23 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		for _, item in snapshot.items do
 			nextItems[item.id] = item
 		end
+		local addedFollowers = {}
+		for id, prior in self.items do
+			local current = nextItems[id]
+			if prior.paintSlot and current and current.location == "Pool" then
+				self.view:Remove(id)
+			end
+		end
+		for id, current in nextItems do
+			local prior = self.items[id]
+			if current.paintSlot and (not prior or not prior.paintSlot) then
+				table.insert(addedFollowers, id)
+			end
+		end
 		self.bodies:UpdateState(nextItems,snapshot.bodyPose)
+		if snapshot.tableId and #addedFollowers > 0 then
+			self.view:Mirror(snapshot.tableId, addedFollowers)
+		end
 		if snapshot.painter ~= player.UserId then
 			if Config.PaintRotationEnabled then
 				self.presentation.targetOrientation = snapshot.paintOrientation or CFrame.identity
@@ -741,8 +802,11 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			local otherPlayer = Players:GetPlayerByUserId(notice.actor)
 			local otherChar = otherPlayer and otherPlayer.Character
 			local otherRoot = otherChar and otherChar:FindFirstChild("HumanoidRootPart")
-			if Sound and otherRoot and otherRoot:IsA("BasePart") then
-				Sound.Play("AttackSwing", otherRoot.Position)
+			if otherRoot and otherRoot:IsA("BasePart") then
+				local slashSound = if notice.weaponLevel
+					then PersonalRules.GetWeaponTier(notice.weaponLevel).slashSound
+					else Config.WeaponSlashSound
+				PlayWeaponSlashSound(slashSound, otherRoot.Position)
 			end
 		end
 	elseif notice.kind == "SyncComplete" then
@@ -755,7 +819,11 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		if not isOperator and not isCurrentTable then return end
 		local item = self.items[notice.id]
 		if item then
-			item.progress = notice.progress or item.progress
+			local before = item.progress
+			item.progress = notice.progress or before
+			if not isOperator and before < 1 and item.progress >= 1 then
+				FlashCompletion(self, notice.id, SnapshotBatch(self.items))
+			end
 			if isOperator then
 				local targetArea = math.max((self.localTotalArea or 0) * ActivePaintTarget(), 0.001)
 				if item.progress >= 1 then
@@ -787,6 +855,9 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		local item = self.items[notice.id]
 		if not item then return end
 		self.view:Apply(notice.id,notice.segments)
+		for _, id in ipairs(notice.paintBatch or {}) do
+			self.view:Apply(id, notice.segments)
+		end
 		if notice.session == self.session and notice.sequence then self.visualUpload:Ack(notice.sequence) end
 		local snapshot = self.snapshot
 		local isOperator = notice.id == self.paintId and notice.session == self.session
@@ -810,20 +881,14 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		self:Notice(if notice.textId or notice.text then notice else {kind = "Message", textId = "PaintSyncFailed"})
 		self.messageEnds=os.clock()+10
 	elseif notice.kind == "FinishPaint" and notice.session == self.session then
-		self.flipFlash = nil
-		if self.paintId and Config.RuneCompleteFlashSeconds > 0 then
-			self.completeFlash = { id = self.paintId, started = os.clock() }
-			if self.view and self.view.SetSacrifice then
-				self.view:SetSacrifice(self.paintId, 1, 0)
-			end
-		end
+		if self.paintId then FlashCompletion(self, self.paintId, self.paintBatch) end
 		self.pendingCoverage=nil
 		table.clear(self.paintSamples)
 		self.sentOrientation=self.orientation
 		self:RequestPaintEnd()
 	elseif notice.kind == "BeginPaint" and notice.id and notice.session then
 		local initialFlipped = notice.flipped == true or (notice.orientation ~= nil and Rotation.IsFlipped(notice.orientation))
-		self:EnterView(notice.id, notice.session, notice.bodyPose, initialFlipped)
+		self:EnterView(notice.id, notice.session, notice.bodyPose, initialFlipped, notice.paintBatch)
 	elseif notice.kind == "EndPaint" and notice.session == self.session then
 		local id = notice.id or self.paintId
 		if id and (notice.altarToss or notice.started) then
@@ -870,22 +935,31 @@ end
 function Client.Attack(self: Client, inputTime: number?): ()
 	local now = workspace:GetServerTimeNow()
 	if self.worldInteraction and self.worldInteraction:IsInputBlocked() then return end
-	if self.paintId or self:Held() or now - self.lastAttack < Config.AttackCooldown then return end
+	if self.paintId or self:Held() then return end
 	local character = player.Character
-	local weapon = character and character:FindFirstChild("Club")
+	local weapon = PersonalRules.FindWeapon(character)
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	if not weapon or not weapon:IsA("Tool") or not humanoid or humanoid.Health <= 0 then return end
+	if not weapon or not humanoid or humanoid.Health <= 0 then return end
+	local level = PersonalRules.WeaponLevel(weapon.Name)
+	if not level then return end
+	local tier = PersonalRules.GetWeaponTier(level)
+	local cooldown = if tier.attackCooldown > 0 then tier.attackCooldown else Config.AttackCooldown
+	if now - self.lastAttack < cooldown then return end
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not root or not root:IsA("BasePart") then
 		return
 	end
 	self.lastAttack = now
-	self.characterView:Swing(player.UserId, now)
-	if Sound and root then
-		Sound.Play("AttackSwing", root.Position)
+	self.characterView:Swing(player.UserId, now, tier.slashAnim)
+	PlayWeaponSlashSound(tier.slashSound, root.Position)
+	if tier.shape ~= "Single" then
+		self.attackTarget = nil
+		self.attackSequence += 1
+		Net.FireRequest({action = "Attack", attackSequence = self.attackSequence})
+		return
 	end
 	local best: Types.ItemView? = nil
-	local distance = Config.AttackRange
+	local distance = tier.range
 	for _, item in self.items do
 		if item.kind == "Body" and item.location == "Street" and item.hits < Config.StunHits and item.model and item.model.PrimaryPart then
 			local delta = item.model.PrimaryPart.Position - root.Position
@@ -1266,14 +1340,14 @@ function Client.Update(self: Client, dt: number): ()
 		local duration = math.max(Config.RuneCompleteFlashSeconds, 0.05)
 		if elapsed >= duration then
 			if self.view and self.view.ClearSacrifice then
-				self.view:ClearSacrifice(completeFlash.id)
+				SetBatchFlash(self.view, completeFlash.id, completeFlash.batch, nil)
 			end
 			self.completeFlash = nil
 		else
 			local hold = duration * 0.3
 			local brightness = if elapsed <= hold then 1 else math.clamp(1 - (elapsed - hold) / (duration - hold), 0, 1)
 			if self.view and self.view.SetSacrifice then
-				self.view:SetSacrifice(completeFlash.id, brightness, 0)
+				SetBatchFlash(self.view, completeFlash.id, completeFlash.batch, brightness)
 			end
 		end
 	end
@@ -1286,20 +1360,27 @@ function Client.Update(self: Client, dt: number): ()
 			local duration = math.max(Config.PaintFlipFlashSeconds, 0.05)
 			if elapsed >= duration then
 				if self.view and self.view.ClearSacrifice then
-					self.view:ClearSacrifice(flipFlash.id)
+					SetBatchFlash(self.view, flipFlash.id, flipFlash.batch, nil)
 				end
 				self.flipFlash = nil
 			else
 				local hold = duration * 0.25
 				local weight = if elapsed <= hold then 1 else math.clamp(1 - (elapsed - hold) / (duration - hold), 0, 1)
 				if self.view and self.view.SetSacrifice then
-					self.view:SetSacrifice(flipFlash.id, weight * Config.PaintFlipFlashBrightness, 0)
+					SetBatchFlash(self.view, flipFlash.id, flipFlash.batch, weight * Config.PaintFlipFlashBrightness)
 				end
 			end
 		end
 	end
 	if self.paintId then
-		self.visualUpload:Update(self.view:Drain(self.paintId),now,workspace:GetServerTimeNow(),self.visualClosing or not self.drawing,self.presentation:CapturePose(),not self.finishPaint and self.view:IsReady(self.paintId))
+		local dirty = self.view:Drain(self.paintId)
+		local followers = self.paintBatch
+		if followers and #followers > 0 and next(dirty) then
+			local segments = {}
+			for _, segment in dirty do table.insert(segments, segment) end
+			for _, id in followers do self.view:Apply(id, segments) end
+		end
+		self.visualUpload:Update(dirty,now,workspace:GetServerTimeNow(),self.visualClosing or not self.drawing,self.presentation:CapturePose(),not self.finishPaint and self.view:IsReady(self.paintId))
 		if self.view.budgetReached then
 			self:Text("NoticeText", {textId = "PaintSegmentLimit"})
 			self.messageEnds=now+3
@@ -1334,13 +1415,17 @@ function Client.Update(self: Client, dt: number): ()
 		adornee = if head and head:IsA("BasePart") then head else nil,
 		visible = not self.paintId and not held and focused ~= nil and focused.location == "Street" and focused.hits < Config.StunHits,
 		hits = if focused then focused.hits else 0,
+		hp = focused and focused.hp,
+		maxHp = focused and focused.maxHp,
 		touch = UserInputService.TouchEnabled,
 	})
 	local carryText: GameTexts.Description = { textId = "HandsEmpty" }
-	if #carried > 1 then
-		carryText = { textId = "CarryingBodies", args = { tostring(#carried) } }
-	elseif carried[1] then
-		carryText = { textId = if carried[1].stage == "Painted" then "CarryingRuneBody" else "CarryingBody" }
+	local carryCount = player:GetAttribute("CarryBodyCount")
+	local count = math.max(#carried, if type(carryCount) == "number" then carryCount else 0)
+	if count > 0 then
+		local tierCapacity = player:GetAttribute("CarryCapacity")
+		local capacity = if type(tierCapacity) == "number" then tierCapacity else 1
+		carryText = { textId = "CarryingBodies", args = { tostring(count), tostring(capacity) } }
 	elseif held then
 		carryText = { textId = if held.stage == "Painted" then "CarryingRuneBody" else "CarryingBody" }
 	end
@@ -1566,7 +1651,7 @@ function Client.UpdateAltar(self: Client, now: number): ()
 		local tossing = self.bodies.IsAltarTossing and self.bodies:IsAltarTossing(item.id, now)
 		if (item.flyEnds and now < item.flyEnds) or tossing then
 			self.bodies:Fly(item.id, now)
-			if self.completeFlash == nil or self.completeFlash.id ~= item.id then
+			if self.completeFlash == nil or (self.completeFlash.id ~= item.id and not table.find(self.completeFlash.batch or {}, item.id)) then
 				self.view:ClearSacrifice(item.id)
 			end
 			local flying = self.altarViews[item.id]
@@ -1603,7 +1688,7 @@ function Client.UpdateAutomationViews(self: Client, snapshot: Types.Snapshot?): 
 			if child:IsA("Model") then
 				local state = AutomationRules.SyncPad(child, unlocked, coins, { skipText = true })
 				local facilityId = child:GetAttribute("FacilityId")
-				if typeof(facilityId) == "string" and facilityId ~= "" then
+				if typeof(facilityId) == "number" and facilityId >= 1 and facilityId % 1 == 0 then
 					local guiAnchor = child:FindFirstChild("GuiAnchor")
 					local bb = if guiAnchor then guiAnchor:FindFirstChild("PadGui") else nil
 					if bb and bb:IsA("BillboardGui") then
@@ -1612,14 +1697,14 @@ function Client.UpdateAutomationViews(self: Client, snapshot: Types.Snapshot?): 
 					local card = if bb then bb:FindFirstChild("CardFrame") else nil
 					if card then
 						local titleLabel = card:FindFirstChild("TitleText")
-						local titleDesc = AutomationRules.DescribeTitle(facilityId)
-						if titleLabel and titleLabel:IsA("TextLabel") and titleDesc then
-							self.padTexts:Bind(titleLabel, titleDesc)
+						local titleSource = AutomationRules.DescribeTitle(facilityId)
+						if titleLabel and titleLabel:IsA("TextLabel") and titleSource then
+							self.padTexts:BindSource(titleLabel, titleSource)
 						end
 						local descLabel = card:FindFirstChild("DescText")
-						local descDesc = AutomationRules.DescribeDesc(facilityId)
-						if descLabel and descLabel:IsA("TextLabel") and descDesc then
-							self.padTexts:Bind(descLabel, descDesc)
+						local descSource = AutomationRules.DescribeDesc(facilityId)
+						if descLabel and descLabel:IsA("TextLabel") and descSource then
+							self.padTexts:BindSource(descLabel, descSource)
 						end
 						local prereqLabel = card:FindFirstChild("PrereqText")
 						if prereqLabel and prereqLabel:IsA("TextLabel") then
@@ -1636,7 +1721,7 @@ function Client.UpdateAutomationViews(self: Client, snapshot: Types.Snapshot?): 
 			end
 		end
 	end
-	local a00Open = unlocked ~= nil and unlocked.A00 == true
+	local a00Open = unlocked ~= nil and unlocked[GameData.FacilityId.FastChute] == true
 	if fastChuteCover then
 		fastChuteCover:SetAttribute("Unlocked", a00Open)
 		for _, descendant in fastChuteCover:GetDescendants() do
@@ -1654,11 +1739,11 @@ function Client.UpdateAutomationViews(self: Client, snapshot: Types.Snapshot?): 
 	end
 	local serverNow = workspace:GetServerTimeNow()
 	if autoRuneMachine then
-		autoRuneMachine:SetAttribute("Unlocked", unlocked ~= nil and unlocked.A03 == true)
+		autoRuneMachine:SetAttribute("Unlocked", unlocked ~= nil and unlocked[GameData.FacilityId.AutoRune] == true)
 		autoRuneMachine:SetAttribute("Working", snapshot ~= nil and (snapshot.autoRuneEnds or 0) > serverNow)
 	end
 	if autoSmelterMachine then
-		autoSmelterMachine:SetAttribute("Unlocked", unlocked ~= nil and unlocked.A04 == true)
+		autoSmelterMachine:SetAttribute("Unlocked", unlocked ~= nil and unlocked[GameData.FacilityId.AutoSmelter] == true)
 		autoSmelterMachine:SetAttribute("Working", snapshot ~= nil and (snapshot.autoSmelterEnds or 0) > serverNow)
 	end
 end
@@ -1671,9 +1756,10 @@ function Client.BindBruteNameplates(self: Client): ()
 		local agent = instance.Parent
 		if not agent or not agent:IsA("Model") or agent:GetAttribute("AgentRole") ~= "Brute" then return end
 		local agentId = agent:GetAttribute("AgentId")
-		local textId: GameTexts.TextId? =
-			if agentId == "HellBrute_1" then "PadNameA01" elseif agentId == "HellBrute_2" then "PadNameA02" else nil
-		if not textId then return end
+		local facilityId: number? =
+			if agentId == "HellBrute_1" then GameData.FacilityId.Brute1 elseif agentId == "HellBrute_2" then GameData.FacilityId.Brute2 else nil
+		local facility = if facilityId then GameData.GetFacility(facilityId) else nil
+		if not facility then return end
 		local template = ui:FindFirstChild("BruteNameGui")
 		if not template or not template:IsA("BillboardGui") then return end
 		local nameplate = template:Clone()
@@ -1682,7 +1768,7 @@ function Client.BindBruteNameplates(self: Client): ()
 		nameplate.Parent = playerGui
 		bindings[instance] = { gui = nameplate, label = label }
 		self.scope:Own(nameplate)
-		self.padTexts:Bind(label, { textId = textId })
+		self.padTexts:BindSource(label, facility.name_t)
 	end
 	local function OnRemoving(instance: Instance): ()
 		if not instance:IsA("BasePart") then return end
@@ -1761,7 +1847,7 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 				local inChute = if fastChuteOpening and chuteDropZone
 					then ThrowArc.InsideChute(fastChuteOpening.CFrame, fastChuteOpening.Size, chuteDropZone.CFrame, chuteDropZone.Size, position, Physics.ChuteWallHeight)
 					else false
-				local unlockedA00 = snapshot.unlockedFacilities ~= nil and snapshot.unlockedFacilities.A00 == true
+				local unlockedA00 = snapshot.unlockedFacilities ~= nil and snapshot.unlockedFacilities[GameData.FacilityId.FastChute] == true
 				if unlockedA00 and fastChuteOpening and (hitBaffle or (normal and ThrowArc.IsChuteWall(fastChuteOpening.CFrame, fastChuteOpening.Size, position, normal))) then
 					return true
 				end
@@ -1771,7 +1857,7 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 			ChuteBaffles = function(): Instance?
 				local top = self:Carried()[1]
 				local facilities = self.snapshot and self.snapshot.unlockedFacilities
-				return if autoLine and facilities and facilities.A00 and top and top.stage ~= "Painted"
+				return if autoLine and facilities and facilities[GameData.FacilityId.FastChute] and top and top.stage ~= "Painted"
 					then autoLine:FindFirstChild("ChuteThrowBaffles")
 					else nil
 			end,
@@ -1867,6 +1953,7 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 				self.presentation.targetOrientation=self.orientation
 			end
 			self.presentation:Update(TablePose(),math.min(dt,0.1),self.paintId ~= nil)
+			self.bodies:SyncPaintBatch()
 		end
 	end)
 	self.scope:Connect(simulationPhase)
@@ -1879,7 +1966,7 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		local now=workspace:GetServerTimeNow()
 		local character=player.Character
 		local humanoid=character and character:FindFirstChildOfClass("Humanoid")
-		local enabled=not self.paintId and not self:Held() and humanoid~=nil and humanoid.Health>0 and character~=nil and character:FindFirstChild("Club")~=nil
+		local enabled=not self.paintId and not self:Held() and humanoid~=nil and humanoid.Health>0 and character~=nil and PersonalRules.FindWeapon(character)~=nil
 		self.hitView:UpdateCamera(now,enabled)
 		self.hitView:UpdateEffects(now)
 	end)
@@ -1908,11 +1995,11 @@ function Client.Destroy(self: Client): ()
 	self:ExitView()
 	RestoreHiddenPlayers(self)
 	if self.completeFlash then
-		self.view:ClearSacrifice(self.completeFlash.id)
+		SetBatchFlash(self.view, self.completeFlash.id, self.completeFlash.batch, nil)
 		self.completeFlash = nil
 	end
 	if self.flipFlash then
-		self.view:ClearSacrifice(self.flipFlash.id)
+		SetBatchFlash(self.view, self.flipFlash.id, self.flipFlash.batch, nil)
 		self.flipFlash = nil
 	end
 	self.paintCamera:Destroy()

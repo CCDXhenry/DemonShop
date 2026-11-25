@@ -36,11 +36,11 @@ function Boundary.Character()
 	end
 	local humanoid = { Health = 100, RigType = Roblox.Enum.HumanoidRigType.R15, Died = Signal() }
 	function humanoid:FindFirstChildOfClass(class) return if class == "Animator" then animator else nil end
-	local tool = { Unequipped = Signal() }
+	local tool = { Name = "W01_RustyPan", Unequipped = Signal() }
 	function tool:IsA(class) return class == "Tool" end
 	local character = { DescendantAdded = Signal(), humanoid = humanoid, tool = tool }
 	tool.Parent = character
-	function character:FindFirstChild(name) return if name == "Club" and tool.Parent == self then tool else nil end
+	function character:GetChildren() return if tool.Parent == self then {tool} else {} end
 	function character:FindFirstChildOfClass(class) return if class == "Humanoid" then humanoid else nil end
 	function character:GetDescendants() return {} end
 	player.Character, player.painting = character, false

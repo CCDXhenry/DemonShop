@@ -2,6 +2,7 @@
 local Manager = require("./ClientPreloadManager")
 local Boundary = require("./ClientPreloadBoundary")
 local Config = require("./GameConfig")
+local GameData = require("./GameData")
 local assertions = 0
 local function Check(value, message)
 	assert(value, message)
@@ -24,10 +25,14 @@ local sawHidden = false
 local sawGuide = false
 local sawScreen = false
 local sawSlashSound = false
+local seenAnims = {}
+local seenSounds = {}
 for _, asset in Boundary.Targets() do
 	if typeof(asset) == "string" then
 		sawString = true
 	elseif asset:IsA("Animation") then
+		assert(not seenAnims[asset.AnimationId], "duplicate animation preloaded: " .. asset.AnimationId)
+		seenAnims[asset.AnimationId] = true
 		if asset.AnimationId == Config.WeaponSlashAnimation then sawSlash = true end
 		if asset.AnimationId == Config.BodyCarryAnimation then sawCarry = true end
 		if asset.AnimationId == Config.IdleAnimation then sawIdle = true end
@@ -40,9 +45,17 @@ for _, asset in Boundary.Targets() do
 		sawGuide = true
 	elseif asset.Name == "GameScreenGui" then
 		sawScreen = true
-	elseif asset:IsA("Sound") and asset.SoundId == Config.WeaponSlashSound then
-		sawSlashSound = true
+	elseif asset:IsA("Sound") then
+		assert(not seenSounds[asset.SoundId], "duplicate sound preloaded: " .. asset.SoundId)
+		seenSounds[asset.SoundId] = true
+		if asset.SoundId == Config.WeaponSlashSound then
+			sawSlashSound = true
+		end
 	end
+end
+for _, weapon in GameData.GetAllWeapons() do
+	Check(seenAnims[weapon.slashAnim] == true, "weapon slashAnim preloaded: " .. weapon.id)
+	Check(seenSounds[weapon.slashSound] == true, "weapon slashSound preloaded: " .. weapon.id)
 end
 Check(not sawString, "preload list contains instances")
 Check(sawSlash and sawCarry and sawIdle and sawWalk, "configured animations are Animation instances")

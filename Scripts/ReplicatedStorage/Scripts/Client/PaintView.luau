@@ -536,6 +536,22 @@ function View.DrawLocal(self: View, id: string, session: string, gesture: number
 	end
 end
 
+function View.Mirror(self: View, id: string, followers: { string }): ()
+	if #followers == 0 then return end
+	local curved: CurvedView.View = self.curved or CurvedView.new()
+	self.curved = curved
+	for _, follower in followers do curved:SetMirror(follower, id) end
+	local records = self.segments[id]
+	if not records then return end
+	local segments = {}
+	for _, segment in records do
+		table.insert(segments, segment)
+	end
+	for _, follower in followers do
+		self:Apply(follower, segments)
+	end
+end
+
 function View.Drain(self: View, id: string): { [string]: Types.VisualSegment }
 	local changed = self.dirty[id] or {}
 	self.dirty[id] = nil
@@ -592,6 +608,7 @@ end
 
 function View.Remove(self: View, id: string): ()
 	if self.curved then
+		self.curved:ReleaseMirrors(id)
 		self.curved:Remove(id)
 	end
 	local prefix = id .. ":"

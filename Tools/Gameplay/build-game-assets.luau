@@ -4,12 +4,14 @@ local RS, SS = game:GetService("ReplicatedStorage"), game:GetService("ServerStor
 local function folder(parent,name)
  local v=parent:FindFirstChild(name);if not v then v=Instance.new("Folder");v.Name=name;v.Parent=parent end;return v
 end
--- 提前检查，缺少官方模板时停止，避免半途修改其他资源。
+-- 提前检查，缺少运行时模型分类模板时停止，避免半途修改其他资源。
 local models=folder(RS,"Models")
--- 官方武器模板从本地 RBXM 恢复，不再生成会覆盖美术资源的方棍。
-local sword=models:FindFirstChild("Club")
-assert(sword and sword:IsA("Tool") and sword:GetAttribute("SourceAssetId"),
- "Import Assets/Models/ClassicSword.rbxm into ReplicatedStorage.Models before building (replace old Club)")
+local characters=folder(models,"Characters")
+folder(models,"Weapons")
+folder(models,"CarryRigs")
+local items=folder(models,"Items")
+folder(models,"Effects")
+folder(models,"Previews")
 local district=workspace:WaitForChild("NeonContractDistrict")
 if not district:FindFirstChild("SummoningSubmitAnchor") then
  local sigil=district.summoning.Generated.SummoningCircle["Flat Purple Summoning Sigil"]
@@ -17,28 +19,39 @@ if not district:FindFirstChild("SummoningSubmitAnchor") then
  anchor.Anchored=true;anchor.Transparency=1;anchor.CanCollide=false;anchor.CanQuery=false;anchor.CanTouch=false;anchor.Parent=district
 end
 for _,name in {"SoulHoldingPool","RuneBodyTable","SoulConversionAltar","SoulCrystalDisplay"} do district[name].ModelStreamingMode=Enum.ModelStreamingMode.Persistent end
-assert(models:FindFirstChild("WhiteR15") and models.WhiteR15:GetAttribute("SurfaceVersion")==1,
- "Import Assets/Models/GameModels.rbxm containing the curved WhiteR15 template before building")
-for _, bruteName in {"HellBrute_1", "HellBrute_2", "AutoClerk"} do
- local brute = models:FindFirstChild(bruteName)
- assert(brute and brute:IsA("Model") and brute:FindFirstChild("HumanoidRootPart") and brute:FindFirstChildOfClass("Humanoid"),
-  "Import Assets/Models/GameModels.rbxm containing " .. bruteName .. " before building")
+-- 恢复 M6 五槽台面，用锚点到墨具的固定坐标保证重跑不重复位移。
+local runeTable = district.RuneBodyTable
+local tableAnchor = runeTable.BodyPlacementAnchor.Position
+local slab = runeTable:FindFirstChild("FullBodySlab", true)
+slab.Size = Vector3.new(18, slab.Size.Y, 10.5)
+for name, offset in {
+ InkTray = Vector3.new(6.5, -0.55, 4.25),
+ InkPot = Vector3.new(7, -0.05, 4.25),
+ Brush = Vector3.new(5.8, -0.25, 4.25),
+ TransferStartAnchor = Vector3.new(0, 0.45, -4.85),
+ StationPlaque = Vector3.new(0, -1.95, -5.35),
+} do
+ runeTable:FindFirstChild(name, true).Position = tableAnchor + offset
 end
--- 自动化底盘圈模板从 GameModels.rbxm 恢复；场景空洞与 AutomationLine 设施由 build-automation-assets.luau 构建。
-assert(models:FindFirstChild("UnlockPad") and models.UnlockPad:FindFirstChild("GuiAnchor"),
- "Import Assets/Models/GameModels.rbxm containing UnlockPad or run Tools/Gameplay/build-automation-assets.luau")
+assert(characters:FindFirstChild("WhiteR15") and characters.WhiteR15:GetAttribute("SurfaceVersion")==1,
+ "Import Assets/Models/GameModels.rbxm containing Models.Characters.WhiteR15 before building")
+for _, bruteName in {"HellBrute_1", "HellBrute_2", "AutoClerk"} do
+ local brute = characters:FindFirstChild(bruteName)
+ assert(brute and brute:IsA("Model") and brute:FindFirstChild("HumanoidRootPart") and brute:FindFirstChildOfClass("Humanoid"),
+  "Import Assets/Models/GameModels.rbxm containing Models.Characters." .. bruteName .. " before building")
+end
 -- 曲面 UV、面积与可绘制区域由离线数据提供，不再生成六平面遮罩。
 local function part(parent,name,size,color,cf)
  local p=Instance.new("Part");p.Name=name;p.Size=size;p.Color=color;p.CFrame=cf or CFrame.identity
  p.CanCollide=false;p.CanTouch=false;p.Massless=true;p.TopSurface=Enum.SurfaceType.Smooth;p.BottomSurface=Enum.SurfaceType.Smooth;p.Parent=parent;return p
 end
-if not models:FindFirstChild("Potion") then
+if not items:FindFirstChild("Potion") then
  local m=Instance.new("Tool");m.Name="Potion";m.CanBeDropped=false;m.RequiresHandle=true;m.ManualActivationOnly=true
  m.Grip=CFrame.new(0,0,0.5)*CFrame.Angles(math.rad(-90),0,0)
  local body=part(m,"Handle",Vector3.new(.9,1.25,.9),Color3.fromRGB(166,63,255));body.Shape=Enum.PartType.Ball;body.Material=Enum.Material.Neon
  local neck=part(m,"Stopper",Vector3.new(.35,.45,.35),Color3.fromRGB(235,188,102),CFrame.new(0,.7,0))
  local w=Instance.new("WeldConstraint");w.Part0=body;w.Part1=neck;w.Parent=body
- m.PrimaryPart=body;m.Parent=models
+ m.PrimaryPart=body;m.Parent=items
 end
 local events=folder(RS,"RemoteEvents")
 for _,name in {"GameRequest","GameNotify"} do if not events:FindFirstChild(name) then local r=Instance.new("RemoteEvent");r.Name=name;r.Parent=events end end
@@ -374,8 +387,9 @@ for _, value in gui:GetDescendants() do
 	if value:IsA("TextLabel") then
 		local dynamic = value.Name == "CoinsText" or value.Name == "CarryText" or value.Name == "StockText"
 			or value.Name == "HintText" or value.Name == "NoticeText" or value.Name == "ProgressText"
+			or value.Name == "ToolNameText" or value.Name == "ToolLvText" or value.Name == "KeyCodeText"
 		value.AutoLocalize = not dynamic and not string.find(value.Name, "KeyText")
-		if dynamic and value.Name ~= "ProgressText" then value.Text = "" end
+		if dynamic and value.Name ~= "ProgressText" and value.Name ~= "KeyCodeText" then value.Text = "" end
 	end
 end
 for _, node in gui:GetDescendants() do

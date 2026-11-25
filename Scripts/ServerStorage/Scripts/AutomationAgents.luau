@@ -4,9 +4,11 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Scripts.Shared
 local Config = require(Shared.GameConfig)
+local GameData = require(Shared.GameData)
 local Types = require(Shared.GameTypes)
 local Net = require(Shared.ProcessingNet)
 local Lifecycle = require(Shared.LifecycleTool)
+local ModelTemplates = require(Shared.ModelTemplates)
 local Physics = require(Shared.PhysicsConfig)
 local NPC = require(script.Parent.NPC)
 local Carry = require(script.Parent.Carry)
@@ -19,7 +21,7 @@ export type Host = {
 	scope: Lifecycle.Lifecycle,
 	items: { [string]: Types.Item },
 	stationVersions: { [string]: number },
-	isUnlocked: (facilityId: string) -> boolean,
+	isUnlocked: (facilityId: number) -> boolean,
 	getAutoShelfCount: () -> number,
 	takeAutoShelf: () -> number,
 	payPotionSale: (count: number, warnIfBlocked: boolean) -> boolean,
@@ -40,7 +42,7 @@ type Tracks = {
 
 export type BruteAgent = {
 	id: string,
-	facilityId: string,
+	facilityId: number,
 	variant: number,
 	model: Model,
 	root: BasePart,
@@ -453,7 +455,7 @@ local function CleanStaleLocks(host: Host, state: State): ()
 end
 
 local function AcquireNearestTarget(host: Host, state: State, agent: BruteAgent): Types.Item?
-	if not host.isUnlocked("A00") then
+	if not host.isUnlocked(GameData.FacilityId.FastChute) then
 		return nil
 	end
 	local bestItem: Types.Item? = nil
@@ -546,7 +548,7 @@ local function BruteDepositBody(host: Host, state: State, agent: BruteAgent, now
 				part.CanQuery = part.Name ~= "HumanoidRootPart" and part:GetAttribute("Paintable") == true
 			end
 		end
-		if host.isUnlocked("A00") then
+		if host.isUnlocked(GameData.FacilityId.FastChute) then
 			host.pushChuteItem(item)
 			host.stepAutomation(now)
 		else
@@ -607,12 +609,11 @@ end
 local function SpawnBrute(state: State, variant: number, now: number): ()
 	local agentId = "Brute" .. tostring(variant)
 	local templateName = if variant == 1 then "HellBrute_1" else "HellBrute_2"
-	local models = ReplicatedStorage:FindFirstChild("Models")
-	local template = if models then models:FindFirstChild(templateName) else nil
-	if not template or not template:IsA("Model") then
+	local template = ModelTemplates.FindCharacter(templateName)
+	if not template then
 		if not missingBruteTemplate[templateName] then
 			missingBruteTemplate[templateName] = true
-			warn(string.format("[AutomationAgents] Missing ReplicatedStorage.Models.%s", templateName))
+			warn(string.format("[AutomationAgents] Missing ReplicatedStorage.Models.Characters.%s", templateName))
 		end
 		return
 	end
@@ -625,7 +626,7 @@ local function SpawnBrute(state: State, variant: number, now: number): ()
 	local tracks = LoadAgentTracks(model)
 	local agent: BruteAgent = {
 		id = agentId,
-		facilityId = if variant == 1 then "A01" else "A02",
+		facilityId = if variant == 1 then GameData.FacilityId.Brute1 else GameData.FacilityId.Brute2,
 		variant = variant,
 		model = model,
 		root = root,
@@ -668,12 +669,11 @@ local function CollectClerkProps(model: Model): ({ BasePart }, { PointLight })
 end
 
 local function SpawnClerk(state: State): ()
-	local models = ReplicatedStorage:FindFirstChild("Models")
-	local template = if models then models:FindFirstChild("AutoClerk") else nil
-	if not template or not template:IsA("Model") then
+	local template = ModelTemplates.FindCharacter("AutoClerk")
+	if not template then
 		if not missingClerkTemplate then
 			missingClerkTemplate = true
-			warn("[AutomationAgents] Missing ReplicatedStorage.Models.AutoClerk")
+			warn("[AutomationAgents] Missing ReplicatedStorage.Models.Characters.AutoClerk")
 		end
 		return
 	end
@@ -748,13 +748,13 @@ function AutomationAgents.SyncUnlocked(state: State, now: number): ()
 		state.lastTick = now
 	end
 	local isUnlocked = state.host.isUnlocked
-	if isUnlocked("A01") and not state.brutes.Brute1 then
+	if isUnlocked(GameData.FacilityId.Brute1) and not state.brutes.Brute1 then
 		SpawnBrute(state, 1, now)
 	end
-	if isUnlocked("A02") and not state.brutes.Brute2 then
+	if isUnlocked(GameData.FacilityId.Brute2) and not state.brutes.Brute2 then
 		SpawnBrute(state, 2, now)
 	end
-	if isUnlocked("A05") and not state.clerk then
+	if isUnlocked(GameData.FacilityId.AutoClerk) and not state.clerk then
 		SpawnClerk(state)
 	end
 end
@@ -913,7 +913,7 @@ local function StepBrute(host: Host, state: State, agent: BruteAgent, now: numbe
 								slashTrack:Play(Config.WeaponAnimationFade)
 							end)
 						end
-						NPC.Hit(targetItem, hitDir)
+						NPC.Hit(targetItem, hitDir, Config.BruteDamage)
 						local torso = targetItem.model:FindFirstChild("UpperTorso")
 						local hitPos = targetRoot.Position
 						if torso and torso:IsA("BasePart") then
@@ -925,6 +925,8 @@ local function StepBrute(host: Host, state: State, agent: BruteAgent, now: numbe
 							id = targetItem.id,
 							version = targetItem.version,
 							hits = targetItem.hits,
+							hp = targetItem.hp,
+							maxHp = targetItem.maxHp,
 							started = now,
 							direction = hitDir,
 							position = hitPos,

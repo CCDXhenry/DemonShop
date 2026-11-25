@@ -23,7 +23,7 @@ function Ground.Init()
 		end
 	end
 end
-function Ground.Place(item: Types.Item, direction: Vector3, velocity: Vector3)
+function Ground.Place(item: Types.Item, direction: Vector3, velocity: Vector3, groundTravel: number?)
 	local model=item.model
 	local root=assert(model.PrimaryPart)
 	local upper=model:FindFirstChild("UpperTorso") :: BasePart
@@ -37,8 +37,8 @@ function Ground.Place(item: Types.Item, direction: Vector3, velocity: Vector3)
 	cast.FilterType=Enum.RaycastFilterType.Include
 	cast.FilterDescendantsInstances={Scene.District,workspace.Terrain}
 	cast.RespectCanCollide=true
-	local travel=Physics.GroundTravel
-	local obstacle=workspace:Blockcast(upper.CFrame,upper.Size*.95,forward*travel,cast)
+	local travel=groundTravel or Physics.GroundTravel
+	local obstacle=if travel > 0 then workspace:Blockcast(upper.CFrame,upper.Size*.95,forward*travel,cast) else nil
 	if obstacle then travel=math.max(0,obstacle.Distance-.08) end
 	local point=origin.Position+forward*travel
 	local function Support(at: Vector3): RaycastResult?

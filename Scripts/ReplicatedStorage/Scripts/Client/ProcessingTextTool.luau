@@ -8,11 +8,12 @@ local Tool = {}
 Tool.__index = Tool
 
 type Binding = {
-	textId: GameTexts.TextId,
+	textId: GameTexts.TextId?,
 	source: string,
 	key: string,
 	args: {string},
 	argTextIds: {[number]: GameTexts.TextId}?,
+	argSources: {[number]: string}?,
 	resolvedArgs: {string},
 }
 export type Controller = typeof(setmetatable({} :: {
@@ -26,6 +27,13 @@ local function CloneArgTextIds(argTextIds: {[number]: GameTexts.TextId}?): {[num
 		return nil
 	end
 	return table.clone(argTextIds)
+end
+
+local function CloneStringMap(values: {[number]: string}?): {[number]: string}?
+	if values == nil then
+		return nil
+	end
+	return table.clone(values)
 end
 
 local function SameStringList(a: {string}, b: {string}): boolean
@@ -60,16 +68,47 @@ local function SameArgTextIds(a: {[number]: GameTexts.TextId}?, b: {[number]: Ga
 	return true
 end
 
-local function ResolveArgs(label: TextLabel, rawArgs: {string}, argTextIds: {[number]: GameTexts.TextId}?): {string}
-	local resolved = table.clone(rawArgs)
-	if argTextIds == nil then
-		return resolved
+local function SameStringMap(a: {[number]: string}?, b: {[number]: string}?): boolean
+	if a == nil and b == nil then
+		return true
 	end
-	for index, argTextId in pairs(argTextIds) do
-		local entryId: GameTexts.TextId = argTextId :: GameTexts.TextId
-		local argEntry = GameTexts.GetEntry(entryId)
-		if argEntry then
-			resolved[index] = TranslationTool.Translate(label, argEntry.source)
+	if a == nil or b == nil then
+		return false
+	end
+	for index, value in pairs(a) do
+		if b[index] ~= value then
+			return false
+		end
+	end
+	for index, value in pairs(b) do
+		if a[index] ~= value then
+			return false
+		end
+	end
+	return true
+end
+
+local function ResolveArgs(
+	label: TextLabel,
+	rawArgs: {string},
+	argTextIds: {[number]: GameTexts.TextId}?,
+	argSources: {[number]: string}?
+): {string}
+	local resolved = table.clone(rawArgs)
+	if argTextIds ~= nil then
+		for index, argTextId in pairs(argTextIds) do
+			local entryId: GameTexts.TextId = argTextId :: GameTexts.TextId
+			local argEntry = GameTexts.GetEntry(entryId)
+			if argEntry then
+				resolved[index] = TranslationTool.Translate(label, argEntry.source)
+			end
+		end
+	end
+	if argSources ~= nil then
+		for index, argSource in pairs(argSources) do
+			if argSource ~= "" then
+				resolved[index] = TranslationTool.Translate(label, argSource)
+			end
 		end
 	end
 	return resolved
@@ -84,8 +123,8 @@ function Tool.Watch(self: Controller, label: TextLabel, forceWatch: boolean?): (
 	if self.connections[label] or (isBillboard and not forceWatch) then return end
 	local function OnTextChanged(): ()
 		local binding = self.bindings[label]
-		if binding and binding.argTextIds and not self.refreshing[label] then
-			local nextResolved = ResolveArgs(label, binding.args, binding.argTextIds)
+		if binding and (binding.argTextIds or binding.argSources) and not self.refreshing[label] then
+			local nextResolved = ResolveArgs(label, binding.args, binding.argTextIds, binding.argSources)
 			if not SameStringList(binding.resolvedArgs, nextResolved) then
 				binding.resolvedArgs = nextResolved
 				self.refreshing[label] = true
@@ -117,15 +156,17 @@ function Tool.Bind(self: Controller, label: TextLabel, description: GameTexts.De
 	local previous = self.bindings[label]
 	local args: {string} = if textId == description.textId then description.args or {} else {}
 	local argTextIds = if textId == description.textId then description.argTextIds else nil
+	local argSources = if textId == description.textId then description.argSources else nil
 	if previous
 		and previous.textId == textId
 		and SameStringList(previous.args, args)
 		and SameArgTextIds(previous.argTextIds, argTextIds)
+		and SameStringMap(previous.argSources, argSources)
 	then
 		return
 	end
-	local resolvedArgs = ResolveArgs(label, args, argTextIds)
-	self:Watch(label, argTextIds ~= nil)
+	local resolvedArgs = ResolveArgs(label, args, argTextIds, argSources)
+	self:Watch(label, argTextIds ~= nil or argSources ~= nil)
 	label.AutoLocalize = false
 	self.bindings[label] = {
 		textId = textId,
@@ -133,9 +174,36 @@ function Tool.Bind(self: Controller, label: TextLabel, description: GameTexts.De
 		key = entry.key,
 		args = table.clone(args),
 		argTextIds = CloneArgTextIds(argTextIds),
+		argSources = CloneStringMap(argSources),
 		resolvedArgs = resolvedArgs,
 	}
 	TranslationTool.CustomAutoLocalizeTextLabel(label, entry.source, entry.key, resolvedArgs)
+end
+
+function Tool.BindSource(self: Controller, label: TextLabel, source: string): ()
+	local previous = self.bindings[label]
+	if previous
+		and previous.textId == nil
+		and previous.source == source
+		and previous.key == ""
+		and #previous.args == 0
+		and previous.argTextIds == nil
+		and previous.argSources == nil
+	then
+		return
+	end
+	self:Watch(label, false)
+	label.AutoLocalize = false
+	self.bindings[label] = {
+		textId = nil,
+		source = source,
+		key = "",
+		args = {},
+		argTextIds = nil,
+		argSources = nil,
+		resolvedArgs = {},
+	}
+	TranslationTool.CustomAutoLocalizeTextLabel(label, source, "")
 end
 
 function Tool.Clear(self: Controller, label: TextLabel): ()
@@ -147,15 +215,12 @@ function Tool.Clear(self: Controller, label: TextLabel): ()
 end
 
 function Tool.Notice(self: Controller, label: TextLabel, textId: GameTexts.TextId?, args: {string}?, legacyText: string?): ()
-	local argTextIds: {[number]: GameTexts.TextId}? = nil
-	if textId == "FacilityUnlocked" and args and args[2] then
-		local resolved = GameTexts.ResolveLegacy(args[2])
-		if resolved and not resolved.args then
-			argTextIds = { [2] = resolved.textId }
-		end
+	local argSources: {[number]: string}? = nil
+	if textId == "FacilityUnlocked" and args and args[2] and args[2] ~= "" then
+		argSources = { [2] = args[2] }
 	end
 	local description: GameTexts.Description? = if textId and GameTexts.GetEntry(textId)
-		then {textId = textId, args = args, argTextIds = argTextIds}
+		then {textId = textId, args = args, argSources = argSources}
 		else nil
 	if not description and legacyText then description = GameTexts.ResolveLegacy(legacyText) end
 	if not description then

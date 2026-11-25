@@ -3,6 +3,8 @@ local R = require('@lune/roblox')
 local CFrame, Vector3 = R.CFrame, R.Vector3
 local B = require('./StationPotionBoundary')
 local Config = require('./GameConfig')
+local GameData = require('./GameData')
+local F = GameData.FacilityId
 local Scene = require('./StationScene')
 local Manager = require('./StationProcessingManager')
 local Replication = require('./StationReplication')
@@ -15,7 +17,7 @@ local function check(cond, msg)
 end
 
 local function makeStreetBody(manager, pos, hits)
-	local model = B.ModelsFolder.WhiteR15:Clone()
+	local model = B.ModelsFolder.Characters.WhiteR15:Clone()
 	local id = B.HttpService.GenerateGUID(false)
 	model.Name = 'WhiteNPC'
 	model:SetAttribute('ItemId', id)
@@ -49,7 +51,7 @@ local function makeStreetBody(manager, pos, hits)
 end
 
 local function makeManualBody(manager, stage, location)
-	local model = B.ModelsFolder.WhiteR15:Clone()
+	local model = B.ModelsFolder.Characters.WhiteR15:Clone()
 	local id = B.HttpService.GenerateGUID(false)
 	model:SetAttribute('ItemId', id)
 	model.Parent = manager.runtime
@@ -117,14 +119,14 @@ check(Scene.ClerkSpawn ~= nil and Scene.AutoShelfPickup ~= nil and Scene.ChuteTo
 do
 	B.now = 100
 	local manager = makeTestManager()
-	local p1, _, _, root1 = B.CreatePlayer(101, Scene.UnlockPads.A00.TriggerZone.Position)
+	local p1, _, _, root1 = B.CreatePlayer(101, Scene.UnlockPads[F.FastChute].TriggerZone.Position)
 	p1:SetAttribute('Coins', 10000)
 	manager:AddPlayer(p1)
 
-	check(manager:TryUnlockFacility(p1, 'A00'), 'unlock A00')
-	root1.CFrame = CFrame.new(Scene.UnlockPads.A01.TriggerZone.Position)
-	root1.Position = Scene.UnlockPads.A01.TriggerZone.Position
-	check(manager:TryUnlockFacility(p1, 'A01'), 'unlock A01')
+	check(manager:TryUnlockFacility(p1, F.FastChute), 'unlock A00')
+	root1.CFrame = CFrame.new(Scene.UnlockPads[F.Brute1].TriggerZone.Position)
+	root1.Position = Scene.UnlockPads[F.Brute1].TriggerZone.Position
+	check(manager:TryUnlockFacility(p1, F.Brute1), 'unlock A01')
 
 	check(manager.agents ~= nil and manager.agents.brutes.Brute1 ~= nil, 'Brute1 spawns upon unlocking A01')
 	local brute1 = manager.agents.brutes.Brute1
@@ -220,14 +222,14 @@ end
 do
 	B.now = 200
 	local manager = makeTestManager()
-	local p1, _, _, root1 = B.CreatePlayer(102, Scene.UnlockPads.A00.TriggerZone.Position)
+	local p1, _, _, root1 = B.CreatePlayer(102, Scene.UnlockPads[F.FastChute].TriggerZone.Position)
 	p1:SetAttribute('Coins', 20000)
 	manager:AddPlayer(p1)
-	manager:TryUnlockFacility(p1, 'A00')
-	root1.CFrame = CFrame.new(Scene.UnlockPads.A01.TriggerZone.Position); root1.Position = Scene.UnlockPads.A01.TriggerZone.Position
-	manager:TryUnlockFacility(p1, 'A01')
-	root1.CFrame = CFrame.new(Scene.UnlockPads.A02.TriggerZone.Position); root1.Position = Scene.UnlockPads.A02.TriggerZone.Position
-	manager:TryUnlockFacility(p1, 'A02')
+	manager:TryUnlockFacility(p1, F.FastChute)
+	root1.CFrame = CFrame.new(Scene.UnlockPads[F.Brute1].TriggerZone.Position); root1.Position = Scene.UnlockPads[F.Brute1].TriggerZone.Position
+	manager:TryUnlockFacility(p1, F.Brute1)
+	root1.CFrame = CFrame.new(Scene.UnlockPads[F.Brute2].TriggerZone.Position); root1.Position = Scene.UnlockPads[F.Brute2].TriggerZone.Position
+	manager:TryUnlockFacility(p1, F.Brute2)
 
 	check(manager.agents.brutes.Brute1 ~= nil and manager.agents.brutes.Brute2 ~= nil, 'Both Brute1 and Brute2 spawned')
 	check((manager.agents.brutes.Brute2.floorPos - Scene.Brute2Spawn.Position).Magnitude < 1.0, 'Brute2 spawns at Brute2SpawnAnchor')
@@ -266,15 +268,15 @@ do
 	local function simulateThroughput(enableSecondBrute)
 		B.now = 300
 		local manager = makeTestManager()
-		local p1, _, _, root1 = B.CreatePlayer(103, Scene.UnlockPads.A00.TriggerZone.Position)
+		local p1, _, _, root1 = B.CreatePlayer(103, Scene.UnlockPads[F.FastChute].TriggerZone.Position)
 		p1:SetAttribute('Coins', 20000)
 		manager:AddPlayer(p1)
-		manager:TryUnlockFacility(p1, 'A00')
-		root1.CFrame = CFrame.new(Scene.UnlockPads.A01.TriggerZone.Position); root1.Position = Scene.UnlockPads.A01.TriggerZone.Position
-		manager:TryUnlockFacility(p1, 'A01')
+		manager:TryUnlockFacility(p1, F.FastChute)
+		root1.CFrame = CFrame.new(Scene.UnlockPads[F.Brute1].TriggerZone.Position); root1.Position = Scene.UnlockPads[F.Brute1].TriggerZone.Position
+		manager:TryUnlockFacility(p1, F.Brute1)
 		if enableSecondBrute then
-			root1.CFrame = CFrame.new(Scene.UnlockPads.A02.TriggerZone.Position); root1.Position = Scene.UnlockPads.A02.TriggerZone.Position
-			manager:TryUnlockFacility(p1, 'A02')
+			root1.CFrame = CFrame.new(Scene.UnlockPads[F.Brute2].TriggerZone.Position); root1.Position = Scene.UnlockPads[F.Brute2].TriggerZone.Position
+			manager:TryUnlockFacility(p1, F.Brute2)
 		end
 
 		local spawnOffsets = {
@@ -293,7 +295,7 @@ do
 		end
 
 		for i = 1, Config.StreetPopulation do
-			makeStreetBody(manager, spawnOffsets[i], 0)
+			makeStreetBody(manager, spawnOffsets[(i - 1) % #spawnOffsets + 1], 0)
 		end
 
 		local duration = 48.0
@@ -316,16 +318,16 @@ end
 do
 	B.now = 400
 	local manager = makeTestManager()
-	local p1, _, _, root1 = B.CreatePlayer(104, Scene.UnlockPads.A00.TriggerZone.Position)
+	local p1, _, _, root1 = B.CreatePlayer(104, Scene.UnlockPads[F.FastChute].TriggerZone.Position)
 	p1:SetAttribute('Coins', 30000)
 	manager:AddPlayer(p1)
-	manager:TryUnlockFacility(p1, 'A00')
-	root1.CFrame = CFrame.new(Scene.UnlockPads.A01.TriggerZone.Position); root1.Position = Scene.UnlockPads.A01.TriggerZone.Position
-	manager:TryUnlockFacility(p1, 'A01')
-	root1.CFrame = CFrame.new(Scene.UnlockPads.A02.TriggerZone.Position); root1.Position = Scene.UnlockPads.A02.TriggerZone.Position
-	manager:TryUnlockFacility(p1, 'A02')
-	root1.CFrame = CFrame.new(Scene.UnlockPads.A05.TriggerZone.Position); root1.Position = Scene.UnlockPads.A05.TriggerZone.Position
-	manager:TryUnlockFacility(p1, 'A05')
+	manager:TryUnlockFacility(p1, F.FastChute)
+	root1.CFrame = CFrame.new(Scene.UnlockPads[F.Brute1].TriggerZone.Position); root1.Position = Scene.UnlockPads[F.Brute1].TriggerZone.Position
+	manager:TryUnlockFacility(p1, F.Brute1)
+	root1.CFrame = CFrame.new(Scene.UnlockPads[F.Brute2].TriggerZone.Position); root1.Position = Scene.UnlockPads[F.Brute2].TriggerZone.Position
+	manager:TryUnlockFacility(p1, F.Brute2)
+	root1.CFrame = CFrame.new(Scene.UnlockPads[F.AutoClerk].TriggerZone.Position); root1.Position = Scene.UnlockPads[F.AutoClerk].TriggerZone.Position
+	manager:TryUnlockFacility(p1, F.AutoClerk)
 
 	local agentsState = manager.agents
 	local b1Model = agentsState.brutes.Brute1.model
@@ -361,10 +363,10 @@ do
 	-- 单独验证直接销毁 manager.scope 时也能彻底销毁 AI 模型
 	B.now = 450
 	local mScope = makeTestManager()
-	local ps, _, _, roots = B.CreatePlayer(105, Scene.UnlockPads.A05.TriggerZone.Position)
+	local ps, _, _, roots = B.CreatePlayer(105, Scene.UnlockPads[F.AutoClerk].TriggerZone.Position)
 	ps:SetAttribute('Coins', 20000)
 	mScope:AddPlayer(ps)
-	mScope:TryUnlockFacility(ps, 'A05')
+	mScope:TryUnlockFacility(ps, F.AutoClerk)
 	local clerkRef = mScope.agents.clerk.model
 	check(clerkRef.Parent ~= nil, 'AutoClerk spawned before scope destroy')
 	mScope.scope:Destroy()
@@ -378,7 +380,7 @@ do
 	local manager, coinsEarned = makeTestManager(function(p)
 		return p ~= inactivePlayer
 	end)
-	local pActive1, _, _, rootA1 = B.CreatePlayer(201, Scene.UnlockPads.A05.TriggerZone.Position)
+	local pActive1, _, _, rootA1 = B.CreatePlayer(201, Scene.UnlockPads[F.AutoClerk].TriggerZone.Position)
 	local pActive2 = B.CreatePlayer(202, Vector3.zero)
 	local pLeft = B.CreatePlayer(203, Vector3.zero)
 	inactivePlayer = pLeft
@@ -388,7 +390,7 @@ do
 	manager.players[pActive2].levels.sellBonus = 5
 	manager:AddPlayer(pLeft)
 
-	check(manager:TryUnlockFacility(pActive1, 'A05'), 'unlock A05 independently')
+	check(manager:TryUnlockFacility(pActive1, F.AutoClerk), 'unlock A05 independently')
 	local clerk = manager.agents.clerk
 	check(clerk ~= nil and (clerk.floorPos - Scene.ClerkSpawn.Position).Magnitude < 1.0, 'AutoClerk spawns at ClerkSpawnAnchor')
 	for _, desc in clerk.model:GetDescendants() do
@@ -450,14 +452,14 @@ do
 	check(awardedCount1 == 1 and awardedCount2 == 1, 'AutoClerk sends CoinsAwarded notification to every active player')
 
 	-- 6b. A00~A05 全套全自动流水线端到端闭环验证（打手抓人 -> 井口 -> 自动画符 -> 自动炼化 -> 自动售货员发钱，手动线全程零损耗）
-	rootA1.CFrame = CFrame.new(Scene.UnlockPads.A00.TriggerZone.Position); rootA1.Position = Scene.UnlockPads.A00.TriggerZone.Position
-	check(manager:TryUnlockFacility(pActive1, 'A00'), 'unlock A00 for full pipeline')
-	rootA1.CFrame = CFrame.new(Scene.UnlockPads.A01.TriggerZone.Position); rootA1.Position = Scene.UnlockPads.A01.TriggerZone.Position
-	check(manager:TryUnlockFacility(pActive1, 'A01'), 'unlock A01 for full pipeline')
-	rootA1.CFrame = CFrame.new(Scene.UnlockPads.A03.TriggerZone.Position); rootA1.Position = Scene.UnlockPads.A03.TriggerZone.Position
-	check(manager:TryUnlockFacility(pActive1, 'A03'), 'unlock A03 for full pipeline')
-	rootA1.CFrame = CFrame.new(Scene.UnlockPads.A04.TriggerZone.Position); rootA1.Position = Scene.UnlockPads.A04.TriggerZone.Position
-	check(manager:TryUnlockFacility(pActive1, 'A04'), 'unlock A04 for full pipeline')
+	rootA1.CFrame = CFrame.new(Scene.UnlockPads[F.FastChute].TriggerZone.Position); rootA1.Position = Scene.UnlockPads[F.FastChute].TriggerZone.Position
+	check(manager:TryUnlockFacility(pActive1, F.FastChute), 'unlock A00 for full pipeline')
+	rootA1.CFrame = CFrame.new(Scene.UnlockPads[F.Brute1].TriggerZone.Position); rootA1.Position = Scene.UnlockPads[F.Brute1].TriggerZone.Position
+	check(manager:TryUnlockFacility(pActive1, F.Brute1), 'unlock A01 for full pipeline')
+	rootA1.CFrame = CFrame.new(Scene.UnlockPads[F.AutoRune].TriggerZone.Position); rootA1.Position = Scene.UnlockPads[F.AutoRune].TriggerZone.Position
+	check(manager:TryUnlockFacility(pActive1, F.AutoRune), 'unlock A03 for full pipeline')
+	rootA1.CFrame = CFrame.new(Scene.UnlockPads[F.AutoSmelter].TriggerZone.Position); rootA1.Position = Scene.UnlockPads[F.AutoSmelter].TriggerZone.Position
+	check(manager:TryUnlockFacility(pActive1, F.AutoSmelter), 'unlock A04 for full pipeline')
 
 	makeStreetBody(manager, Vector3.new(-35, 23.0, -60), 0)
 	stepSeconds(manager, 26.0, 0.1)

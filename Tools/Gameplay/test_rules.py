@@ -1,18 +1,80 @@
 """Run production coverage/save/lease rules with Lune; only service boundaries are mocked."""
 from pathlib import Path
+import json
 import re
 import subprocess
 import sys
+import openpyxl
 ROOT=Path(__file__).resolve().parents[2]
+
+def verify_data_tables_primary_key():
+    excel_files = sorted((ROOT / "ExcelData").glob("*.xlsx"))
+    assert excel_files, "ExcelData/*.xlsx must not be empty"
+    for xlsx_path in excel_files:
+        wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+        ws = wb.active
+        assert ws.cell(1, 1).value == "id", f"{xlsx_path.name}: first column name must be 'id', got {ws.cell(1, 1).value!r}"
+        assert ws.cell(2, 1).value == "int", f"{xlsx_path.name}: first column type must be 'int', got {ws.cell(2, 1).value!r}"
+        seen = set()
+        row_count = 0
+        for r in range(4, ws.max_row + 1):
+            row_vals = [ws.cell(r, c).value for c in range(1, ws.max_column + 1)]
+            if not any(v is not None for v in row_vals):
+                continue
+            val = row_vals[0]
+            assert isinstance(val, int) and not isinstance(val, bool) and val >= 1, (
+                f"{xlsx_path.name} row {r}: id must be positive int, got {val!r}"
+            )
+            assert val not in seen, f"{xlsx_path.name} row {r}: duplicate id {val}"
+            seen.add(val)
+            row_count += 1
+        assert row_count >= 1, f"{xlsx_path.name}: must contain at least 1 data row"
+
+    json_files = sorted((ROOT / "JsonData").glob("*.json"))
+    assert json_files, "JsonData/*.json must not be empty"
+    for json_path in json_files:
+        rows = json.loads(json_path.read_text(encoding="utf-8"))
+        assert isinstance(rows, list) and len(rows) >= 1, f"{json_path.name}: must be a non-empty JSON array"
+        seen = set()
+        for idx, row in enumerate(rows, start=1):
+            assert isinstance(row, dict) and row, f"{json_path.name}[{idx}]: row must be a non-empty object"
+            first_key = next(iter(row.keys()))
+            assert first_key == "id", f"{json_path.name}[{idx}]: first key must be 'id', got {first_key!r}"
+            val = row["id"]
+            assert isinstance(val, int) and not isinstance(val, bool) and val >= 1, (
+                f"{json_path.name}[{idx}]: id must be positive int, got {val!r}"
+            )
+            assert val not in seen, f"{json_path.name}[{idx}]: duplicate id {val}"
+            seen.add(val)
+        luau_path = ROOT / "Scripts/ReplicatedStorage/Scripts/Shared/GameConfig" / (json_path.stem + ".luau")
+        assert luau_path.exists(), f"Missing Luau module for {json_path.name}: {luau_path}"
+        luau_text = luau_path.read_text(encoding="utf-8")
+        first_fields = re.findall(r"\[\d+\]\s*=\s*\{\s*\[\"([^\"]+)\"\]\s*=\s*([^,\n]+)", luau_text)
+        assert len(first_fields) == len(rows), f"{luau_path.name}: row count mismatch ({len(first_fields)} vs {len(rows)})"
+        for idx, ((field_name, field_val), json_row) in enumerate(zip(first_fields, rows), start=1):
+            assert field_name == "id", f"{luau_path.name}[{idx}]: first field must be 'id', got {field_name!r}"
+            assert field_val.strip() == str(json_row["id"]), (
+                f"{luau_path.name}[{idx}]: id mismatch ({field_val.strip()} vs {json_row['id']})"
+            )
+    print(f"PASS: Data table primary key gate ({len(excel_files)} xlsx, {len(json_files)} json/luau)")
+
+verify_data_tables_primary_key()
 OUT=ROOT/".cache"/"ragdoll-rules"
 OUT.mkdir(parents=True,exist_ok=True)
 shared=ROOT/"Scripts/ReplicatedStorage/Scripts/Shared"
 server=ROOT/"Scripts/ServerStorage/Scripts"
 (OUT/"FoundationDateBoundary.luau").write_text((ROOT/"Tools/Gameplay/FoundationDateBoundary.luau").read_text(encoding="utf-8"),encoding="utf-8")
-for name in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","AutoRunePattern"):
-    text=(shared/(name+".luau")).read_text(encoding="utf-8")
-    for dep in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","VisualRules","AutoRunePattern"):
+(OUT/"GameConfig").mkdir(parents=True,exist_ok=True)
+for data_name in ("WeaponData","CarryToolData","PersonalAbilityData","AutomationFacilityData"):
+    (OUT/"GameConfig"/(data_name+".luau")).write_text((shared/"GameConfig"/(data_name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
+for name in ("GameConfig","GameData","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","AutoRunePattern"):
+    src_path=(shared/"GameConfig"/"init.luau") if name == "GameConfig" else (shared/(name+".luau"))
+    text=src_path.read_text(encoding="utf-8")
+    for dep in ("GameConfig","GameData","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","VisualRules","AutoRunePattern"):
         text=text.replace("require(script.Parent."+dep+")", "require('./"+dep+"')")
+    if name == "GameData":
+        for data_name in ("WeaponData","CarryToolData","PersonalAbilityData","AutomationFacilityData"):
+            text=text.replace("require(script.Parent.GameConfig."+data_name+")", "require('./GameConfig/"+data_name+"')")
     if name == "GameConfig":
         start=text.index('local replicatedStorage:')
         end=text.index('--游戏版本')
@@ -23,7 +85,7 @@ for name in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerPro
     (OUT/(name+".luau")).write_text(text,encoding="utf-8")
 (OUT/"test_throw_arc.luau").write_text((ROOT/"Tools/Gameplay/test_throw_arc.luau").read_text(encoding="utf-8"),encoding="utf-8")
 upgrade_rules = shared / "PersonalUpgradeRules.luau"
-(OUT / upgrade_rules.name).write_text(upgrade_rules.read_text(encoding="utf-8").replace("require(script.Parent.GameConfig)", "require('./GameConfig')"), encoding="utf-8")
+(OUT / upgrade_rules.name).write_text("local Vector2=require('@lune/roblox').Vector2\n" + upgrade_rules.read_text(encoding="utf-8").replace("require(script.Parent.GameConfig)", "require('./GameConfig')").replace("require(script.Parent.GameData)", "require('./GameData')"), encoding="utf-8")
 upgrade_test = ROOT / "Tools/Gameplay/test_personal_upgrades.luau"
 (OUT / upgrade_test.name).write_text(upgrade_test.read_text(encoding="utf-8"), encoding="utf-8")
 subprocess.run(["lune", "run", str(OUT / upgrade_test.name)], cwd=ROOT, check=True)
@@ -44,15 +106,15 @@ def run_hit_feedback_tests():
     source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientProcessingManager.luau").read_text(encoding="utf-8")
     start=source.index("function Client.CancelHitFeedback(")
     end=source.index("function Client.OnNotice(",start)
-    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,player,Config,HitRules,Sound=B.workspace,B.player,require('./GameConfig'),require('./HitFeedbackRules'),B.Sound or {Play=function()end}\nlocal UIManager=B.UIManager\nlocal Client={}\n"
+    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,player,Config,HitRules,Sound=B.workspace,B.player,require('./GameConfig'),require('./HitFeedbackRules'),B.Sound or {Play=function()end}\nlocal UIManager=B.UIManager\nlocal PersonalRules=require('./PersonalUpgradeRules')\nlocal Client={}\n"
     (OUT/"AttackFeedbackClient.luau").write_text(prefix+source[start:end]+"\nreturn Client\n",encoding="utf-8")
     source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
     start=source.index("function Manager.Attack(")
     end=source.index("function Manager.Paint(",start)
-    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,task,Net,NPC=B.workspace,B.task,B.Net,B.NPC\nlocal Config=require('./GameConfig')\nlocal Manager={}\n"
+    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,task,Net,NPC=B.workspace,B.task,B.Net,B.NPC\nlocal Config=require('./GameConfig')\nlocal PersonalRules=require('./PersonalUpgradeRules')\nlocal Vector3=require('@lune/roblox').Vector3\nlocal Manager={}\n"
     (OUT/"AttackFeedbackServer.luau").write_text(prefix+source[start:end]+"\nreturn Manager\n",encoding="utf-8")
     text=(shared/"ProcessingNet.luau").read_text(encoding="utf-8")
-    prefix="local Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal VisualRules=require('./VisualRules')\nlocal Curve=require('./CurvedSurface')\nlocal Config=require('./GameConfig')\nlocal requestEvent,notifyEvent={},{}\nlocal BodyPose=require('./PaintBodyPose')\n"
+    prefix="local Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal VisualRules=require('./VisualRules')\nlocal Curve=require('./CurvedSurface')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal requestEvent,notifyEvent={},{}\nlocal BodyPose=require('./PaintBodyPose')\n"
     (OUT/"VisualProtocol.luau").write_text(prefix+text[text.index('local Net ='):],encoding="utf-8")
     for name in ("AttackFeedbackBoundary","test_attack_feedback"):
         (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -93,14 +155,20 @@ subprocess.run(["lune","run",str(OUT/"test_rules.luau")],cwd=ROOT,check=True)
 text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/CharacterPresentation.luau").read_text(encoding="utf-8")
 start=text.index("local Players =")
 end=text.index("local Presentation =")
-text=text[:start]+"local Boundary=require('./WeaponPresentationBoundary')\nlocal Players=Boundary.Players\nlocal Instance,Enum,CFrame=Boundary.Instance,Boundary.Enum,Boundary.CFrame\nlocal Config=require('./GameConfig')\n"+text[end:]
+text=text[:start]+"local Boundary=require('./WeaponPresentationBoundary')\nlocal Players=Boundary.Players\nlocal Instance,Enum,CFrame=Boundary.Instance,Boundary.Enum,Boundary.CFrame\nlocal Config=require('./GameConfig')\nlocal PersonalRules=require('./PersonalUpgradeRules')\n"+text[end:]
 (OUT/"CharacterPresentation.luau").write_text(text,encoding="utf-8")
 for name in ("WeaponPresentationBoundary","test_weapon_presentation"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_weapon_presentation.luau")],cwd=ROOT,check=True)
+def write_model_templates(out_name, rs_expr):
+    src = (shared / "ModelTemplates.luau").read_text(encoding="utf-8")
+    body = src[src.index("local ModelTemplates = {}"):].replace(":WaitForChild(", ":FindFirstChild(")
+    (OUT / out_name).write_text(f"local ReplicatedStorage = {rs_expr}\n" + body, encoding="utf-8")
+
 text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientPreloadManager.luau").read_text(encoding="utf-8")
 text=text.replace("instance:PivotTo(pose)", "B.PivotTo(instance, pose)", 1)
-prefix="local B=require('./ClientPreloadBoundary')\nlocal ContentProvider,RunService,Players,ReplicatedStorage=B.ContentProvider,B.RunService,B.Players,B.ReplicatedStorage\nlocal workspace,Instance,Vector3,CFrame=B.workspace,B.Instance,B.Vector3,B.CFrame\nlocal task=require('@lune/task')\nlocal Config=require('./GameConfig')\n"
+write_model_templates("ClientPreloadModelTemplates.luau", "require('./ClientPreloadBoundary').ReplicatedStorage")
+prefix="local B=require('./ClientPreloadBoundary')\nlocal ContentProvider,RunService,Players,ReplicatedStorage=B.ContentProvider,B.RunService,B.Players,B.ReplicatedStorage\nlocal workspace,Instance,Vector3,CFrame=B.workspace,B.Instance,B.Vector3,B.CFrame\nlocal task=require('@lune/task')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal ModelTemplates=require('./ClientPreloadModelTemplates')\n"
 (OUT/"ClientPreloadManager.luau").write_text(prefix+text[text.index("local Manager = {}"):],encoding="utf-8")
 for name in ("ClientPreloadBoundary","test_client_preload"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -110,7 +178,7 @@ subprocess.run(["lune","run",str(OUT/"test_painting.luau")],cwd=ROOT,check=True)
 
 # Exercise the complete production request dispatcher with real painting rules.
 source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
-prefix="local CFrame=require('@lune/roblox').CFrame\nlocal Config=require('./GameConfig')\nlocal Painting=require('./Painting')\nlocal PaintRotation=require('./PaintRotation')\nlocal Surface=require('./PaintSurface')\nlocal AutomationAgents={New=function() return nil end,SyncUnlocked=function() end,Step=function() return false end,Destroy=function() end}\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\nlocal Random={new=function() return {} end}\n"
+prefix="local CFrame=require('@lune/roblox').CFrame\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal Painting=require('./Painting')\nlocal PaintRotation=require('./PaintRotation')\nlocal Surface=require('./PaintSurface')\nlocal AutomationAgents={New=function() return nil end,SyncUnlocked=function() end,Step=function() return false end,Destroy=function() end}\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\nlocal Random={new=function() return {} end}\n"
 (OUT/"PaintRequestManager.luau").write_text(prefix+source[source.index('type PlayerData ='):],encoding="utf-8")
 for name in ("PaintRequestBoundary","test_paint_requests"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -126,10 +194,12 @@ for name in ("ReplicationNet","test_replication"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_replication.luau")],cwd=ROOT,check=True)
 text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/PotionShelfView.luau").read_text(encoding="utf-8")
+write_model_templates("PotionShelfModelTemplates.luau", "require('./test_potion_shelf').Boundary.ReplicatedStorage")
 prefix="""local R=require('@lune/roblox')
 local Instance,Vector3=R.Instance,R.Vector3
 local B=require('./test_potion_shelf').Boundary
 local ReplicatedStorage,workspace=B.ReplicatedStorage,B.workspace
+local ModelTemplates=require('./PotionShelfModelTemplates')
 """
 text=text[text.index("local View ="):]
 for model in ("bottle.model", "model"):
@@ -164,7 +234,7 @@ text=(shared/"ProcessingNet.luau").read_text(encoding="utf-8")
 text="local Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal VisualRules=require('./VisualRules')\nlocal Curve=require('./CurvedSurface')\nlocal Config=require('./GameConfig')\nlocal requestEvent,notifyEvent={},{}\nlocal BodyPose=require('./PaintBodyPose')\n"+text[text.index('local Net ='):]
 (OUT/"VisualProtocol.luau").write_text(text,encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_visual_sync.luau")],cwd=ROOT,check=True)
-(OUT/"PaintView.luau").write_text((OUT/"PaintView.luau").read_text(encoding="utf-8").replace("local CurvedView={}", "local CurvedView={new=function() return {Bind=function() end,Apply=function() end,Remove=function() end,Destroy=function() end} end}"),encoding="utf-8")
+(OUT/"PaintView.luau").write_text((OUT/"PaintView.luau").read_text(encoding="utf-8").replace("local CurvedView={}", "local CurvedView={new=function() return {Bind=function() end,Apply=function() end,Remove=function() end,ReleaseMirrors=function() end,Destroy=function() end} end}"),encoding="utf-8")
 (OUT/"test_curved_visual_pipeline.luau").write_text((ROOT/"Tools/Gameplay/test_curved_visual_pipeline.luau").read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_curved_visual_pipeline.luau")],cwd=ROOT,check=True)
 (OUT/"test_table_body_pose.luau").write_text((ROOT/"Tools/Gameplay/test_table_body_pose.luau").read_text(encoding="utf-8"),encoding="utf-8")
@@ -312,6 +382,7 @@ rep_src = (server / "Replication.luau").read_text(encoding="utf-8")
     encoding="utf-8",
 )
 
+write_model_templates("StationModelTemplates.luau", "require('./StationPotionBoundary').ReplicatedStorage")
 agents_src = (server / "AutomationAgents.luau").read_text(encoding="utf-8")
 agents_body = agents_src[agents_src.index("local AutomationAgents = {}"):]
 agents_body = re.sub(r"\b([A-Za-z_][\w.]*):PivotTo\(", r"B.PivotTo(\1, ", agents_body)
@@ -320,10 +391,12 @@ agents_prefix = (
     "local R=require('@lune/roblox')\n"
     "local CFrame,Vector3,Color3,Instance,Enum=R.CFrame,R.Vector3,R.Color3,R.Instance,R.Enum\n"
     "local Config=require('./GameConfig')\n"
+    "local GameData=require('./GameData')\n"
     "local GameTexts=require('./GameTexts')\n"
     "local Types=require('./GameTypes')\n"
     "local Physics=require('./PhysicsConfig')\n"
     "local Lifecycle=require('./LifecycleTool')\n"
+    "local ModelTemplates=require('./StationModelTemplates')\n"
     "local B=require('./StationPotionBoundary')\n"
     "local Players,ReplicatedStorage,workspace,RaycastParams=B.Players,B.ReplicatedStorage,B.workspace,B.RaycastParams\n"
     "local Net,NPC,Carry,Ragdoll,Scene=B.Net,B.NPC,B.Carry,B.Ragdoll,require('./StationScene')\n"
@@ -350,6 +423,7 @@ pm_prefix = (
     "local CFrame,Vector3,Instance,Enum=R.CFrame,R.Vector3,R.Instance,R.Enum\n"
     "local task=require('@lune/task')\n"
     "local Config=require('./GameConfig')\n"
+    "local GameData=require('./GameData')\n"
     "local Physics=require('./PhysicsConfig')\n"
     "local Painting=require('./Painting')\n"
     "local RealPaintRotation=require('./PaintRotation')\n"
@@ -364,6 +438,7 @@ pm_prefix = (
     "local AutomationAgents=require('./AutomationAgents')\n"
     "local PersonalRules=require('./PersonalUpgradeRules')\n"
     "local PersonalMovement=require('./PersonalMovement')\n"
+    "local ModelTemplates=require('./StationModelTemplates')\n"
     "local Lifecycle=require('./LifecycleTool')\n"
     "local B=require('./StationPotionBoundary')\n"
     "local RaycastParams=B.RaycastParams\n"
@@ -405,6 +480,7 @@ client_prefix = (
     "local Players,player,workspace,os=B.Players,B.Players.LocalPlayer,B.workspace,B.os\n"
     "local UserInputService={TouchEnabled=false}\n"
     "local Config=require('./GameConfig')\n"
+    "local GameData=require('./GameData')\n"
     "local Physics=require('./PhysicsConfig')\n"
     "local Hints=require('./Hints')\n"
     "local PersonalRules=require('./PersonalUpgradeRules')\n"

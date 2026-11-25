@@ -1,4 +1,4 @@
--- 曲面符文图集渲染：AI 字形双线性贴印、分块帧预算、限量纹理缓存和献祭高亮
+-- 曲面笔迹栅格化、图集驻留与同批白膜贴图共享。
 --!strict
 local AssetService = game:GetService("AssetService")
 local Curve = require(script.Parent.Parent.Shared.CurvedSurface)
@@ -89,6 +89,7 @@ local BinKeyBase = BinCount + 2
 
 export type View = typeof(setmetatable({} :: {
 	textures: { [string]: Texture },
+	mirrors: { [string]: string },
 	models: { [string]: Model },
 	records: { [string]: { [string]: Types.VisualSegment } },
 	queue: { [string]: { Types.VisualSegment } },
@@ -105,6 +106,7 @@ export type View = typeof(setmetatable({} :: {
 function View.new(): View
 	return setmetatable({
 		textures = {},
+		mirrors = {},
 		models = {},
 		records = {},
 		queue = {},
@@ -118,11 +120,20 @@ function View.new(): View
 	}, View)
 end
 
-local function Attach(texture: Texture): ()
-	for _, part in texture.model:GetChildren() do
+local function SetModelTexture(model: Model, image: EditableImage?): ()
+	local content = if image then Content.fromObject(image) else Content.none
+	for _, part in model:GetChildren() do
 		if part:IsA("MeshPart") and Curve.IsPart(part) then
-			part.TextureContent = Content.fromObject(texture.image)
+			part.TextureContent = content
 		end
+	end
+end
+
+local function SetTexture(self: View, id: string, model: Model, image: EditableImage?): ()
+	SetModelTexture(model, image)
+	for mirror, source in self.mirrors do
+		local follower = self.models[mirror]
+		if source == id and follower then SetModelTexture(follower, image) end
 	end
 end
 
@@ -137,11 +148,7 @@ function View.RemoveTexture(self: View, id: string): ()
 	if not texture then
 		return
 	end
-	for _, part in texture.model:GetChildren() do
-		if part:IsA("MeshPart") then
-			part.TextureContent = Content.none
-		end
-	end
+	SetTexture(self, id, texture.model, nil)
 	table.clear(texture.dirtyBoxes)
 	table.clear(texture.inkedBoxes)
 	table.clear(texture.flashes)
@@ -149,6 +156,29 @@ function View.RemoveTexture(self: View, id: string): ()
 	table.clear(texture.parts)
 	texture.image:Destroy()
 	self.textures[id] = nil
+end
+
+function View.SetMirror(self: View, id: string, source: string?): ()
+	if self.mirrors[id] == source then return end
+	self:RemoveTexture(id)
+	if source then
+		self.mirrors[id] = source
+	else
+		self.mirrors[id] = nil
+	end
+	self.queue[id], self.heads[id] = nil, nil
+	local model = self.models[id]
+	if model then
+		local texture = if source then self.textures[source] else nil
+		SetModelTexture(model, if texture and not texture.rebuilding then texture.image else nil)
+	end
+end
+
+function View.ReleaseMirrors(self: View, id: string): ()
+	self:SetMirror(id, nil)
+	for mirror, source in self.mirrors do
+		if source == id then self:SetMirror(mirror, nil) end
+	end
 end
 
 function View.Ensure(self: View, id: string): Texture?
@@ -233,17 +263,24 @@ function View.Bind(self: View, id: string, model: Model, records: { [string]: Ty
 		return
 	end
 	self.models[id], self.records[id] = model, records
+	local source = self.mirrors[id]
+	if source then
+		local texture = self.textures[source]
+		if texture and not texture.rebuilding then SetModelTexture(model, texture.image) end
+		return
+	end
 	local texture = self.textures[id]
 	if texture then
 		texture.model = model
 		texture.parts = {}
 		if not texture.rebuilding then
-			Attach(texture)
+			SetTexture(self, id, model, texture.image)
 		end
 	end
 end
 
 function View.Apply(self: View, id: string, segment: Types.VisualSegment): ()
+	if self.mirrors[id] then return end
 	local queue = self.queue[id] or {}
 	self.queue[id] = queue
 	table.insert(queue, table.clone(segment))
@@ -687,7 +724,7 @@ function View.Update(self: View, active: string?): ()
 	local visible: { { id: string, distance: number } } = {}
 	for id, records in self.records do
 		local model = self.models[id]
-		if not model or not model.Parent or (next(records) == nil and id ~= active) then
+		if self.mirrors[id] or not model or not model.Parent or (next(records) == nil and id ~= active) then
 			continue
 		end
 		local distance = if camera then (model:GetPivot().Position - camera.CFrame.Position).Magnitude else 0
@@ -757,7 +794,7 @@ function View.Update(self: View, active: string?): ()
 			FlushCommit()
 		end
 		texture.rebuilding = false
-		Attach(texture)
+		SetTexture(self, selected, texture.model, texture.image)
 	end
 
 	while self.tasks[selected] or head <= #queue do
@@ -823,7 +860,7 @@ function View.Update(self: View, active: string?): ()
 						FlushCommit()
 					end
 					texture.rebuilding = false
-					Attach(texture)
+					SetTexture(self, selected, texture.model, texture.image)
 				end
 			end
 		end
@@ -854,6 +891,7 @@ function View.Update(self: View, active: string?): ()
 end
 
 function View.SetSacrifice(self: View, id: string, brightness: number): ()
+	if self.mirrors[id] then return end
 	local step = math.floor(math.clamp(brightness, 0, 1) * SacrificeSteps + 0.5)
 	local shown = step / SacrificeSteps
 	if step == 0 then
@@ -882,6 +920,7 @@ function View.Destroy(self: View): ()
 	for id in self.models do
 		self:Remove(id)
 	end
+	table.clear(self.mirrors)
 end
 
 return View

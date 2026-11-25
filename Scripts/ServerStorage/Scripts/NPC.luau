@@ -10,6 +10,8 @@ local Ragdoll = require(script.Parent.Ragdoll)
 local Scene = require(script.Parent.Scene)
 local Physics = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
 local Ground = require(script.Parent.GroundAuthority)
+local PersonalRules = require(ReplicatedStorage.Scripts.Shared.PersonalUpgradeRules)
+local ModelTemplates = require(ReplicatedStorage.Scripts.Shared.ModelTemplates)
 local NPC = {}
 local random = Random.new()
 function NPC.StopMotion(item: Types.Item): ()
@@ -60,7 +62,7 @@ function NPC.Spawn(runtime: Folder, items: { [string]: Types.Item }): Types.Item
 	if not point then
 		return nil
 	end
-	local model = ReplicatedStorage.Models.WhiteR15:Clone() :: Model
+	local model = ModelTemplates.WaitCharacter("WhiteR15"):Clone()
 	local id = HttpService:GenerateGUID(false)
 	model.Name = "WhiteNPC"
 	model:SetAttribute("ItemId", id)
@@ -78,6 +80,8 @@ function NPC.Spawn(runtime: Folder, items: { [string]: Types.Item }): Types.Item
 		model = model,
 		holder = nil,
 		hits = 0,
+		hp = Config.StreetNpcMaxHp,
+		maxHp = Config.StreetNpcMaxHp,
 		covered = {},
 		strokes = {},
 		strokePoints = 0,
@@ -204,8 +208,12 @@ local function Push(item: Types.Item, root: BasePart, direction: Vector3)
 		if t>=1 or distance<requested then Finish() end
 	end)
 end
-function NPC.Hit(item: Types.Item, direction: Vector3?): ()
-	item.hits += 1
+function NPC.Hit(item: Types.Item, direction: Vector3?, damage: number?, groundTravel: number?): ()
+	item.maxHp = item.maxHp or Config.StreetNpcMaxHp
+	local hp = PersonalRules.RemainingNpcHp(item.hp, item.hits, damage or Config.BruteDamage)
+	item.hp = hp
+	-- 保留已有击晕和表现协议的三档状态，血条读取实际 HP。
+	item.hits = Config.StunHits - math.ceil(hp / Config.BruteDamage)
 	item.version += 1
 	local humanoid = item.model:FindFirstChildOfClass("Humanoid")
 	local root = item.model.PrimaryPart
@@ -221,7 +229,7 @@ function NPC.Hit(item: Types.Item, direction: Vector3?): ()
 		end
 		if Physics.GroundRootEnabled and root then
 			local axis=direction or root.CFrame.LookVector
-			Ground.Place(item,axis,root.AssemblyLinearVelocity+axis*Config.StunImpulseSpeed)
+			Ground.Place(item,axis,root.AssemblyLinearVelocity+axis*Config.StunImpulseSpeed, groundTravel)
 			item.motionState="Down"
 			item.model:SetAttribute("MotionState","Down")
 			return

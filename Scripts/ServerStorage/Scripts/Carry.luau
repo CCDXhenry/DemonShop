@@ -9,6 +9,7 @@ local Scene = require(script.Parent.Scene)
 local Config = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
 local ThrowArc = require(ReplicatedStorage.Scripts.Shared.ThrowArc)
 local Ground = require(script.Parent.GroundAuthority)
+local PersonalRules = require(ReplicatedStorage.Scripts.Shared.PersonalUpgradeRules)
 local Carry = {}
 local random = Random.new()
 local nextCarryOrder = 0
@@ -90,9 +91,9 @@ function Carry.Detach(item: Types.Item, restoreTool: boolean?): ()
 	item.holder = nil
 	local humanoid = owner and owner.Character and owner.Character:FindFirstChildOfClass("Humanoid")
 	local backpack = owner and owner:FindFirstChild("Backpack")
-	local club = backpack and backpack:FindFirstChild("Club")
+	local weapon = if backpack then PersonalRules.FindWeapon(backpack) else nil
 	local restore = if restoreTool == nil then true else restoreTool
-	if restore and humanoid and humanoid.Health > 0 and club and club:IsA("Tool") then humanoid:EquipTool(club) end
+	if restore and humanoid and humanoid.Health > 0 and weapon then humanoid:EquipTool(weapon) end
 end
 function Carry.Static(item: Types.Item, pose: CFrame, restoreTool: boolean?): ()
 	Carry.Detach(item, restoreTool)

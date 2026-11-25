@@ -4,6 +4,7 @@ local fs = require('@lune/fs')
 local CFrame, Vector3, Color3, Instance = R.CFrame, R.Vector3, R.Color3, R.Instance
 local B = require('./StationPotionBoundary')
 local Config = require('./GameConfig')
+local GameData = require('./GameData')
 local Rules = require('./AutomationRules')
 local Scene = require('./StationScene')
 local Manager = require('./StationProcessingManager')
@@ -15,30 +16,62 @@ local function check(cond, msg)
 end
 
 -- 1. 配置表与依赖关系契约校验
-check(Config.AutomationFacilities.A00.cost == 250 and Config.AutomationFacilities.A00.prerequisite == nil, 'A00 cost & no prereq')
-check(Config.AutomationFacilities.A01.cost == 1000 and Config.AutomationFacilities.A01.prerequisite == 'A00', 'A01 cost & prereq A00')
-check(Config.AutomationFacilities.A02.cost == 2500 and Config.AutomationFacilities.A02.prerequisite == 'A01', 'A02 cost & prereq A01')
-check(Config.AutomationFacilities.A03.cost == 2000 and Config.AutomationFacilities.A03.prerequisite == 'A00', 'A03 cost & prereq A00')
-check(Config.AutomationFacilities.A04.cost == 4500 and Config.AutomationFacilities.A04.prerequisite == 'A03', 'A04 cost & prereq A03')
-check(Config.AutomationFacilities.A05.cost == 9000 and Config.AutomationFacilities.A05.prerequisite == nil, 'A05 cost & no prereq')
+local F = GameData.FacilityId
+check(GameData.GetFacility(F.FastChute).cost == 250 and GameData.GetFacility(F.FastChute).prerequisite == nil, 'A00 cost & no prereq')
+check(GameData.GetFacility(F.Brute1).cost == 1000 and GameData.GetFacility(F.Brute1).prerequisite == F.FastChute, 'A01 cost & prereq A00')
+check(GameData.GetFacility(F.Brute2).cost == 2500 and GameData.GetFacility(F.Brute2).prerequisite == F.Brute1, 'A02 cost & prereq A01')
+check(GameData.GetFacility(F.AutoRune).cost == 2000 and GameData.GetFacility(F.AutoRune).prerequisite == F.FastChute, 'A03 cost & prereq A00')
+check(GameData.GetFacility(F.AutoSmelter).cost == 4500 and GameData.GetFacility(F.AutoSmelter).prerequisite == F.AutoRune, 'A04 cost & prereq A03')
+check(GameData.GetFacility(F.AutoClerk).cost == 9000 and GameData.GetFacility(F.AutoClerk).prerequisite == nil, 'A05 cost & no prereq')
+check(table.concat(GameData.GetFacilityOrder(), ',') == '1,2,3,4,5,6', 'facility order matches excel order')
+check(#GameData.GetAllFacilities() == 6, 'all 6 facilities loaded')
 check(Config.AutoRuneSeconds == 2.0 and Config.AutoSmelterSeconds == 2.5 and Config.AutoQueueVisibleLimit == 6, 'automation cadence & limit')
 
 -- 2. 三态规则与真实 GameModels.rbxm UnlockPad 视觉同步校验
-check(Rules.ComputePadState('A00', {}, 249) == 'Insufficient', 'A00 insufficient coins -> red')
-check(Rules.ComputePadState('A00', {}, 250) == 'Ready', 'A00 enough coins -> green')
-check(Rules.ComputePadState('A03', {}, 9999) == 'Locked', 'A03 without A00 -> gray even with rich coins')
-check(Rules.ComputePadState('A03', { A00 = true }, 1999) == 'Insufficient', 'A03 after A00 insufficient -> red')
-check(Rules.ComputePadState('A03', { A00 = true }, 2000) == 'Ready', 'A03 after A00 enough -> green')
-check(Rules.ComputePadState('A03', { A00 = true, A03 = true }, 0) == 'Unlocked', 'A03 unlocked state')
+check(Rules.ComputePadState(F.FastChute, {}, 249) == 'Insufficient', 'A00 insufficient coins -> red')
+check(Rules.ComputePadState(F.FastChute, {}, 250) == 'Ready', 'A00 enough coins -> green')
+check(Rules.ComputePadState(F.AutoRune, {}, 9999) == 'Locked', 'A03 without A00 -> gray even with rich coins')
+check(Rules.ComputePadState(F.AutoRune, { [F.FastChute] = true }, 1999) == 'Insufficient', 'A03 after A00 insufficient -> red')
+check(Rules.ComputePadState(F.AutoRune, { [F.FastChute] = true }, 2000) == 'Ready', 'A03 after A00 enough -> green')
+check(Rules.ComputePadState(F.AutoRune, { [F.FastChute] = true, [F.AutoRune] = true }, 0) == 'Unlocked', 'A03 unlocked state')
 
 local roots = R.deserializeModel(fs.readFile('Assets/Models/GameModels.rbxm'))
 local modelsFolder = roots[1]
-local padTemplate = if modelsFolder then modelsFolder:FindFirstChild('UnlockPad') else nil
-check(padTemplate ~= nil, 'GameModels.rbxm contains UnlockPad template')
-if padTemplate then
-	local pad = padTemplate:Clone()
-	pad:SetAttribute('FacilityId', 'A03')
+check(modelsFolder ~= nil and modelsFolder:FindFirstChild('UnlockPad') == nil and modelsFolder:FindFirstChild('NeonContractDistrict') == nil, 'GameModels.rbxm excludes static district and edit-only UnlockPad')
+
+local function makeTestPad()
+	local pad = Instance.new('Model')
+	pad.Name = 'A03_AutoRune'
+	pad:SetAttribute('FacilityId', F.AutoRune)
 	pad:SetAttribute('PrerequisiteLabel', 'REQUIRES: FAST DROP CHUTE')
+	pad:SetAttribute('LockedColor', Color3.fromRGB(130, 134, 150))
+	pad:SetAttribute('InsufficientColor', Color3.fromRGB(255, 76, 98))
+	pad:SetAttribute('ReadyColor', Color3.fromRGB(72, 245, 146))
+	for _, name in { 'OuterRim', 'GlowRing', 'InnerDisc', 'CenterGlyph', 'TriggerZone' } do
+		local p = Instance.new('Part')
+		p.Name = name
+		p.Parent = pad
+	end
+	local guiAnchor = Instance.new('Part')
+	guiAnchor.Name = 'GuiAnchor'
+	guiAnchor.Parent = pad
+	local bb = Instance.new('BillboardGui')
+	bb.Name = 'PadGui'
+	bb.Parent = guiAnchor
+	local card = Instance.new('Frame')
+	card.Name = 'CardFrame'
+	card.Parent = bb
+	local stroke = Instance.new('UIStroke')
+	stroke.Name = 'BorderStroke'
+	stroke.Parent = card
+	local prereq = Instance.new('TextLabel')
+	prereq.Name = 'PrereqText'
+	prereq.Parent = card
+	return pad
+end
+
+do
+	local pad = makeTestPad()
 	Rules.ApplyPadVisual(pad, 'Locked', 'REQUIRES: FAST DROP CHUTE')
 	check(pad.GlowRing.Color == pad:GetAttribute('LockedColor'), 'Locked applies LockedColor gray')
 	check(pad.GuiAnchor.PadGui.CardFrame.BorderStroke.Color == pad:GetAttribute('LockedColor'), 'Locked border stroke matches gray')
@@ -53,15 +86,15 @@ if padTemplate then
 	check(pad.OuterRim.LocalTransparencyModifier == 1 and pad.TriggerZone.CanTouch == false and pad.GuiAnchor.PadGui.Enabled == false, 'Unlocked hides pad & disables touch/gui')
 end
 check(Rules.FormatCost(250) == '250' and Rules.FormatCost(2500) == '2,500' and Rules.FormatCost(1000000) == '1,000,000', 'FormatCost formats commas')
-check(Rules.DescribeTitle('A00').textId == 'PadNameA00' and Rules.DescribeDesc('A03').textId == 'PadDescA03', 'DescribeTitle/Desc map to GameTexts ids')
-local lockedReq = Rules.DescribePrereq('A03', 'Locked')
-check(lockedReq.textId == 'PadPrereqRequires' and lockedReq.argTextIds and lockedReq.argTextIds[1] == 'PadNameA00', 'DescribePrereq binds nested argTextIds')
-check(Rules.DescribePrereq('A00', 'Insufficient').textId == 'PadPrereqNone' and Rules.DescribePrereq('A03', 'Ready').textId == 'PadPrereqUnlocked', 'DescribePrereq handles none & cleared')
-check(Rules.DescribePrice('A05').textId == 'PadPrice' and Rules.DescribePrice('A05').args[1] == '9,000', 'DescribePrice formats PadPrice description')
+check(Rules.DescribeTitle(F.FastChute) == 'FAST DROP CHUTE' and Rules.DescribeDesc(F.AutoRune) == 'AUTO-PULLS BODIES AND ENGRAVES RUNES', 'DescribeTitle/Desc return source text from GameData')
+local lockedReq = Rules.DescribePrereq(F.AutoRune, 'Locked')
+check(lockedReq.textId == 'PadPrereqRequires' and lockedReq.argSources and lockedReq.argSources[1] == 'FAST DROP CHUTE', 'DescribePrereq binds nested argSources')
+check(Rules.DescribePrereq(F.FastChute, 'Insufficient').textId == 'PadPrereqNone' and Rules.DescribePrereq(F.AutoRune, 'Ready').textId == 'PadPrereqUnlocked', 'DescribePrereq handles none & cleared')
+check(Rules.DescribePrice(F.AutoClerk).textId == 'PadPrice' and Rules.DescribePrice(F.AutoClerk).args[1] == '9,000', 'DescribePrice formats PadPrice description')
 
 -- 工具函数：构造测试白膜与重置场景
 local function makeTestBody(manager, stage)
-	local model = B.ModelsFolder.WhiteR15:Clone()
+	local model = B.ModelsFolder.Characters.WhiteR15:Clone()
 	local id = B.HttpService.GenerateGUID(false)
 	model:SetAttribute('ItemId', id)
 	model.Parent = manager.runtime
@@ -112,8 +145,8 @@ end
 -- 3. 踩踏解锁前置校验、防远距离作弊、并发防双扣与全房广播
 do
 	local manager = makeTestManager()
-	local padA00Pos = Scene.UnlockPads.A00.TriggerZone.Position
-	local padA03Pos = Scene.UnlockPads.A03.TriggerZone.Position
+	local padA00Pos = Scene.UnlockPads[F.FastChute].TriggerZone.Position
+	local padA03Pos = Scene.UnlockPads[F.AutoRune].TriggerZone.Position
 	local p1, _, _, root1 = B.CreatePlayer(101, Vector3.zero)
 	local p2, _, _, root2 = B.CreatePlayer(102, padA00Pos)
 	p1:SetAttribute('Coins', 5000)
@@ -122,25 +155,25 @@ do
 	manager:AddPlayer(p2)
 
 	-- 远距离欺诈请求必须拒绝且不扣款
-	manager:OnRequest(p1, { action = 'UnlockFacility', target = 'A00' })
-	check(not manager:IsFacilityUnlocked('A00') and p1:GetAttribute('Coins') == 5000, 'faraway UnlockFacility spoof rejected')
+	manager:OnRequest(p1, { action = 'UnlockFacility', facilityId = F.FastChute })
+	check(not manager:IsFacilityUnlocked(F.FastChute) and p1:GetAttribute('Coins') == 5000, 'faraway UnlockFacility spoof rejected')
 
 	-- 未解锁 A00 前踩 A03 即使金币充足也不得解锁
 	root1.CFrame = CFrame.new(padA03Pos)
 	root1.Position = padA03Pos
-	check(not manager:TryUnlockFacility(p1, 'A03') and p1:GetAttribute('Coins') == 5000, 'A03 blocked until A00 unlocked')
+	check(not manager:TryUnlockFacility(p1, F.AutoRune) and p1:GetAttribute('Coins') == 5000, 'A03 blocked until A00 unlocked')
 
 	-- 互斥锁拦截同帧重入并发
 	root1.CFrame = CFrame.new(padA00Pos)
 	root1.Position = padA00Pos
-	manager.unlockLocks.A00 = true
-	check(not manager:TryUnlockFacility(p1, 'A00') and p1:GetAttribute('Coins') == 5000, 'facility mutex blocks re-entrant unlock')
-	manager.unlockLocks.A00 = nil
+	manager.unlockLocks[F.FastChute] = true
+	check(not manager:TryUnlockFacility(p1, F.FastChute) and p1:GetAttribute('Coins') == 5000, 'facility mutex blocks re-entrant unlock')
+	manager.unlockLocks[F.FastChute] = nil
 
 	-- 双人同站在 A00 上连续触发解锁，仅扣款 1 次 250
 	table.clear(B.broadcasts)
-	local ok1 = manager:TryUnlockFacility(p1, 'A00')
-	local ok2 = manager:TryUnlockFacility(p2, 'A00')
+	local ok1 = manager:TryUnlockFacility(p1, F.FastChute)
+	local ok2 = manager:TryUnlockFacility(p2, F.FastChute)
 	check(ok1 and not ok2, 'only first player unlocks shared A00')
 	check(p1:GetAttribute('Coins') == 4750 and p2:GetAttribute('Coins') == 500, 'second player never double-charged')
 
@@ -152,7 +185,7 @@ do
 			check(not part.CanCollide and not part.CanQuery and part.Transparency == 1, 'FastChuteCover collision & visibility cleared')
 		end
 	end
-	local padA00 = Scene.UnlockPads.A00
+	local padA00 = Scene.UnlockPads[F.FastChute]
 	check(padA00.TriggerZone.CanTouch == false and padA00.GuiAnchor.PadGui.Enabled == false, 'unlocked pad hidden and touch disabled')
 
 	local foundBanner, foundSnapshot = false, false
@@ -160,7 +193,7 @@ do
 		if notice.kind == 'Message' and notice.textId == 'FacilityUnlocked' then
 			foundBanner = notice.textArgs and notice.textArgs[1] == p1.Name and notice.textArgs[2] == 'FAST DROP CHUTE'
 		elseif notice.kind == 'State' or notice.kind == 'Delta' then
-			if notice.snapshot and notice.snapshot.unlockedFacilities and notice.snapshot.unlockedFacilities.A00 then
+			if notice.snapshot and notice.snapshot.unlockedFacilities and notice.snapshot.unlockedFacilities[F.FastChute] then
 				foundSnapshot = true
 			end
 		end
@@ -172,21 +205,21 @@ do
 	root1.Position = padA03Pos
 	B.now += 0.2
 	manager:Update()
-	check(manager:IsFacilityUnlocked('A03') and p1:GetAttribute('Coins') == 2750, 'Update step-on polling unlocks A03 automatically')
+	check(manager:IsFacilityUnlocked(F.AutoRune) and p1:GetAttribute('Coins') == 2750, 'Update step-on polling unlocks A03 automatically')
 
 	-- 验证 A01 -> A02 与独立分支 A05 前置规则
 	p1:SetAttribute('Coins', 15000)
-	local padA01Pos = Scene.UnlockPads.A01.TriggerZone.Position
-	local padA02Pos = Scene.UnlockPads.A02.TriggerZone.Position
-	local padA05Pos = Scene.UnlockPads.A05.TriggerZone.Position
+	local padA01Pos = Scene.UnlockPads[F.Brute1].TriggerZone.Position
+	local padA02Pos = Scene.UnlockPads[F.Brute2].TriggerZone.Position
+	local padA05Pos = Scene.UnlockPads[F.AutoClerk].TriggerZone.Position
 	root1.CFrame = CFrame.new(padA02Pos); root1.Position = padA02Pos
-	check(not manager:TryUnlockFacility(p1, 'A02'), 'A02 blocked until A01 unlocked')
+	check(not manager:TryUnlockFacility(p1, F.Brute2), 'A02 blocked until A01 unlocked')
 	root1.CFrame = CFrame.new(padA01Pos); root1.Position = padA01Pos
-	check(manager:TryUnlockFacility(p1, 'A01') and p1:GetAttribute('Coins') == 14000, 'A01 unlocks after A00 for 1000 coins')
+	check(manager:TryUnlockFacility(p1, F.Brute1) and p1:GetAttribute('Coins') == 14000, 'A01 unlocks after A00 for 1000 coins')
 	root1.CFrame = CFrame.new(padA02Pos); root1.Position = padA02Pos
-	check(manager:TryUnlockFacility(p1, 'A02') and p1:GetAttribute('Coins') == 11500, 'A02 unlocks after A01 for 2500 coins')
+	check(manager:TryUnlockFacility(p1, F.Brute2) and p1:GetAttribute('Coins') == 11500, 'A02 unlocks after A01 for 2500 coins')
 	root1.CFrame = CFrame.new(padA05Pos); root1.Position = padA05Pos
-	check(manager:TryUnlockFacility(p1, 'A05') and p1:GetAttribute('Coins') == 2500, 'A05 unlocks independently for 9000 coins')
+	check(manager:TryUnlockFacility(p1, F.AutoClerk) and p1:GetAttribute('Coins') == 2500, 'A05 unlocks independently for 9000 coins')
 	manager:Destroy()
 end
 
@@ -199,10 +232,10 @@ do
 		spawnedStreet += 1
 		return nil
 	end
-	local p1 = B.CreatePlayer(299, Scene.UnlockPads.A00.TriggerZone.Position)
+	local p1 = B.CreatePlayer(299, Scene.UnlockPads[F.FastChute].TriggerZone.Position)
 	p1:SetAttribute('Coins', 10000)
 	manager:AddPlayer(p1)
-	manager:TryUnlockFacility(p1, 'A00')
+	manager:TryUnlockFacility(p1, F.FastChute)
 	for _ = 1, 6 do
 		local b1 = makeTestBody(manager, 'Unpainted')
 		manager:PushChuteItem(b1, false)
@@ -224,7 +257,7 @@ end
 -- 4. 整批投料、斜抛落井、3 断点 6 实体+无限队列、MaximumBodies 隔离与双线严格隔离
 do
 	local manager, coinsEarned = makeTestManager()
-	local padA00Pos = Scene.UnlockPads.A00.TriggerZone.Position
+	local padA00Pos = Scene.UnlockPads[F.FastChute].TriggerZone.Position
 	local p1, _, _, root1 = B.CreatePlayer(201, padA00Pos)
 	local p2, _, _, root2 = B.CreatePlayer(202, Vector3.new(-47.0, 1.8, -20.2))
 	p1:SetAttribute('Coins', 1000)
@@ -251,7 +284,7 @@ do
 	-- 解锁 A00
 	root1.CFrame = CFrame.new(padA00Pos)
 	root1.Position = padA00Pos
-	check(manager:TryUnlockFacility(p1, 'A00'), 'unlock A00')
+	check(manager:TryUnlockFacility(p1, F.FastChute), 'unlock A00')
 
 	-- 身上 8 具未画符白膜 + 1 具已画符白膜 -> 靠近井口按 E 整批倒入未画符 8 具，已画符保留身上
 	root1.CFrame = CFrame.new(Scene.ChutePrompt.Position)
@@ -315,9 +348,9 @@ do
 	-- 5. A03 自动符文台 (2.0s/具) -> autoPaintedQueue (无限+6实体)
 	B.now = 200
 	p1:SetAttribute('Coins', 10000)
-	root1.CFrame = CFrame.new(Scene.UnlockPads.A03.TriggerZone.Position)
-	root1.Position = Scene.UnlockPads.A03.TriggerZone.Position
-	check(manager:TryUnlockFacility(p1, 'A03'), 'unlock A03 pulls first chute body immediately')
+	root1.CFrame = CFrame.new(Scene.UnlockPads[F.AutoRune].TriggerZone.Position)
+	root1.Position = Scene.UnlockPads[F.AutoRune].TriggerZone.Position
+	check(manager:TryUnlockFacility(p1, F.AutoRune), 'unlock A03 pulls first chute body immediately')
 	check(manager:ChuteCount() == 8 and manager.autoRuneItemId ~= nil and manager.autoRuneEnds == 202.0, 'A03 starts processing with 2.0s period')
 
 	B.now = 201.9
@@ -361,9 +394,9 @@ do
 
 	-- 6. A04 自动炼化台 (2.5s/瓶) -> autoShelfCount (无限+6瓶渲染) + 站内不打断长按版本测试 + 整批领取变现
 	B.now = 300
-	root1.CFrame = CFrame.new(Scene.UnlockPads.A04.TriggerZone.Position)
-	root1.Position = Scene.UnlockPads.A04.TriggerZone.Position
-	check(manager:TryUnlockFacility(p1, 'A04'), 'unlock A04 starts smelting immediately')
+	root1.CFrame = CFrame.new(Scene.UnlockPads[F.AutoSmelter].TriggerZone.Position)
+	root1.Position = Scene.UnlockPads[F.AutoSmelter].TriggerZone.Position
+	check(manager:TryUnlockFacility(p1, F.AutoSmelter), 'unlock A04 starts smelting immediately')
 	check(manager:AutoPaintedCount() == 7, 'A04 pulled 1 leaving AutoPaintedCount==7, got ' .. tostring(manager:AutoPaintedCount()))
 	check(manager.autoSmelterItemId ~= nil and manager.autoSmelterEnds == 302.5, 'A04 starts smelting with 2.5s period, got ' .. tostring(manager.autoSmelterEnds))
 

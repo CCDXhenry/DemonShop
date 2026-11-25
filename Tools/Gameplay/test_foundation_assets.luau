@@ -52,8 +52,69 @@ end
 local panel = shop.PanelFrame
 check(#panel.AbilitiesFrame:GetChildren() == 3 and #panel.ToolsFrame:GetChildren() == 2, 'shop contains all five purchase cards')
 check(not panel.AbilitiesButton.AlertFrame.Visible and not panel.ToolsButton.AlertFrame.Visible and not hud.ShopButton.AlertFrame.Visible,'purchase badges default hidden')
-check(#shop.Previews:GetChildren() == 11 and shop.Previews.W06:IsA('Model') and shop.Previews.T4:IsA('Model'), 'all eleven tier previews are recoverable')
-check(panel.ToolsFrame.weapon.ToolViewport.WorldModel:IsA('WorldModel') and panel.ToolsFrame.carryTool.ToolViewport.WorldModel:IsA('WorldModel'), 'tool cards have independent 3D viewports')
+local models = load('Assets/Models/GameModels.rbxm').Models
+local expectedCategories = {
+	Characters = true,
+	Weapons = true,
+	CarryRigs = true,
+	Items = true,
+	Effects = true,
+	Previews = true,
+}
+local categoryCount = 0
+for _, child in models:GetChildren() do
+	check(child:IsA('Folder') and expectedCategories[child.Name] == true, 'Models root only contains semantic category folders: ' .. child.Name)
+	categoryCount += 1
+end
+check(categoryCount == 6, 'Models contains all 6 semantic category folders')
+check(models:FindFirstChild('NeonContractDistrict') == nil and models:FindFirstChild('UnlockPad') == nil and models:FindFirstChild('Club') == nil and models:FindFirstChild('PersonalShopPreviews') == nil, 'Models excludes static district, edit-only UnlockPad, retired Club and legacy preview folder')
+
+local characters = models.Characters
+for _, name in {'WhiteR15', 'HellBrute_1', 'HellBrute_2', 'AutoClerk'} do
+	local rig = characters:FindFirstChild(name)
+	check(rig and rig:IsA('Model'), 'character template restores under Characters: ' .. name)
+end
+
+local weapons = models.Weapons
+for _, name in {'W01_RustyPan', 'W02_IronCrowbar', 'W03_DemonScimitar', 'W04_ReaperScythe', 'W05_VoidCannon', 'W06_AbyssalHammer'} do
+	local tool = weapons:FindFirstChild(name)
+	check(tool and tool:IsA('Tool') and tool.Visual:IsA('Model') and tool.Handle:IsA('BasePart'), 'single restored tool template under Weapons: ' .. name)
+	for _, part in tool.Visual:GetChildren() do
+		local weld = tool.Handle:FindFirstChild("Weld_" .. part.Name)
+		check(weld and weld.Part0 == tool.Handle and weld.Part1 == part and not part.Anchored, 'equippable welded piece ' .. part.Name)
+	end
+end
+
+local carryRigs = models.CarryRigs
+local previews = models.Previews
+for tier = 1, 4 do
+ local id = 'T' .. tier
+ local rig = carryRigs:FindFirstChild('CarryRig_' .. id)
+ check(rig and rig:IsA('Model') and rig.PrimaryPart == rig.RootPart, 'carry rig restores under CarryRigs with a primary part: ' .. id)
+ check(typeof(rig:GetAttribute('MountOffset')) == 'CFrame' and not previews:FindFirstChild(id), 'carry rig has exactly one source: ' .. id)
+ for _, part in rig:GetChildren() do
+  check(part:IsA('BasePart') and part.Massless and part.Anchored and not part.CanCollide and not part.CanQuery and not part.CanTouch, 'carry rig restores passive parts: ' .. id)
+  if part ~= rig.PrimaryPart then
+   local weld = rig.RootPart:FindFirstChild('Weld_' .. part.Name)
+   check(weld and weld.Part0 == rig.RootPart and weld.Part1 == part, 'visible part weld restores: ' .. part.Name)
+  end
+ end
+end
+
+local items = models.Items
+check(items:FindFirstChild('Potion') and items.Potion:IsA('Tool'), 'Potion tool template restores under Items')
+local effects = models.Effects
+check(effects:FindFirstChild('ThrowAim') and effects.ThrowAim:IsA('Model'), 'ThrowAim effect template restores under Effects')
+check(previews:FindFirstChild('T0') and previews.T0:IsA('Model'), 'T0 unarmed preview restores under Previews')
+check(previews.ViewportWorld:IsA('WorldModel') and #previews.ViewportWorld:GetChildren()==0, 'viewport containers clone the empty Previews.ViewportWorld template')
+for _, templates in {ui, personal} do
+ for _, template in templates do
+  for _, node in template:GetDescendants() do
+   check(not node:IsA('Model') and not node:IsA('WorldModel'), 'UI recovery packages contain no models or viewport containers')
+  end
+ end
+end
+check(panel.ToolsFrame.weapon.ToolViewport:IsA('ViewportFrame') and panel.ToolsFrame.carryTool.ToolViewport:IsA('ViewportFrame'), 'tool cards have independent 3D viewports')
 for _, template in {ui.GameScreenGui, shop, hud} do
  for _, node in template:GetDescendants() do
   if node:IsA('GuiButton') and node.Name ~= 'ModalButton' then

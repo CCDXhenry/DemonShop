@@ -52,9 +52,19 @@
 
 `build-game-assets.luau` 是初始原型构建器，会重建业务模板。已有二次重构样板时不要重新执行它，以免覆盖模板细节。`build-quality-samples.luau` 在目标 Place1 的 Edit 模式增量维护白膜、笔尖、命中标牌、HUD 和药水样板；两者均不创建或覆写运行脚本。运行时不依赖这些工具文件。
 
-恢复导出：`Assets/Models/GameModels.rbxm` 对应 `ReplicatedStorage.Models`；`Assets/UI/ProjectTemplates.rbxm` 包含业务 UI 模板；`Assets/UI/CommonTemplates.rbxm` 包含静态布局参考；`Assets/Models/SceneAnchors.rbxm` 包含 `Workspace.NeonContractDistrict.SummoningSubmitAnchor` 与 `StreetSpawn`。导入时避免保留同名旧实例。
+恢复导出：`Assets/Models/GameModels.rbxm` 仅对应分类后的 `ReplicatedStorage.Models`（运行时动态克隆模板）；`Assets/UI/ProjectTemplates.rbxm` 包含业务 UI 模板；`Assets/UI/CommonTemplates.rbxm` 包含静态布局参考；`Assets/UI/PersonalShopTemplates.rbxm` 包含随身商店与个人 HUD 模板。静态常驻场景 `Workspace.NeonContractDistrict`（含街道、工位、锚点与已摆放的 `AutomationLine` / `UnlockPads`）直接常驻 `Workspace`，以 Studio 云端 Place 为准，不再塞入 `GameModels.rbxm`，也不在服务端启动时克隆。
 
-武器使用 Roblox 官方 [Sword（47433）](https://create.roblox.com/store/asset/47433)，独立恢复文件为 `Assets/Models/ClassicSword.rbxm`，导入到 `ReplicatedStorage.Models` 并替换旧 `Club`；完整 `GameModels.rbxm` 也已包含同一模板。内部名仍为 `Club`，保留官方网格与握持参数，只保留 SwordSlash 音效，不携带脚本或缩略图相机。初始构建器要求先导入此模板，不再生成方棍。动画 `522635514` 与音效 `12222216` 集中在 `GameConfig`；本地 Animator 播放标准 R15 挥剑，服务端接受攻击后播放一次音效，原版伤害与突刺不启用。
+历史经典剑参考归档保留在 `Assets/Models/ClassicSword.rbxm`（原 `Club` 已退役并移出 `ReplicatedStorage.Models`）。动画 `522635514` 与音效 `12222216` 集中在 `GameConfig`；本地 Animator 播放标准 R15 挥击，服务端接受攻击后播放一次音效。
+
+`ReplicatedStorage.Models` 根目录仅放 6 个语义分类目录，业务脚本统一经 `Shared/ModelTemplates` 访问：
+- `Characters`：`WhiteR15`、`HellBrute_1`、`HellBrute_2`、`AutoClerk`
+- `Weapons`：`W01_RustyPan` ~ `W06_AbyssalHammer`（由 `build-weapon-assets.luau` 在 Edit 构建；发放与工具栏克隆对应 `Tool`，商店克隆其 `Visual`）
+- `CarryRigs`：`CarryRig_T1` ~ `CarryRig_T4`（由 `build-carry-assets.luau` 在 Edit 增量重建，角色背饰与商店视口共用）
+- `Items`：`Potion`
+- `Effects`：`ThrowAim`
+- `Previews`：`T0`（徒手搬运商店预览）、`ViewportWorld`（工具栏与随身商店 3D 视口空容器）
+
+恢复时先导入 `GameModels.rbxm` 到 `ReplicatedStorage`，再导入 `ProjectTemplates.rbxm` 和 `PersonalShopTemplates.rbxm` 到 `ReplicatedStorage.UI`。静态场景直接在 Edit 模式的 `Workspace.NeonContractDistrict` 中维护。
 
 ## 回归
 

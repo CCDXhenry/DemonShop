@@ -32,7 +32,8 @@ for _,case in {
 	{"Pool",nil,potion,"PoolUnfinishedOnly"},{"Pool",nil,painted,"PoolUnfinishedOnly"},
 	{"Pool",nil,raw,"StoreBody"},{"Pool",Snapshot({pool=1}),nil,"TakeSharedBody"},{"Pool",nil,nil,"PoolEmpty"},
 	{"Table",Snapshot({painter=2}),raw,"TableOtherPainter"},{"Table",Snapshot({painter=1}),raw,"PlaceBody"},
-	{"Table",Snapshot({tableId="t"}),raw,"TableOccupied"},{"Table",nil,potion,"TableNeedsBody"},
+	{"Table",Snapshot({tableId="t",items={{id="t",stage="Painted"}}}),raw,"TableOccupied"},{"Table",nil,potion,"TableNeedsBody"},
+	{"Table",Snapshot({tableId="t",items={{id="t",stage="Painting"}}}),raw,"ContinuePainting"},
 	{"Table",Snapshot({tableId="t",items={{id="t",stage="Painted"}}}),nil,"CollectRuneBody"},
 	{"Table",Snapshot({tableId="t",items={{id="t",stage="Painting"}}}),nil,"ContinuePainting"},
 	{"Table",Snapshot({tableId="missing",pool=1}),nil,"FetchAndPaint"},{"Table",nil,nil,"TableEmpty"},
@@ -42,9 +43,9 @@ for _,case in {
 	{"Shelf",Snapshot({shelf=1}),raw,"HandsFullHint"},{"Shelf",Snapshot({shelf=1}),nil,"CollectPotion"},
 	{"Shelf",nil,nil,"NoPotion"},{"Sigil",nil,nil,"OfferPotion",equippedPotions},{"Sigil",nil,nil,"OfferPotion",storedPotions},{"Sigil",nil,nil,"BringPotion"},
 	{"Chute",Snapshot({}),raw,"ChuteLocked"},
-	{"Chute",Snapshot({unlockedFacilities={A00=true}}),raw,"DepositBodies"},
-	{"Chute",Snapshot({unlockedFacilities={A00=true}}),painted,"ChuteUnfinishedOnly"},
-	{"Chute",Snapshot({unlockedFacilities={A00=true}}),nil,"ChuteNeedsBody"},
+	{"Chute",Snapshot({unlockedFacilities={[1]=true}}),raw,"DepositBodies"},
+	{"Chute",Snapshot({unlockedFacilities={[1]=true}}),painted,"ChuteUnfinishedOnly"},
+	{"Chute",Snapshot({unlockedFacilities={[1]=true}}),nil,"ChuteNeedsBody"},
 	{"ChutePickup",Snapshot({chuteQueue=1}),nil,"TakeChuteBody"},
 	{"ChutePickup",Snapshot({chuteQueue=0}),nil,"ChuteEmpty"},
 	{"AutoOutput",Snapshot({autoPaintedQueue=1}),nil,"TakeAutoRuneBody"},
@@ -59,8 +60,9 @@ Check(Hints.Action("Altar",nil,raw,1,nil,{raw,painted}).textId,"InsertRuneBody")
 Check(Hints.Next(nil,nil,nil,{painted,raw}).textId,"ThrowAim")
 Check(Hints.Next(nil,nil,equippedPotions).args[1],"237")
 Check(Hints.Action("Sigil",nil,nil,1,equippedPotions).args[1],"237")
-Check(Hints.Next(nil,nil).args[1],"5")
+Check(Hints.Next(nil,nil).args,nil)
 Check(Translation.FormatByKey(Texts.Hud.Stock.source,Texts.Hud.Stock.key,{"2","4"}),"POOL 2  |  POTIONS 4")
+Check(Translation.FormatByKey(Texts.Hud.CarryingBodies.source,Texts.Hud.CarryingBodies.key,{"12","30"}),"CARRYING 12 / 30 BODIES")
 Check(Texts.Entries,nil)
 Check(Texts.GetEntry("UnknownId"),nil)
 local expected, ordered, seen = {}, {}, {}
@@ -75,7 +77,14 @@ for _, group in groups do
 	table.sort(names)
 	for _, textId in names do table.insert(ordered,textId) end
 end
-Check(#ordered,160)
+Check(#ordered,141)
+Check(Texts.GetEntry("ShopW01"),nil)
+Check(Texts.GetEntry("ShopT0"),nil)
+Check(Texts.GetEntry("PadNameA00"),nil)
+Check(Texts.GetEntry("PadDescA00"),nil)
+Check(Texts.GetEntry("ShopPendingCarry"),nil)
+Check(Texts.Hud.ToolbarPotion.key,"Processing.ToolbarPotion")
+Check(Texts.PersonalShop.ShopWeaponSlam.source,"SLAM AND PULL")
 local index = 0
 -- Match LocalizationExtension's generalized iteration, including nested independent cursors.
 for key, entry in Texts do
@@ -164,10 +173,10 @@ local titleLbl, titleChanged = B.Label({})
 local prereqLbl, prereqChanged = B.Label({})
 local priceLbl, priceChanged = B.Label({})
 local noticeLbl = B.Label(nil)
-padCtrl:Bind(titleLbl, {textId="PadNameA00"})
+padCtrl:BindSource(titleLbl, "FAST DROP CHUTE")
 Check(titleLbl.AutoLocalize, false)
 Check(titleLbl.Text, "fr:FAST DROP CHUTE")
-padCtrl:Bind(prereqLbl, {textId="PadPrereqRequires", args={"FAST DROP CHUTE"}, argTextIds={[1]="PadNameA00"}})
+padCtrl:Bind(prereqLbl, {textId="PadPrereqRequires", args={"FAST DROP CHUTE"}, argSources={[1]="FAST DROP CHUTE"}})
 Check(prereqLbl.AutoLocalize, false)
 Check(prereqLbl.Text, "fr:Processing.PadPrereqRequires:fr:FAST DROP CHUTE")
 padCtrl:Bind(priceLbl, {textId="PadPrice", args={"250"}})
@@ -213,6 +222,9 @@ Check(root.StatusFrame.TitleText.AutoLocalize,true)
 Check(root.PaintFrame.TitleText.AutoLocalize,true)
 Check(root.StatusFrame.CoinsText.AutoLocalize,false)
 Check(root.HintText.AutoLocalize,false)
+Check(root.BottomButtonsFrame.ToolButton.ToolNameText.AutoLocalize,false)
+Check(root.BottomButtonsFrame.ToolButton.ToolLvText.AutoLocalize,false)
+Check(root.BottomButtonsFrame.ToolButton.KeyCodeText.AutoLocalize,false)
 Check(root:FindFirstChild("HintKeyText"),nil)
 Check(root:FindFirstChild("InteractButton"),nil)
 Check(assets.WorldInteractionPrompt.HoldDuration,0.5)

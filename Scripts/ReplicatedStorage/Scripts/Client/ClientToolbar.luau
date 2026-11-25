@@ -1,4 +1,4 @@
--- 底部工具栏：木棒和药水各占槽位，最多显示 9 个，点击和数字键装备或放回
+-- 底部工具栏：武器和药水各占槽位，最多显示 9 个，点击和数字键装备或放回
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -7,13 +7,14 @@ local GuiService = game:GetService("GuiService")
 local Shared = ReplicatedStorage:WaitForChild("Scripts"):WaitForChild("Shared")
 local Lifecycle = require(Shared:WaitForChild("LifecycleTool"))
 local Config = require(Shared:WaitForChild("GameConfig"))
+local GameData = require(Shared:WaitForChild("GameData"))
+local ModelTemplates = require(Shared:WaitForChild("ModelTemplates"))
+local ProcessingTextTool = require(script.Parent.ProcessingTextTool)
 local UIManager = require(script.Parent.UIManager)
 local Toolbar = {}
 Toolbar.__index = Toolbar
 local player = Players.LocalPlayer
-local ToolOrder: { [string]: number } = { Club = 1 }
-local ToolNames: { [string]: string } = { Club = "Club", Potion = "Potion" }
-local FixedNames: { string } = { "Club" }
+local PersonalRules = require(Shared:WaitForChild("PersonalUpgradeRules"))
 local KeyCodes: { Enum.KeyCode } = {
 	Enum.KeyCode.One,
 	Enum.KeyCode.Two,
@@ -33,6 +34,7 @@ type Slot = {
 }
 export type Controller = typeof(setmetatable({} :: {
 	scope: Lifecycle.Lifecycle,
+	texts: ProcessingTextTool.Controller,
 	characterScope: Lifecycle.Lifecycle?,
 	backpackScope: Lifecycle.Lifecycle?,
 	bar: Frame?,
@@ -52,19 +54,20 @@ local function StackCount(tool: Tool): number
 	end
 	return 1
 end
-local function ToolLabel(tool: Tool): string
-	if tool.Name == "Potion" then
-		return string.format("Potion %d", StackCount(tool))
+local function WeaponSource(tool: Tool): string
+	local level = GameData.GetWeaponLevelByModel(tool.Name)
+	if level then
+		return GameData.GetWeaponByLevel(level).name_t
 	end
-	return ToolNames[tool.Name] or tool.Name
+	return string.gsub(string.gsub(tool.Name, "^W%d%d_", ""), "(%l)(%u)", "%1 %2")
 end
-local function ApplyToolName(button: ImageButton, tool: Tool): ()
+local function ApplyToolName(texts: ProcessingTextTool.Controller, button: ImageButton, tool: Tool): ()
 	local nameLabel = button:FindFirstChild("ToolNameText")
 	if nameLabel and nameLabel:IsA("TextLabel") then
-		local text = ToolLabel(tool)
-		if nameLabel.Text ~= text then
-			nameLabel.Text = text
-			UIManager.FitTextLabel(nameLabel)
+		if tool.Name == "Potion" then
+			texts:Bind(nameLabel, { textId = "ToolbarPotion", args = { tostring(StackCount(tool)) } })
+		else
+			texts:BindSource(nameLabel, WeaponSource(tool))
 		end
 	end
 end
@@ -76,7 +79,7 @@ local function ToolbarOrderOf(tool: Tool): number
 	return 0
 end
 local function CollectTools(): { Tool }
-	local fixed: { [string]: Tool } = {}
+	local weapon: Tool? = nil
 	local potions: { Tool } = {}
 	local seen: { [Tool]: boolean } = {}
 	local function Take(container: Instance?): ()
@@ -88,8 +91,8 @@ local function CollectTools(): { Tool }
 				seen[child] = true
 				if child.Name == "Potion" then
 					table.insert(potions, child)
-				elseif ToolOrder[child.Name] then
-					fixed[child.Name] = child
+				elseif PersonalRules.WeaponLevel(child.Name) then
+					weapon = child
 				end
 			end
 		end
@@ -97,12 +100,7 @@ local function CollectTools(): { Tool }
 	Take(player:FindFirstChildOfClass("Backpack"))
 	Take(player.Character)
 	local list: { Tool } = {}
-	for _, name in FixedNames do
-		local tool = fixed[name]
-		if tool then
-			table.insert(list, tool)
-		end
-	end
+	if weapon then table.insert(list, weapon) end
 	table.sort(potions, function(a: Tool, b: Tool): boolean
 		return ToolbarOrderOf(a) < ToolbarOrderOf(b)
 	end)
@@ -151,17 +149,16 @@ local function PreviewCamera(viewport: ViewportFrame): Camera
 	return camera
 end
 local function RenderPreview(button: ImageButton, tool: Tool): ()
-	local viewport = button:WaitForChild("ToolViewport")
-	local world = viewport:WaitForChild("WorldModel")
-	assert(viewport:IsA("ViewportFrame") and world:IsA("WorldModel"))
+	local viewport = button:WaitForChild("ToolViewport") :: ViewportFrame
+	local world = viewport:FindFirstChildOfClass("WorldModel") or ModelTemplates.WaitViewportWorld():Clone()
+	world.Parent = viewport
 	for _, child in world:GetChildren() do
 		child:Destroy()
 	end
-	-- 优先克隆 ReplicatedStorage.Models 里的纯净模板，避免运行时持握与角色骨骼动画污染道具世界坐标与朝向
-	local modelsFolder = ReplicatedStorage:FindFirstChild("Models")
-	local template = if modelsFolder then modelsFolder:FindFirstChild(tool.Name) else nil
-	local fromTemplate = template ~= nil and template:IsA("Tool")
-	local clone = if fromTemplate then (template :: Tool):Clone() else tool:Clone()
+	-- 预览和发放使用同一份道具模板。
+	local template = ModelTemplates.FindTool(tool.Name)
+	if not template then return end
+	local clone = template:Clone()
 	local discard: { Instance } = {}
 	for _, descendant in clone:GetDescendants() do
 		if descendant:IsA("BaseScript") or descendant:IsA("Sound") then
@@ -189,7 +186,7 @@ local function RenderPreview(button: ImageButton, tool: Tool): ()
 
 	if referencePart then
 		local refCFrame = referencePart.CFrame
-		local targetCFrame = if fromTemplate then CFrame.new(Vector3.zero) * refCFrame.Rotation else CFrame.identity
+		local targetCFrame = refCFrame.Rotation
 		local offsets: { [BasePart]: CFrame } = {}
 		for _, item in clone:GetDescendants() do
 			if item:IsA("BasePart") then
@@ -247,6 +244,7 @@ end
 function Toolbar.new(): Controller
 	return setmetatable({
 		scope = Lifecycle.new(),
+		texts = ProcessingTextTool.new(),
 		slots = {},
 		ordered = {},
 		ready = false,
@@ -297,14 +295,10 @@ function Toolbar.Create(self: Controller, tool: Tool): Slot
 	button.Visible = true
 	button.Parent = bar
 	local slotScope = Lifecycle.new()
-	ApplyToolName(button, tool)
-	local nameLabel = button:FindFirstChild("ToolNameText")
-	if nameLabel and nameLabel:IsA("TextLabel") then
-		UIManager.FitTextLabel(nameLabel)
-	end
+	ApplyToolName(self.texts, button, tool)
 	RenderPreview(button, tool)
 	slotScope:Connect(tool:GetAttributeChangedSignal("StackCount"):Connect(function(): ()
-		ApplyToolName(button, tool)
+		ApplyToolName(self.texts, button, tool)
 	end))
 	slotScope:Connect(button.Activated:Connect(function(): ()
 		self:Select(tool)
@@ -345,7 +339,7 @@ function Toolbar.Refresh(self: Controller): ()
 			self.slots[tool] = created
 			slot = created
 		end
-		ApplyToolName(slot.button, tool)
+		ApplyToolName(self.texts, slot.button, tool)
 		if self.closed or self.slots[tool] ~= slot then
 			self:FinishRefresh()
 			return
@@ -356,9 +350,12 @@ function Toolbar.Refresh(self: Controller): ()
 		current.button.Visible = true
 		local key = current.button:FindFirstChild("KeyCodeText")
 		local keyText = tostring(index)
-		if key and key:IsA("TextLabel") and key.Text ~= keyText then
-			key.Text = keyText
-			UIManager.FitTextLabel(key)
+		if key and key:IsA("TextLabel") then
+			key.AutoLocalize = false
+			if key.Text ~= keyText then
+				key.Text = keyText
+				UIManager.FitTextLabel(key)
+			end
 		end
 		if self.closed or self.slots[tool] ~= current then
 			self:FinishRefresh()
@@ -376,6 +373,10 @@ function Toolbar.Refresh(self: Controller): ()
 		local slot = self.slots[tool]
 		self.slots[tool] = nil
 		if slot then
+			local nameLabel = slot.button:FindFirstChild("ToolNameText")
+			if nameLabel and nameLabel:IsA("TextLabel") then
+				self.texts:Clear(nameLabel)
+			end
 			slot.scope:Destroy()
 			slot.button:Destroy()
 		end
@@ -454,6 +455,7 @@ function Toolbar.Destroy(self: Controller): ()
 	self.ready = false
 	self.refreshQueued = false
 	self.refreshAgain = false
+	self.texts:Destroy()
 	for _, slot in self.slots do
 		slot.scope:Destroy()
 		slot.button:Destroy()

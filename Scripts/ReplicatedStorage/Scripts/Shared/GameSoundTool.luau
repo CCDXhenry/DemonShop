@@ -9,6 +9,7 @@ local sounds: { [Sound]: boolean } = {}
 local active: { [Sound]: boolean } = {}
 local tokens: { [Sound]: number } = {}
 local unpooled: { [Sound]: boolean } = {}
+local dynamicTemplates: { [string]: Sound } = {}
 local attachments: { Attachment } = {}
 local scope: Lifecycle.Lifecycle? = nil
 local carrier: Part? = nil
@@ -114,6 +115,32 @@ function Tool.Play(name: string, position: Vector3?, multiplier: number?, looped
  if sound then sound.Volume = template.Volume * (multiplier or 1) end
  return sound
 end
+function Tool.PlaySoundId(soundId: string, position: Vector3?, templateName: string?, multiplier: number?, looped: boolean?): Sound?
+ local baseName = templateName or "AttackSwing"
+ if soundId == "" then
+  return Tool.Play(baseName, position, multiplier, looped)
+ end
+ local baseTemplate = Tool.GetSoundTemplate(baseName)
+ if baseTemplate and baseTemplate.SoundId == soundId then
+  return Tool.Play(baseName, position, multiplier, looped)
+ end
+ local cacheKey = baseName .. "\0" .. soundId
+ local cached = dynamicTemplates[cacheKey]
+ local template: Sound
+ if cached then
+  template = cached
+ else
+  local created: Sound = if baseTemplate then baseTemplate:Clone() else Instance.new("Sound")
+  created.Name = baseName .. "_Dynamic"
+  created.SoundId = soundId
+  dynamicTemplates[cacheKey] = created
+  template = created
+ end
+ local isLooped = if looped ~= nil then looped else template.Looped
+ local sound = if position then Tool.PlayLocal(template, position, isLooped) else Tool.PlayGlobal(template, isLooped)
+ if sound then sound.Volume = template.Volume * (multiplier or 1) end
+ return sound
+end
 function Tool.Stop(sound: Sound?): ()
  if sound and active[sound] then
   sound:Stop()
@@ -157,9 +184,10 @@ function Tool.IsVibrationEnabled(): boolean return vibrationOn end
 function Tool.Destroy(): ()
  if scope then scope:Destroy(); scope = nil end
  for sound in sounds do sound:Destroy() end
+ for _, template in dynamicTemplates do template:Destroy() end
  for _, attachment in attachments do attachment:Destroy() end
  if carrier then carrier:Destroy(); carrier = nil end
- table.clear(sounds); table.clear(active); table.clear(tokens); table.clear(unpooled); table.clear(soundsPools); table.clear(attachments)
+ table.clear(sounds); table.clear(active); table.clear(tokens); table.clear(unpooled); table.clear(dynamicTemplates); table.clear(soundsPools); table.clear(attachments)
  bgm = nil
  vibrationOn = true
 end

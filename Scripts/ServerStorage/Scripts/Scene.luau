@@ -125,13 +125,13 @@ if autoPotionFolder then
 	end
 	table.sort(autoPotionPoints, TopThenLeft)
 end
-local unlockPads: { [string]: Model } = {}
+local unlockPads: { [number]: Model } = {}
 local padsFolder = if autoLine then autoLine:FindFirstChild("UnlockPads") else nil
 if padsFolder then
 	for _, child in padsFolder:GetChildren() do
 		if child:IsA("Model") then
 			local fid = child:GetAttribute("FacilityId")
-			if typeof(fid) == "string" and fid ~= "" then
+			if typeof(fid) == "number" and fid >= 1 and fid % 1 == 0 then
 				unlockPads[fid] = child
 			end
 		end
@@ -167,8 +167,8 @@ end
 function Scene.TablePose(): CFrame
 	return PaintRotation.TablePose(Scene.Table.Position)
 end
-function Scene.CameraPose(): CFrame
-	return PaintRotation.CameraPose(Scene.Table.Position)
+function Scene.CameraPose(count: number?): CFrame
+	return PaintRotation.CameraPose(Scene.Table.Position, count)
 end
 function Scene.AltarPilePose(id: string, layer: number): CFrame
 	local rest = Scene.AltarRest
@@ -291,14 +291,14 @@ function Scene.StreetPoint(random: Random): Vector3
 		Vector3.new(random:NextNumber(-deck.Size.X / 2 + 4, deck.Size.X / 2 - 4), deck.Size.Y / 2, random:NextNumber(-deck.Size.Z / 2 + 4, deck.Size.Z / 2 - 4))
 	)
 end
-function Scene.Visible(character: Model, position: Vector3, target: Model?): boolean
+function Scene.Visible(character: Model, position: Vector3, target: Model?, ignored: Instance?): boolean
 	local head = character:FindFirstChild("Head")
 	if not head or not head:IsA("BasePart") then
 		return false
 	end
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
-	params.FilterDescendantsInstances = { character }
+	params.FilterDescendantsInstances = if ignored then { character, ignored } else { character }
 	params.RespectCanCollide = true
 	local direction = position - head.Position
 	if direction.Magnitude < 0.01 then
