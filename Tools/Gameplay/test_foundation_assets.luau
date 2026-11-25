@@ -10,6 +10,10 @@ local function load(path)
 end
 local ui=load('Assets/UI/ProjectTemplates.rbxm')
 check(ui.GameScreenGui and ui.PaintFaceGui and ui.PaintCellFrame and ui.TargetGui,'all gameplay UI roots restored')
+local brute = ui.BruteNameGui
+check(brute and brute:IsA('BillboardGui') and brute.MaxDistance==45 and brute.AlwaysOnTop and brute.LightInfluence==0,'brute nameplate restored as a world billboard')
+local title=brute.ContentFrame.NameText
+check(title.TextScaled and not title.AutoLocalize and title.UIStroke.StrokeSizingMode==R.Enum.StrokeSizingMode.ScaledSize,'brute title scales and accepts the existing localized names')
 for _,name in {'CenterFrame','WindowCanvas'} do
  local frame=ui.GameScreenGui:FindFirstChild(name)
  check(frame and frame.Size==R.UDim2.fromOffset(1920,1080) and frame.AnchorPoint==R.Vector2.new(.5,.5),'fixed root canvas restored')

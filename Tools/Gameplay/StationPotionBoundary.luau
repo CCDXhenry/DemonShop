@@ -690,6 +690,12 @@ B.Carry = {
 			end
 		end
 	end,
+	ReleaseIntoChute = function(item, pose)
+		item.holder = nil
+		B.PivotTo(item.model, pose)
+		item.poolToss = nil
+		item.model:SetAttribute('PhysicsMode', 'Loose')
+	end,
 	Detach = function(item)
 		item.holder = nil
 	end,

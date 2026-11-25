@@ -105,6 +105,27 @@ function Carry.Static(item: Types.Item, pose: CFrame, restoreTool: boolean?): ()
 	end
 	item.model:PivotTo(pose)
 end
+local function VerticalHalfExtent(frame: CFrame, size: Vector3): number
+	return (math.abs(frame.RightVector.Y) * size.X + math.abs(frame.UpVector.Y) * size.Y + math.abs(frame.LookVector.Y) * size.Z) * 0.5
+end
+function Carry.ReleaseIntoChute(item: Types.Item, pose: CFrame, pile: { Model }, restoreTool: boolean?): ()
+	local ChuteReleaseClearance = 0.25
+	local supportY = pose.Position.Y
+	for _, model in pile do
+		for _, part in model:GetChildren() do
+			if part:IsA("BasePart") and part.CanCollide then
+				supportY = math.max(supportY, part.Position.Y + VerticalHalfExtent(part.CFrame, part.Size))
+			end
+		end
+	end
+	Carry.Static(item, pose, restoreTool)
+	local frame, size = item.model:GetBoundingBox()
+	local bottom = frame.Position.Y - VerticalHalfExtent(frame, size)
+	item.model:PivotTo(pose + Vector3.yAxis * (supportY - bottom + ChuteReleaseClearance))
+	Ragdoll.SetMode(item.model, "Loose")
+	item.motionState = "ChutePile"
+	item.model:SetAttribute("MotionState", item.motionState)
+end
 function Carry.Take(item: Types.Item, player: Player, bodyLayer: number?): boolean
 	local character = player.Character
 	local root = character and character:FindFirstChild("HumanoidRootPart")

@@ -554,9 +554,16 @@ function Client.OnHit(self: Client, notice: Types.Notice): ()
 	local id,version,hits,started,direction,position=notice.id,notice.version,notice.hits,notice.started,notice.direction,notice.position
 	if not id or not version or not hits or not started or not direction or not position then return end
 	local item=self.items[id]
+	local now=workspace:GetServerTimeNow()
+	local age=now-started
 	if not item or not item.model or not item.model.Parent then
-		if workspace:GetServerTimeNow()-started<=Config.HitSecondPoseSeconds and #self.waitingHits<32 then table.insert(self.waitingHits,notice) end
+		if age < Config.HitHealthSeconds and #self.waitingHits<32 then table.insert(self.waitingHits,notice) end
 		return
+	end
+	if age >= 0 and age < Config.HitHealthSeconds and item.location == "Street"
+		and item.hits < Config.StunHits and (item.version <= version or item.hits == hits)
+	then
+		UIManager.GetTargetGuiManager():ShowHit(id, version, hits, started, self.bodies:GetVisualPart(id, "Head"))
 	end
 	if not self.bodies:AcceptNotice(id,version,hits,started) then return end
 	local localActor=notice.actor==player.UserId
@@ -566,8 +573,6 @@ function Client.OnHit(self: Client, notice: Types.Notice): ()
 	local previous= self.hitState.versions[id] or 0
 	local replay=HitRules.Confirm(self.hitState,id,version,if localActor then notice.attackSequence else nil)
 	if version<=previous then return end
-	local now=workspace:GetServerTimeNow()
-	local age=now-started
 	-- 正确目标修正现有脉冲；地面交接由含落点的权威 ItemView 启动。
 	local final=hits>=Config.StunHits
 	if final then self.hitView:Remove(id) end
@@ -1308,7 +1313,16 @@ function Client.Update(self: Client, dt: number): ()
 	local held = self:Held()
 	local focused = if self.attackTarget then self.items[self.attackTarget] else nil
 	local head = focused and self.bodies:GetVisualPart(focused.id,"Head")
-	UIManager.GetTargetGuiManager():Refresh({
+	local targetGui = UIManager.GetTargetGuiManager()
+	targetGui:RefreshHits(workspace:GetServerTimeNow(), function(id: string): BasePart?
+		local item = self.items[id]
+		if item and item.location == "Street" and item.hits < Config.StunHits then
+			return self.bodies:GetVisualPart(id, "Head")
+		end
+		return nil
+	end)
+	targetGui:Refresh({
+		id = focused and focused.id,
 		adornee = if head and head:IsA("BasePart") then head else nil,
 		visible = not self.paintId and not held and focused ~= nil and focused.location == "Street" and focused.hits < Config.StunHits,
 		hits = if focused then focused.hits else 0,
@@ -1640,6 +1654,45 @@ function Client.UpdateAutomationViews(self: Client, snapshot: Types.Snapshot?): 
 		autoSmelterMachine:SetAttribute("Working", snapshot ~= nil and (snapshot.autoSmelterEnds or 0) > serverNow)
 	end
 end
+function Client.BindBruteNameplates(self: Client): ()
+	local playerGui = player:WaitForChild("PlayerGui")
+	local ui = ReplicatedStorage:WaitForChild("UI")
+	local bindings: { [BasePart]: { gui: BillboardGui, label: TextLabel } } = {}
+	local function OnAdded(instance: Instance): ()
+		if instance.Name ~= "Head" or not instance:IsA("BasePart") or bindings[instance] then return end
+		local agent = instance.Parent
+		if not agent or not agent:IsA("Model") or agent:GetAttribute("AgentRole") ~= "Brute" then return end
+		local agentId = agent:GetAttribute("AgentId")
+		local textId: GameTexts.TextId? =
+			if agentId == "HellBrute_1" then "PadNameA01" elseif agentId == "HellBrute_2" then "PadNameA02" else nil
+		if not textId then return end
+		local template = ui:FindFirstChild("BruteNameGui")
+		if not template or not template:IsA("BillboardGui") then return end
+		local nameplate = template:Clone()
+		local label = nameplate.ContentFrame.NameText :: TextLabel
+		nameplate.Adornee = instance
+		nameplate.Parent = playerGui
+		bindings[instance] = { gui = nameplate, label = label }
+		self.scope:Own(nameplate)
+		self.padTexts:Bind(label, { textId = textId })
+	end
+	local function OnRemoving(instance: Instance): ()
+		if not instance:IsA("BasePart") then return end
+		local binding = bindings[instance]
+		if binding then
+			bindings[instance] = nil
+			self.padTexts:Clear(binding.label)
+			binding.gui:Destroy()
+		end
+	end
+	self.scope:Connect(workspace.DescendantAdded:Connect(OnAdded))
+	self.scope:Connect(workspace.DescendantRemoving:Connect(OnRemoving))
+	local runtime = workspace:FindFirstChild("GameRuntime")
+	local agents = runtime and runtime:FindFirstChild("AutomationAgents")
+	if agents then
+		for _, instance in agents:GetDescendants() do OnAdded(instance) end
+	end
+end
 function Client.Init(self: Client, gui: ScreenGui): ()
 	if self.initialized then
 		return
@@ -1654,6 +1707,7 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		return {snapshot=self.snapshot, items=self.items, held=self:Held(), carried=self:Carried(), potions=self:Potions(), enabled=self.initialized and self.synced and not self.paintId and humanoid ~= nil and humanoid.Health > 0 and not (modal and modal.Visible)}
 	end)
 	UIManager.GetTargetGuiManager():Init()
+	self:BindBruteNameplates()
 	local stick = self.ui:GetThrowStick()
 	if stick then
 		self.throw = ManualThrow.new(stick, {

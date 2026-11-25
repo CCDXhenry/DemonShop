@@ -93,6 +93,7 @@ export type Item = {
 	poolToss: PoolToss?,
 	altarToss: AltarToss?,
 	poolRecoverAt: number?,
+	chuteRecoverAt: number?,
 	flyEnds: number?,
 	convertEnds: number?,
 	altarHeld: boolean?,

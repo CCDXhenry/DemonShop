@@ -271,6 +271,9 @@ do
 	manager:OnRequest(p1, { action = 'Interact', target = 'Chute', version = manager.stationVersions.Chute })
 	check(manager:ChuteCount() == 8 + 1 - 1 and #manager:Carried(p1) == 1 and manager:Carried(p1)[1] == paintedKept, 'A00 batch deposits 8 unfinished bodies (7 new + rawPre) and keeps painted body')
 	check(#manager.chuteVisible == 6 and manager.chuteOverflowCount == 2, 'chuteQueue caps rendered world bodies at 6 and stores overflow')
+	for _, id in manager.chuteVisible do
+		check(manager.items[id].model:GetAttribute('PhysicsMode') == 'Loose', 'each visible body enters physical chute storage')
+	end
 	check(manager:PoolCount() == 0 and manager:ShelfCount() == 0 and manager.stationVersions.ChutePickup > verBeforeChute, 'manual pool/shelf untouched by chute deposit')
 
 	-- 斜抛落入井筒与落地缓冲垫均转入 chuteQueue；已画符斜抛落地
@@ -296,10 +299,18 @@ do
 	check(thrownPainted.location == 'Ground' and manager:ChuteCount() == 10, 'painted throw into chute lands on Ground')
 
 	-- 地下 ChutePickup 断点手取 1 具：计数减 1，溢出处补位维持 6 实体
+	local nextInChute = manager.items[manager.chuteVisible[2]]
+	local nextChutePose, nextChuteVersion = nextInChute.model.WorldPivot, nextInChute.version
 	root2.CFrame = CFrame.new(Scene.ChutePickup.Position)
 	root2.Position = Scene.ChutePickup.Position
 	manager:OnRequest(p2, { action = 'Interact', target = 'ChutePickup', version = manager.stationVersions.ChutePickup })
 	check(manager:ChuteCount() == 9 and #manager.chuteVisible == 6 and manager.chuteOverflowCount == 3 and #manager:Carried(p2) == 1, 'ChutePickup takes 1 and replenishes 6th visible body from overflow')
+	check(nextInChute == manager:PeekChuteItem() and nextInChute.model.WorldPivot == nextChutePose and nextInChute.version == nextChuteVersion, 'ChutePickup keeps the next body in place without repacking the pile')
+	nextInChute.model.PrimaryPart.Position = Vector3.new(-100, -41, -90)
+	B.now = (nextInChute.chuteRecoverAt or B.now) + 0.1
+	manager:Update()
+	check(Scene.ChutePileContains(nextInChute.model.PrimaryPart.Position) and manager:PeekChuteItem() == nextInChute
+		and manager:ChuteCount() == 9, 'escaped body recovers without losing its queue position or changing inventory')
 
 	-- 5. A03 自动符文台 (2.0s/具) -> autoPaintedQueue (无限+6实体)
 	B.now = 200

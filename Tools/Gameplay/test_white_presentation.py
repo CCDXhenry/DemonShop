@@ -80,7 +80,8 @@ local CFrame=require('@lune/roblox').CFrame
 local Client={}
 local player={UserId=1}
 local HitRules=require('./HitFeedbackRules')
-local Config={StunHits=3,HitSecondPoseSeconds=0.45,HitEffectSeconds=0.12,HitFinalEffectSeconds=0.18}
+local Config={StunHits=3,HitSecondPoseSeconds=0.45,HitHealthSeconds=1.5,HitEffectSeconds=0.12,HitFinalEffectSeconds=0.18}
+local UIManager={GetTargetGuiManager=function() return {ShowHit=function() end} end}
 local workspace={GetServerTimeNow=function() return 0.04 end}
 local CFrame=require('@lune/roblox').CFrame
 local Rotation={IsFlipped=function() return false end}

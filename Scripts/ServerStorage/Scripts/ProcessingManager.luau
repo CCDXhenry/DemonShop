@@ -49,6 +49,7 @@ type PlayerRecord = {
 }
 local PotionReserveName = "PotionReserve"
 local Manager = {}
+local random = Random.new()
 Manager.__index = Manager
 export type Manager = typeof(setmetatable(
 	{} :: {
@@ -307,11 +308,24 @@ function Manager.ReplenishPoolVisible(self: Manager): ()
 		table.insert(self.pool, item.id)
 	end
 end
+function Manager.ReleaseChuteBody(self: Manager, item: Types.Item, pose: CFrame, restoreTool: boolean?): ()
+	local pile = {}
+	for _, id in self.chuteVisible do
+		local other = self.items[id]
+		if other and other ~= item and other.model.Parent and other.model.PrimaryPart
+			and Scene.ChutePileContains(other.model.PrimaryPart.Position)
+		then
+			table.insert(pile, other.model)
+		end
+	end
+	Carry.ReleaseIntoChute(item, pose, pile, restoreTool)
+	item.chuteRecoverAt = workspace:GetServerTimeNow() + Physics.PoolRecoverSeconds
+end
 function Manager.SpawnChuteBody(self: Manager): Types.Item?
-	local pose = Scene.ChutePose(#self.chuteVisible + 1)
+	local pose = Scene.ChuteDropPose(random)
 	local item = CreateStationBody(self, "Chute", "Unpainted", pose)
 	if item then
-		Carry.Static(item, pose, false)
+		self:ReleaseChuteBody(item, pose, false)
 	end
 	return item
 end
@@ -338,16 +352,6 @@ function Manager.ReplenishChuteVisible(self: Manager): ()
 		end
 		self.chuteOverflowCount -= 1
 		table.insert(self.chuteVisible, item.id)
-	end
-	for index, id in self.chuteVisible do
-		local item = self.items[id]
-		if item then
-			local target = Scene.ChutePose(index)
-			if (item.model:GetPivot().Position - target.Position).Magnitude > 0.05 then
-				Carry.Static(item, target, false)
-				item.version += 1
-			end
-		end
 	end
 end
 function Manager.ReplenishAutoPaintedVisible(self: Manager): ()
@@ -414,9 +418,9 @@ function Manager.PeekChuteItem(self: Manager): Types.Item?
 	local id = self.chuteVisible[1]
 	return if id then self.items[id] else nil
 end
-function Manager.PushChuteItem(self: Manager, item: Types.Item, restoreTool: boolean?): ()
+function Manager.PushChuteItem(self: Manager, item: Types.Item, restoreTool: boolean?, landing: CFrame?): ()
 	if #self.chuteVisible < Config.AutoQueueVisibleLimit then
-		Carry.Static(item, Scene.ChutePose(#self.chuteVisible + 1), restoreTool)
+		self:ReleaseChuteBody(item, Scene.ChuteDropPose(random, landing), restoreTool)
 		item.location = "Chute"
 		item.stage = "Unpainted"
 		item.streetSlot = false
@@ -1701,7 +1705,7 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 		return
 	end
 	if item.poolToss and item.poolToss.chuteDropFrom then
-		self:PushChuteItem(item, false)
+		self:PushChuteItem(item, false, item.poolToss.target)
 		self:StepAutomation(workspace:GetServerTimeNow())
 		return
 	end
@@ -1729,7 +1733,9 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 		end
 		return
 	elseif kind == "Chute" then
-		self:PushChuteItem(item, false)
+		local primary = item.model.PrimaryPart
+		local rotation = if primary then primary.CFrame.Rotation else CFrame.identity
+		self:PushChuteItem(item, false, CFrame.new(position) * rotation)
 		self:StepAutomation(workspace:GetServerTimeNow())
 		return
 	end
@@ -2229,6 +2235,11 @@ function Manager.Update(self: Manager): ()
 			if (outside or fallen) and now >= (item.poolRecoverAt or 0) then
 				item.poolRecoverAt = now + Physics.PoolRecoverSeconds
 				Carry.RecoverPool(item)
+				changed = true
+			end
+		elseif item.location == "Chute" and primary and not Scene.ChutePileContains(primary.Position) then
+			if now >= (item.chuteRecoverAt or 0) then
+				self:ReleaseChuteBody(item, Scene.ChuteDropPose(random), false)
 				changed = true
 			end
 		elseif item.location ~= "Altar" and not IsAutomationLocation(item.location) and primary and primary.Position.Y < -40 then

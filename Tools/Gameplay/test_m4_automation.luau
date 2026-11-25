@@ -147,12 +147,21 @@ do
 	local observedDoorway = false
 	local observedChuteStand = false
 	local rejectedPlayerSteal = false
+	local liftStart: Vector3? = nil
+	local liftFeet: Vector3? = nil
+	local observedIntermediateLift = false
+	local observedShoulderHandoff = false
+	local observedBend = false
 
 	for _ = 1, 140 do
 		B.now += 0.1
 		manager:Update()
 		if npc1.location == 'BruteCarried' and not observedCarried then
 			observedCarried = true
+			check(brute1.state == 'LiftBody', 'Brute claims the body before walking to the chute')
+			check((npc1.model.WorldPivot.Position - Vector3.new(-35, 23, -60)).Magnitude < 0.01, 'lift begins at the current world pose without a snap')
+			liftStart = npc1.model.WorldPivot.Position
+			liftFeet = brute1.floorPos
 			check(npc1.hits >= Config.StunHits and npc1.model:GetAttribute('BruteCarrier') == 'Brute1', 'Brute1 marks carried body with BruteCarrier')
 			-- 确认客户端提示规则和服务端交互请求均拒绝玩家抢夺打手搬运中的白膜
 			local snap = manager:Snapshot()
@@ -167,7 +176,17 @@ do
 			manager:OnRequest(p1, { action = 'Interact', target = npc1.id, version = npc1.version })
 			rejectedPlayerSteal = #B.notices == 1 and B.notices[1].notice.textId == 'ItemUnavailable'
 		end
+		if brute1.state == 'LiftBody' and liftStart and liftFeet then
+			check(brute1.floorPos == liftFeet, 'Brute stays planted until the body reaches its shoulder')
+			if brute1.model.WorldPivot.Position.Y < liftFeet.Y + Config.AgentRootHeight - 0.05 then observedBend = true end
+			local liftHeight = npc1.model.WorldPivot.Position.Y - liftStart.Y
+			if liftHeight > 0.05 then observedIntermediateLift = true end
+		end
 		if brute1.state == 'CarryToChute' then
+			if not observedShoulderHandoff then
+				check(brute1.floorPos == liftFeet and npc1.model.WorldPivot.Position.Y > (liftStart :: Vector3).Y, 'first carry frame has already completed the lift')
+				observedShoulderHandoff = true
+			end
 			local p = brute1.floorPos
 			if math.abs(p.Z - (-39.0)) < 1 and p.X >= -62.5 and p.X <= -55.5 then
 				observedDoorway = true
@@ -182,6 +201,7 @@ do
 	end
 
 	check(observedCarried and rejectedPlayerSteal, 'Brute1 stuns, carries and blocks player steal attempt')
+	check(observedBend and observedIntermediateLift and observedShoulderHandoff, 'Brute1 bends, lifts the body across simulation steps and then carries it')
 	check(observedDoorway and observedChuteStand, 'Brute1 carries body legally through NewShop_Noodles doorway to the new standing strip')
 	check(manager:ChuteCount() == 1 and manager:PoolCount() == 0 and manager:ShelfCount() == 0, 'Brute1 deposits directly into chuteQueue with zero manual pool/shelf touch')
 	check(manager.agents.targetLocks[npc1.id] == nil, 'Brute1 releases target lock after deposit')

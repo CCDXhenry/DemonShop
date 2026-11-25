@@ -9,6 +9,10 @@ local Scene = {}
 local district = workspace:WaitForChild("NeonContractDistrict")
 local pool = district:WaitForChild("SoulHoldingPool")
 local PointRowBand = 0.5 -- 同一排点位的高度差上限，studs
+local ChuteFallbackLanding = Vector3.new(-58.8, 1.15, -28.5)
+local ChuteSpawnSpread = 1.8
+local ChuteEdgeClearance = 2.5
+local ChuteFallTolerance = 4
 local ShelfPivotOffset = -0.35 -- 相对符文托位下调瓶身枢轴，studs
 local ShelfSlotOffsets = {
 	Vector3.new(0, ShelfPivotOffset, 0.85),
@@ -222,12 +226,32 @@ function Scene.ChuteContains(position: Vector3): boolean
 		Physics.ChuteWallHeight
 	)
 end
-function Scene.ChutePose(slot: number): CFrame
-	local index = math.max(0, slot - 1)
-	local col = (index % 3) - 1
-	local layer = math.floor(index / 3) % 2
-	local base = if Scene.ChuteLanding then Scene.ChuteLanding.Position else Vector3.new(-58.8, 1.15, -28.5)
-	return CFrame.new(base + Vector3.new(col * 2.3, 0.55 + layer * 0.85, 0)) * CFrame.Angles(math.pi / 2, 0, 0)
+function Scene.ChuteDropPose(random: Random, landing: CFrame?): CFrame
+	local base = if Scene.ChuteLanding then Scene.ChuteLanding.Position else ChuteFallbackLanding
+	local zone = Scene.ChuteDropZone
+	local position = base + Vector3.new(random:NextNumber(-ChuteSpawnSpread, ChuteSpawnSpread), 0, random:NextNumber(-ChuteSpawnSpread, ChuteSpawnSpread))
+	local yaw = random:NextNumber(0, 2 * math.pi)
+	if landing then
+		position = landing.Position
+		local direction = landing.LookVector
+		if Vector3.new(direction.X, 0, direction.Z).Magnitude < 0.1 then direction = landing.UpVector end
+		yaw = math.atan2(-direction.X, -direction.Z)
+	end
+	if zone then
+		local offset = zone.CFrame:PointToObjectSpace(position)
+		local halfX = math.max(0, zone.Size.X * 0.5 - ChuteEdgeClearance)
+		local halfZ = math.max(0, zone.Size.Z * 0.5 - ChuteEdgeClearance)
+		position = zone.CFrame:PointToWorldSpace(Vector3.new(math.clamp(offset.X, -halfX, halfX), 0, math.clamp(offset.Z, -halfZ, halfZ)))
+	end
+	return CFrame.new(position.X, base.Y, position.Z)
+		* CFrame.Angles(0, yaw, 0)
+		* CFrame.Angles(math.pi / 2 + random:NextNumber(-0.12, 0.12), 0, random:NextNumber(-0.18, 0.18))
+end
+function Scene.ChutePileContains(position: Vector3): boolean
+	local zone = Scene.ChuteDropZone
+	if not zone then return position.Y >= ChuteFallbackLanding.Y - ChuteFallTolerance end
+	local offset = zone.CFrame:PointToObjectSpace(position)
+	return math.abs(offset.X) <= zone.Size.X * 0.5 and math.abs(offset.Z) <= zone.Size.Z * 0.5 and offset.Y >= -ChuteFallTolerance
 end
 function Scene.AutoOutputPose(slot: number): CFrame
 	local index = math.max(0, slot - 1)

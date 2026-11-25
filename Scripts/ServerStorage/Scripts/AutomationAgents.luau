@@ -11,7 +11,6 @@ local Lifecycle = require(Shared.LifecycleTool)
 local Physics = require(Shared.PhysicsConfig)
 local NPC = require(script.Parent.NPC)
 local Carry = require(script.Parent.Carry)
-local Ragdoll = require(script.Parent.Ragdoll)
 local Scene = require(script.Parent.Scene)
 
 local AutomationAgents = {}
@@ -33,7 +32,7 @@ export type Host = {
 	changed: () -> (),
 }
 
-type BrutePhase = "IdleAtPost" | "ExitShop" | "SeekTarget" | "CarryToChute" | "DropInChute" | "ReturnToPost"
+type BrutePhase = "IdleAtPost" | "ExitShop" | "SeekTarget" | "LiftBody" | "CarryToChute" | "DropInChute" | "ReturnToPost"
 type ClerkPhase = "IdleAtStation" | "GoToAutoShelf" | "GoToSigil" | "ReturnToStation"
 
 type Tracks = {
@@ -58,6 +57,7 @@ export type BruteAgent = {
 	carryingId: string?,
 	nextHitAt: number,
 	pickupReadyAt: number,
+	lift: { from: CFrame, started: number }?,
 	stateEndsAt: number,
 	dropStartPos: Vector3?,
 	waypoints: { Vector3 },
@@ -343,12 +343,16 @@ local function SetAgentMotion(tracks: Tracks, current: string, nextState: string
 	if current == nextState then
 		return current
 	end
-	if nextState == "Carry" then
+	if nextState == "Carry" or nextState == "Lift" then
 		if tracks.idle and tracks.idle.IsPlaying then
 			tracks.idle:Stop(Config.MotionFadeSeconds)
 		end
-		if tracks.walk and not tracks.walk.IsPlaying then
-			tracks.walk:Play(Config.MotionFadeSeconds)
+		if tracks.walk then
+			if nextState == "Carry" and not tracks.walk.IsPlaying then
+				tracks.walk:Play(Config.MotionFadeSeconds)
+			elseif nextState == "Lift" and tracks.walk.IsPlaying then
+				tracks.walk:Stop(Config.MotionFadeSeconds)
+			end
 		end
 		if tracks.carry and not tracks.carry.IsPlaying then
 			tracks.carry:Play(Config.CarryAnimationFade)
@@ -818,10 +822,11 @@ local function EnterSeekTarget(agent: BruteAgent): ()
 	end
 end
 
-local function BrutePickupBody(host: Host, state: State, agent: BruteAgent, item: Types.Item): ()
+local function BrutePickupBody(state: State, agent: BruteAgent, item: Types.Item, now: number): ()
+	local from = item.model:GetPivot()
 	Carry.Detach(item, false)
 	NPC.StopMotion(item)
-	Ragdoll.SetMode(item.model, "Static")
+	-- 冻结当前倒姿，避免在提起第一帧把四肢重置到模板姿势。
 	for _, part in item.model:GetDescendants() do
 		if part:IsA("BasePart") then
 			part.Anchored = true
@@ -840,10 +845,19 @@ local function BrutePickupBody(host: Host, state: State, agent: BruteAgent, item
 	state.targetLocks[item.id] = agent.id
 	agent.targetId = item.id
 	agent.carryingId = item.id
-	agent.state = "CarryToChute"
-	agent.waypoints = BuildInwardWaypoints(agent.floorPos)
-	agent.waypointIndex = 1
-	SetModelPose(item.model, ShoulderPose(agent))
+	agent.state = "LiftBody"
+	agent.lift = { from = from, started = now }
+	local slash = agent.tracks.slash
+	if slash and slash.IsPlaying then slash:Stop(Config.MotionFadeSeconds) end
+end
+
+local BruteReachFraction = 0.30
+local BruteReachDepth = 0.32
+local BruteReachLean = math.rad(16)
+local BruteLiftArc = 0.42
+
+local function SmoothStep(t: number): number
+	return t * t * (3 - 2 * t)
 end
 
 local function BruteDepositBody(host: Host, state: State, agent: BruteAgent, now: number): boolean
@@ -995,6 +1009,7 @@ local function StepBrute(host: Host, state: State, agent: BruteAgent, now: numbe
 	local changed = false
 	local speed = Config.BruteWalkSpeed
 	local wantMotion = "Idle"
+	local liftBend = 0
 
 	if agent.state == "DropInChute" then
 		local item = if agent.carryingId then host.items[agent.carryingId] else nil
@@ -1016,17 +1031,34 @@ local function StepBrute(host: Host, state: State, agent: BruteAgent, now: numbe
 			agent.waypoints = BuildOutwardWaypoints()
 			agent.waypointIndex = 1
 		end
-	elseif agent.state == "CarryToChute" then
+	elseif agent.state == "LiftBody" or agent.state == "CarryToChute" then
 		local item = if agent.carryingId then host.items[agent.carryingId] else nil
-		if not item or item.location ~= "BruteCarried" or item.model.Parent == nil then
+		if not item or item.location ~= "BruteCarried" or item.model.Parent == nil or not item.model.PrimaryPart then
 			if agent.carryingId and state.targetLocks[agent.carryingId] == agent.id then
 				state.targetLocks[agent.carryingId] = nil
 			end
 			agent.carryingId = nil
 			agent.targetId = nil
+			agent.lift = nil
 			agent.state = "ExitShop"
 			agent.waypoints = BuildOutwardWaypoints()
 			agent.waypointIndex = 1
+		elseif agent.lift then
+			local lift = agent.lift
+			local progress = math.clamp((now - lift.started) / Config.BruteLiftDuration, 0, 1)
+			local blend = SmoothStep(math.clamp((progress - BruteReachFraction) / (1 - BruteReachFraction), 0, 1))
+			liftBend = if progress < BruteReachFraction then SmoothStep(progress / BruteReachFraction) else 1 - blend
+			if progress >= BruteReachFraction then
+				wantMotion = "Lift"
+				local pose = lift.from:Lerp(ShoulderPose(agent), blend)
+				SetModelPose(item.model, pose + Vector3.yAxis * (4 * BruteLiftArc * blend * (1 - blend)))
+			end
+			if progress >= 1 then
+				agent.lift = nil
+				agent.state = "CarryToChute"
+				agent.waypoints = BuildInwardWaypoints(agent.floorPos)
+				agent.waypointIndex = 1
+			end
 		else
 			wantMotion = "Carry"
 			local arrived = AdvanceWaypoints(host, state, agent, speed, dt)
@@ -1110,9 +1142,11 @@ local function StepBrute(host: Host, state: State, agent: BruteAgent, now: numbe
 						agent.facing = FlatUnit(targetFloor - agent.floorPos, agent.facing)
 					end
 					if targetItem.hits >= Config.StunHits then
-						if dist <= Config.BrutePickupRange and now >= agent.pickupReadyAt then
-							BrutePickupBody(host, state, agent, targetItem)
-							wantMotion = "Carry"
+						local fall = targetItem.fall
+						local readyAt = if fall then math.max(agent.pickupReadyAt, fall.started + Physics.Presentation.Fall.PhysicsSeconds) else agent.pickupReadyAt
+						if dist <= Config.BrutePickupRange and now >= readyAt then
+							BrutePickupBody(state, agent, targetItem, now)
+							wantMotion = "Idle"
 							changed = true
 						end
 					elseif dist <= Config.BruteHitRange and now >= agent.nextHitAt then
@@ -1151,7 +1185,11 @@ local function StepBrute(host: Host, state: State, agent: BruteAgent, now: numbe
 		end
 	end
 
-	SetModelPose(agent.model, FacingFrame(RootPosFromFloor(agent.floorPos), agent.facing))
+	local rootPose = FacingFrame(RootPosFromFloor(agent.floorPos), agent.facing)
+	if liftBend > 0 then
+		rootPose *= CFrame.new(0, -BruteReachDepth * liftBend, 0) * CFrame.Angles(-BruteReachLean * liftBend, 0, 0)
+	end
+	SetModelPose(agent.model, rootPose)
 	agent.motionState = SetAgentMotion(agent.tracks, agent.motionState, wantMotion)
 	return changed
 end

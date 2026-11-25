@@ -26,7 +26,7 @@ B.player.Character=character
 local item={id="A",model=Body("WhiteNPC",R.Vector3.new(0,0,-4)),kind="Body",location="Street",hits=0,version=1}
 local calls={pose=0,burst=0,stop=0,shake=0,upgrade=0,remove=0}
 local client=setmetatable({hitState=Rules.New(),items={A=item},lastAttack=10,attackSequence=1}, {__index=Client})
-client.bodies={AcceptNotice=function() return true end,Hit=function() return false end,Reject=function() end,pureModel=false}
+client.bodies={AcceptNotice=function() return true end,Hit=function() return false end,Reject=function() end,GetVisualPart=function() return item.model.PrimaryPart end,pureModel=false}
 function client:Held() return nil end
 client.characterView={HitStop=function() calls.stop+=1 end}
 client.hitView={ResetCamera=function() end,Apply=function() end,Play=function() calls.pose+=1 end,
@@ -48,6 +48,10 @@ notice.version=2; client:OnHit(notice)
 Check(calls.burst==2,"out of order ignored")
 notice.version=4; notice.started=8; client:OnHit(notice)
 Check(calls.burst==2,"expired observer event ignored")
+B.now=10.9
+notice.actor=0; notice.version=4; notice.started=10.16
+client:OnHit(notice)
+Check(B.healthHits[#B.healthHits].version==4 and calls.burst==2,"brute damage updates health beyond the pose replay window")
 Rules.Begin(client.hitState,2,"A",11,13); client.attackSequence=2
 Rules.Result(client.hitState,2,false)
 client:UpdateHits(11)

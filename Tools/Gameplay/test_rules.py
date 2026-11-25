@@ -39,7 +39,7 @@ def run_hit_feedback_tests():
     source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientProcessingManager.luau").read_text(encoding="utf-8")
     start=source.index("function Client.CancelHitFeedback(")
     end=source.index("function Client.OnNotice(",start)
-    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,player,Config,HitRules,Sound=B.workspace,B.player,require('./GameConfig'),require('./HitFeedbackRules'),B.Sound or {Play=function()end}\nlocal Client={}\n"
+    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,player,Config,HitRules,Sound=B.workspace,B.player,require('./GameConfig'),require('./HitFeedbackRules'),B.Sound or {Play=function()end}\nlocal UIManager=B.UIManager\nlocal Client={}\n"
     (OUT/"AttackFeedbackClient.luau").write_text(prefix+source[start:end]+"\nreturn Client\n",encoding="utf-8")
     source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
     start=source.index("function Manager.Attack(")
@@ -209,7 +209,7 @@ prefix=(
     "local TablePose=function() return CFrame.identity end\n"
     "local positions={Pool=Vector3.new(100,0,0),Table=Vector3.new(100,0,0),Altar=Vector3.new(100,0,0),Shelf=Vector3.new(100,0,0),Sigil=Vector3.new(100,0,0)}\n"
     "local Sound={Play=function() end}\n"
-    "local UIManager={GetTargetGuiManager=function() return {Refresh=function() end} end,HasShowingWindow=function() return false end}\n"
+    "local UIManager={GetTargetGuiManager=function() return {Refresh=function() end,RefreshHits=function() end} end,HasShowingWindow=function() return false end}\n"
     "local AltarSacrifice={new=function() return {Update=function() return nil end,Clear=function() end} end}\n"
     "local Client={}\n"
     "Client.__index=Client\n"
@@ -393,7 +393,7 @@ client_prefix = (
     "local Net=B.Net\n"
     "local Sound=B.SoundMock\n"
     "local positions={Pool=Vector3.new(-20,2,0),Table=Vector3.new(0,2,0),Altar=Vector3.new(20,2,0),Shelf=Vector3.new(40,2,0),Sigil=Vector3.new(60,2,0)}\n"
-    "local UIManager={GetTargetGuiManager=function() return {Refresh=function() end} end,HasShowingWindow=function() return false end}\n"
+    "local UIManager={GetTargetGuiManager=function() return {Refresh=function() end,RefreshHits=function() end} end,HasShowingWindow=function() return false end}\n"
     "local AltarSacrifice={new=function() return {Update=function() return nil end,Clear=function() end} end}\n"
     "local function RestoreHiddenPlayers() end\n"
     "local function SyncHiddenPlayers() end\n"

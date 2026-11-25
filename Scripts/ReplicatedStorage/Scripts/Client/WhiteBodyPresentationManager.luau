@@ -535,12 +535,13 @@ function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.B
 		return
 	end
 	local mode = Mode(item, source, self.enabled)
+	local carried = item.location == "Carried" or item.location == "BruteCarried"
 	if v and v.handoff then
 		local handoff = v.handoff
 		local expected = handoff.version
 		-- 物理属性与快照可能先后抵达，只接受本次拾取。
 		local matching = if handoff.altar then item.location == "Altar" and item.version == expected
-			elseif item.location == "Carried" then item.version == expected
+			elseif carried then item.version == expected
 			else item.version == expected - 1 and item.version == v.appliedVersion
 		if self.enabled and v.authorityModel == source and mode == "Authority" and matching
 			and v.visualModel and v.visualModel.Parent == workspace then
@@ -549,8 +550,8 @@ function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.B
 		Release(self, v)
 		v = nil
 	elseif self.enabled and v and v.mode == "Ground" and v.authorityModel == source and mode == "Authority"
-		and not item.toss and (item.location == "Carried" or (item.version == v.appliedVersion and item.fall)) then
-		local version = if item.location == "Carried" then item.version else item.version + 1
+		and not item.toss and (carried or (item.version == v.appliedVersion and item.fall)) then
+		local version = if carried then item.version else item.version + 1
 		if BeginHandoff(v, version, Physics.CarryStack.HandoffSeconds, false) then return end
 	end
 	if mode ~= "Authority" and not HasPrimaryRoot(source) then
@@ -775,7 +776,7 @@ local function DrivePoolToss(item: Types.ItemView, now: number): ()
 	local model = item.model
 	if not toss or not player or toss.owner ~= player.UserId or not model or not model.Parent then return end
 	local root = model.PrimaryPart
-	if root and root.Anchored then return end
+	if (root and root.Anchored) or model:GetAttribute("MotionState") == "ChutePile" then return end
 	local launchOrigin = toss.origin
 	local launchVelocity = toss.velocity
 	local manual = toss.kind == "Manual" and launchOrigin ~= nil and launchVelocity ~= nil
