@@ -64,7 +64,7 @@ Check(Translation.FormatByKey(Texts.Hud.Stock.source,Texts.Hud.Stock.key,{"2","4
 Check(Texts.Entries,nil)
 Check(Texts.GetEntry("UnknownId"),nil)
 local expected, ordered, seen = {}, {}, {}
-local groups = {Texts.Prompts,Texts.Guidance,Texts.Interactions,Texts.Hud,Texts.Combat,Texts.Notices,Texts.Automation}
+local groups = {Texts.Prompts,Texts.Guidance,Texts.Interactions,Texts.Hud,Texts.Combat,Texts.Notices,Texts.Automation,Texts.PersonalShop}
 for _, group in groups do
 	local names = {}
 	for textId, entry in group do
@@ -75,7 +75,7 @@ for _, group in groups do
 	table.sort(names)
 	for _, textId in names do table.insert(ordered,textId) end
 end
-Check(#ordered,120)
+Check(#ordered,160)
 local index = 0
 -- Match LocalizationExtension's generalized iteration, including nested independent cursors.
 for key, entry in Texts do
@@ -228,20 +228,32 @@ Check(root:FindFirstChild("DropButton"),nil)
 Check(root:FindFirstChild("AttackButton"),nil)
 Check(gui:FindFirstChild("TouchLandscapeFrame"),nil)
 Check(gui:FindFirstChild("TouchPortraitFrame"),nil)
-local attack = assets.TouchAttackFrame
-Check(attack.Visible,false)
-Check(attack:GetAttribute("MinimumTouchSize"),64)
-Check(attack:GetAttribute("JumpGap"),8)
-Check(attack:GetAttribute("JumpSizeRatio"),0.9)
-Check(attack.AttackButton:GetAttribute("AttackImage"),"rbxassetid://132051632164981")
-Check(tostring(attack.AttackButton.ImageContent),tostring(R.Content.fromUri("rbxassetid://132051632164981")))
-Check(attack.AttackButton.ImageRectOffset,R.Vector2.new(0,512))
+Check(gui:FindFirstChild("TouchPaintFrame"),nil)
+Check(assets.TouchAttackFrame,nil)
+Check(assets.ThrowStick,nil)
+Check(assets.TouchSprintFrame,nil)
+local tc = root.TouchControlsFrame
+local attack = tc.TouchAttackFrame
+Check(attack.Visible,true)
+Check(attack:GetAttribute("MinimumTouchSize"),nil)
+Check(attack:GetAttribute("JumpGap"),nil)
+Check(attack:GetAttribute("JumpSizeRatio"),nil)
+Check(attack.AttackButton:GetAttribute("AttackImage"),"rbxassetid://110366066946567")
+Check(tostring(attack.AttackButton.ImageContent),tostring(R.Content.fromUri("rbxassetid://110366066946567")))
+Check(attack.AttackButton.ImageRectOffset,R.Vector2.zero)
 Check(attack.AttackButton.ActionText.Text,"ATTACK")
 Check(attack.AttackButton.ActionText.AutoLocalize,true)
-Check(attack.AttackButton.ActionText:GetAttribute("DesignTextSize"),20)
+Check(attack.AttackButton.ActionText:GetAttribute("DesignTextSize"),26)
 Check(attack.AttackButton.ActionText.UIStroke.StrokeSizingMode,R.Enum.StrokeSizingMode.ScaledSize)
 Check(math.abs(attack.AttackButton.ActionText.UIStroke.Thickness - 0.05) < 1e-5, true)
-for _,value in gui.TouchPaintFrame:GetDescendants() do if value:IsA('TextLabel') then Check(value.AutoLocalize,true) end end
+local jump = tc.TouchJumpFrame
+Check(jump.JumpButton.ActionText.Text,"JUMP")
+Check(jump.JumpButton.ActionText.AutoLocalize,true)
+Check(jump.JumpButton.ActionText:GetAttribute("DesignTextSize"),26)
+local sprint = tc.TouchSprintFrame
+Check(sprint.SprintButton.ActionText.Text,"SPRINT")
+Check(sprint.SprintButton.ActionText.AutoLocalize,true)
+Check(sprint.SprintButton.ActionText:GetAttribute("DesignTextSize"),24)
 Check(assets.TargetGui.Size.X.Offset,0)
 Check(assets.TargetGui.Size.Y.Offset,0)
 Check(assets.TargetGui.Size.X.Scale > 0 and assets.TargetGui.Size.Y.Scale > 0, true)

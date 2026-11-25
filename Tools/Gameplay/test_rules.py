@@ -22,6 +22,11 @@ for name in ("GameConfig","GameTexts","GameTypes","Hints","SaveRules","PlayerPro
         text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame,Color3,Enum=roblox.Vector2,roblox.Vector3,roblox.CFrame,roblox.Color3,roblox.Enum\n"+text
     (OUT/(name+".luau")).write_text(text,encoding="utf-8")
 (OUT/"test_throw_arc.luau").write_text((ROOT/"Tools/Gameplay/test_throw_arc.luau").read_text(encoding="utf-8"),encoding="utf-8")
+upgrade_rules = shared / "PersonalUpgradeRules.luau"
+(OUT / upgrade_rules.name).write_text(upgrade_rules.read_text(encoding="utf-8").replace("require(script.Parent.GameConfig)", "require('./GameConfig')"), encoding="utf-8")
+upgrade_test = ROOT / "Tools/Gameplay/test_personal_upgrades.luau"
+(OUT / upgrade_test.name).write_text(upgrade_test.read_text(encoding="utf-8"), encoding="utf-8")
+subprocess.run(["lune", "run", str(OUT / upgrade_test.name)], cwd=ROOT, check=True)
 subprocess.run(["lune","run",str(OUT/"test_throw_arc.luau")],cwd=ROOT,check=True)
 def run_hit_feedback_tests():
     # Execute production hit rules and rendering against real Lune instances; only services are replaced.
@@ -198,6 +203,7 @@ prefix=(
     "local B=require('./PaintClientBoundary')\n"
     "local player,workspace,os,UserInputService=B.player,B.workspace,B.os,B.UserInputService\n"
     "local Config=require('./GameConfig')\n"
+    "local PersonalRules=require('./PersonalUpgradeRules')\n"
     "local Physics=require('./PhysicsConfig')\n"
     "local Hints=require('./Hints')\n"
     "local Net=require('./VisualNet')\n"
@@ -245,12 +251,15 @@ for name in ("GameScreenGuiManager", "TargetGuiManager", "ScreenLayoutGuideFrame
     foundation_module(name, "Scripts/ReplicatedStorage/Scripts/Client/UIManager/"+name+".luau", "local Manager =", "local R=require('@lune/roblox')\nlocal UDim2,Vector2,Enum=R.UDim2,R.Vector2,R.Enum\nlocal U=require('./FoundationUIBoundary')\nlocal Players,ReplicatedStorage,workspace,UserInputService,GuiService=U.Players,{UI=U.templates},U.workspace,U.UserInputService,U.GuiService\nlocal TweenService,TweenInfo=U.TweenService,U.TweenInfo\nlocal ProcessingText=require('./ProcessingTextTool')\nlocal Lifecycle=require('./LifecycleTool')\nlocal Config=require('./GameConfig')\nlocal PaintPointer=U.PaintPointer\n")
 source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/UIManager/init.luau").read_text(encoding="utf-8")
 start=source.index("local ModalTransparency:")
-prefix="local U=require('./FoundationUIBoundary')\nlocal UIManager={}\nlocal LifecycleTool=require('./LifecycleTool')\nlocal scope=LifecycleTool.new()\nlocal initialized=false\nlocal buttonScopes={}\nlocal uiTemplatesFolder=U.templates\nlocal ClientMsg,TextFitting,GameSoundTool=U.ClientMsg,U.TextFitting,U.Sound\nlocal tweenService,workspace,Enum,TweenInfo=U.TweenService,U.workspace,U.Enum,U.TweenInfo\nlocal userInputService={PreferredInput=Enum.PreferredInput.KeyboardAndMouse}\nlocal windowOrder={}\nlocal viewportScope=nil\nlocal ownedGui=nil\nlocal hudWrapper=nil\nlocal Players=U.Players\nlocal GameFrameWrapper=require('./GameFrameWrapper')\n"
+prefix="local U=require('./FoundationUIBoundary')\nlocal UIManager={}\nlocal LifecycleTool=require('./LifecycleTool')\nlocal scope=LifecycleTool.new()\nlocal initialized=false\nlocal buttonEffects={}\nlocal uiTemplatesFolder=U.templates\nlocal ClientMsg,TextFitting,GameSoundTool=U.ClientMsg,U.TextFitting,U.Sound\nlocal tweenService,workspace,Enum,TweenInfo=U.TweenService,U.workspace,U.Enum,U.TweenInfo\nlocal userInputService=U.UserInputService\nlocal guiService=U.GuiService\nlocal Vector2=require('@lune/roblox').Vector2\nlocal windowOrder={}\nlocal viewportScope=nil\nlocal ownedGui=nil\nlocal hudWrapper=nil\nlocal Players=U.Players\nlocal GameFrameWrapper=require('./GameFrameWrapper')\n"
 prefix+="local screenManager=require('./GameScreenGuiManager').new()\nlocal targetManager=require('./TargetGuiManager').new()\nlocal faceManager=require('./PaintFaceGuiManager').new()\nlocal cellManager=require('./PaintCellFrameManager').new()\nlocal guideManager=require('./ScreenLayoutGuideFrameManager').new()\n"
 (OUT/"UIManager.luau").write_text(prefix+source[start:],encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_foundation_ui.luau")],cwd=ROOT,check=True)
 (OUT/"test_ui_template_managers.luau").write_text((ROOT/"Tools/Gameplay/test_ui_template_managers.luau").read_text(encoding="utf-8"),encoding="utf-8")
 subprocess.run(["lune","run",str(OUT/"test_ui_template_managers.luau")],cwd=ROOT,check=True)
+foundation_module("TouchJumpController", "Scripts/ReplicatedStorage/Scripts/Client/TouchJumpController.luau", "local Controller =", "local R=require('@lune/roblox')\nlocal UDim2,Enum=R.UDim2,R.Enum\nlocal U=require('./FoundationUIBoundary')\nlocal Players,GuiService,RunService,UserInputService=U.Players,U.GuiService,U.RunService,U.UserInputService\nlocal Lifecycle=require('./LifecycleTool')\n")
+(OUT/"test_touch_jump.luau").write_text((ROOT/"Tools/Gameplay/test_touch_jump.luau").read_text(encoding="utf-8"),encoding="utf-8")
+subprocess.run(["lune","run",str(OUT/"test_touch_jump.luau")],cwd=ROOT,check=True)
 
 
 # Execute named wire and compatibility adapter against shared remote signals.
@@ -321,6 +330,12 @@ agents_prefix = (
 )
 (OUT / "AutomationAgents.luau").write_text(agents_prefix + agents_body, encoding="utf-8")
 
+movement_text = (server / "PersonalMovement.luau").read_text(encoding="utf-8")
+(OUT / "PersonalMovement.luau").write_text(
+    "local Vector3=require('@lune/roblox').Vector3\nlocal Config=require('./GameConfig')\nlocal Rules=require('./PersonalUpgradeRules')\n"
+    + movement_text[movement_text.index("local Movement ="):],
+    encoding="utf-8",
+)
 pm_src = (server / "ProcessingManager.luau").read_text(encoding="utf-8")
 pm_body = pm_src[pm_src.index("type PlayerData ="):]
 pm_body = re.sub(r"\b([A-Za-z_]\w*):WaitForChild\(", r"B.WaitForChild(\1, ", pm_body)
@@ -347,6 +362,8 @@ pm_prefix = (
     "local AutomationRules=require('./AutomationRules')\n"
     "local AutoRunePattern=require('./AutoRunePattern')\n"
     "local AutomationAgents=require('./AutomationAgents')\n"
+    "local PersonalRules=require('./PersonalUpgradeRules')\n"
+    "local PersonalMovement=require('./PersonalMovement')\n"
     "local Lifecycle=require('./LifecycleTool')\n"
     "local B=require('./StationPotionBoundary')\n"
     "local RaycastParams=B.RaycastParams\n"
@@ -390,6 +407,7 @@ client_prefix = (
     "local Config=require('./GameConfig')\n"
     "local Physics=require('./PhysicsConfig')\n"
     "local Hints=require('./Hints')\n"
+    "local PersonalRules=require('./PersonalUpgradeRules')\n"
     "local Net=B.Net\n"
     "local Sound=B.SoundMock\n"
     "local positions={Pool=Vector3.new(-20,2,0),Table=Vector3.new(0,2,0),Altar=Vector3.new(20,2,0),Shelf=Vector3.new(40,2,0),Sigil=Vector3.new(60,2,0)}\n"

@@ -12,7 +12,7 @@ for _, value in gui:GetDescendants() do
 	end
 end
 for _, node in gui:GetDescendants() do
-	if node.Name == "InteractButton" or node.Name == "HintKeyText" or node.Name == "DropButton" or node.Name == "AttackButton" then node:Destroy() end
+	if node.Name == "InteractButton" or node.Name == "HintKeyText" or node.Name == "DropButton" or (node.Name == "AttackButton" and not node:FindFirstAncestor("TouchControlsFrame")) then node:Destroy() end
 end
 local target = ui:FindFirstChild("TargetGui")
 if target then

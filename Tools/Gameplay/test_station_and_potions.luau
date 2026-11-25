@@ -6,6 +6,7 @@ local B = require('./StationPotionBoundary')
 local Config = require('./GameConfig')
 local Scene = require('./StationScene')
 local Manager = require('./StationProcessingManager')
+local Movement = require('./PersonalMovement')
 local Replication = require('./StationReplication')
 local SoundTool = require('./StationSoundTool')
 
@@ -13,6 +14,44 @@ local checks = 0
 local function check(cond, msg)
 	assert(cond, msg)
 	checks += 1
+end
+
+-- M5：直接执行权威角色移动规则，仅替换物理和属性边界。
+do
+	local hum = {Health = 100, WalkSpeed = 999}
+	local root = {
+		Anchored = false, Position = Vector3.zero, CFrame = CFrame.identity,
+		AssemblyLinearVelocity = Vector3.new(16, 0, 0),
+		IsA = function(_, name) return name == 'BasePart' end,
+	}
+	local attrs = {}
+	local character = {
+		FindFirstChildOfClass = function() return hum end,
+		FindFirstChild = function() return root end,
+		SetAttribute = function(_, key, value) attrs[key] = value end,
+	}
+	local state = Movement.New()
+	Movement.Step(state, character, 1, false, 0, 0)
+	check(hum.WalkSpeed == 16, 'server restores the lawful walk speed')
+	state.wanted = true
+	Movement.Step(state, character, 1, false, 0.1, 0.1)
+	check(hum.WalkSpeed == 22 and attrs.PersonalSprinting and state.stamina < 100, 'sprint moves faster and consumes stamina')
+	for tick = 2, 41 do Movement.Step(state, character, 1, false, tick * 0.1, 0.1) end
+	check(state.exhausted and hum.WalkSpeed == 16, 'exhaustion forces walking')
+	state.wanted = false
+	for tick = 42, 60 do Movement.Step(state, character, 1, false, tick * 0.1, 0.1) end
+	check(not state.exhausted and state.stamina >= Config.Sprint.restartStamina, 'stamina recharges and permits another sprint')
+	state.wanted = true
+	Movement.Step(state, character, 5, false, 6.1, 0.1)
+	check(hum.WalkSpeed == 38 and state.stamina == Config.Sprint.stamina, 'maximum tier sprints without stamina cost')
+	Movement.Step(state, character, 5, true, 6.2, 0.1)
+	check(hum.WalkSpeed == 0 and not state.wanted, 'painting stops sprint and locks movement')
+	Movement.Step(state, character, 5, false, 6.5, 0.1)
+	check(hum.WalkSpeed == 28, 'leaving paint restores the latest tier speed')
+	root.Position = Vector3.new(50, 0, 0)
+	root.CFrame = CFrame.new(root.Position)
+	Movement.Step(state, character, 5, false, 6.8, 0.3)
+	check(root.CFrame.X < 20 and root.AssemblyLinearVelocity.X == 0, 'server bounds excessive horizontal displacement')
 end
 
 -- 1. P1-01 & P3: Scene.StationRange 读取各工位 WorldInteractionPrompt.MaxActivationDistance 及缺省回退与槽位钳位
@@ -453,11 +492,18 @@ do
 	table.clear(B.broadcasts)
 	table.clear(B.notices)
 	local coinTotals = {}
+	local spendable = {}
 	local m1 = Manager.new({
 		IsActive = function() return true end,
 		CanAddCoins = function() return true end,
 		AddCoins = function(p, amount)
 			coinTotals[p] = (coinTotals[p] or 0) + amount
+			return true
+		end,
+		TrySpendCoins = function(p, amount)
+			local balance = spendable[p] or 0
+			if balance < amount then return false end
+			spendable[p] = balance - amount
 			return true
 		end,
 	})
@@ -466,6 +512,24 @@ do
 	local p2, _, _, p2Root, _ = B.CreatePlayer(302, Vector3.zero)
 	m1:AddPlayer(p1)
 	m1:AddPlayer(p2)
+	local function Buy(player, level)
+		B.now += 0.2
+		m1:OnRequest(player, {action = 'PersonalUpgrade', category = 'sellBonus', expectedNextLevel = level})
+	end
+	spendable[p2] = 150
+	Buy(p2, 3)
+	check(spendable[p2] == 150 and m1.players[p2].levels.sellBonus == 1, 'out-of-sequence purchase is rejected before debit')
+	Buy(p2, 2)
+	Buy(p2, 2)
+	Buy(p2, 3)
+	check(spendable[p2] == 0 and m1.players[p2].levels.sellBonus == 2, 'purchase charges once, replay and insufficient funds are rejected')
+	check(m1.players[p1].levels.sellBonus == 1 and p1Char:GetAttribute('Upgrade_sellBonus') == 1, 'purchase leaves teammate at level one')
+	check(p2.Character:GetAttribute('Upgrade_sellBonus') == 2, 'successful upgrade mirrors to the current character')
+	for _, entry in B.notices do
+		if entry.notice.kind == 'PersonalUpgrades' and entry.notice.personalLevels.sellBonus == 2 then
+			check(entry.player == p2, 'upgraded state is sent only to the buyer')
+		end
+	end
 	m1:Changed()
 	table.clear(B.broadcasts)
 	table.clear(B.notices)
@@ -599,7 +663,7 @@ do
 	sendM1(p1, { action = 'Interact', target = 'Sigil', version = m1.stationVersions.Sigil })
 	local remList, remCount = m1:OwnedPotions(p1)
 	check(#remList == 0 and remCount == 0, 'Sigil sell-all consumes both equipped Character potion and unequipped Backpack potion')
-	check(coinTotals[p1] == 11 * Config.PotionReward and coinTotals[p2] == 11 * Config.PotionReward, 'Sigil sell-all awards 11 * PotionReward to every active player')
+	check(coinTotals[p1] == 11 * Config.PotionReward and coinTotals[p2] == 1210, 'Sigil sell-all applies each recipient multiplier')
 
 	-- 仅背包未装备药水（不需先切出）直接靠近法阵一键全卖
 	local bpOnly = m1:GrantStack(p1, Config.DefaultPotionQuality, 4)
@@ -608,7 +672,7 @@ do
 	sendM1(p1, { action = 'Interact', target = 'Sigil', version = m1.stationVersions.Sigil })
 	local remList2, remCount2 = m1:OwnedPotions(p1)
 	check(#remList2 == 0 and remCount2 == 0, 'Sigil sell-all consumes unequipped Backpack potions directly')
-	check(coinTotals[p1] == 4 * Config.PotionReward and coinTotals[p2] == 4 * Config.PotionReward, 'Sigil sell-all awards 4 * PotionReward for Backpack-only potions')
+	check(coinTotals[p1] == 4 * Config.PotionReward and coinTotals[p2] == 440, 'Backpack-only sale applies each recipient multiplier')
 end
 
 -- 8. 多白膜肩扛堆叠 carryOrder 同步、Delta 增量检测与抛掷一致性

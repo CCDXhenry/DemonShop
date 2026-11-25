@@ -11,7 +11,7 @@ export type Sample = { part: string, face: number, u: number, v: number, breakBe
 export type Stroke = { key: string, samples: { Sample } }
 export type VisualSegment = { key: string, version: number, gesture: number, part: string, face: number, u: number, v: number, glyph: number, angle: number, scale: number, triangle: number?, surfaceVersion: number? }
 export type VisualState = { segments: { [string]: VisualSegment }, count: number, revision: number }
-export type Request = { action: string, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, orientation: CFrame?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose?, direction: Vector3? }
+export type Request = { action: string, category: string?, expectedNextLevel: number?, sprint: boolean?, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, orientation: CFrame?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose?, direction: Vector3? }
 export type GroundFall = {target: CFrame, started: number, velocity: Vector3}
 export type PoolToss = {
 	from: CFrame,
@@ -123,5 +123,5 @@ export type Snapshot = {
 	autoRuneEnds: number?,
 	autoSmelterEnds: number?,
 }
-export type Notice = { kind: string, attackSequence: number?, hit: boolean?, version: number?, hits: number?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, flipped: boolean?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
+export type Notice = { kind: string, personalLevels: { [string]: number }?, attackSequence: number?, hit: boolean?, version: number?, hits: number?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, flipped: boolean?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
 return {}

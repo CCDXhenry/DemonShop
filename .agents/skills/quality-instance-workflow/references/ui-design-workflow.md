@@ -68,9 +68,9 @@
 1. **模板唯一来源原则**：
    - 所有界面的持久化模板必须在 Studio **Edit 模式** 下存放在 `ReplicatedStorage.UI`（Folder）中；
    - 代码只克隆、绑定数据并驱动动效，禁止通过运行时代码拼接 UI。
-2. **多端安全区避让**：
-   - 普通 UI 使用固定 1920×1080 Center 画布和静态 ScreenLayoutGuideFrame，不增加运行时安全区重排。
-   - 明确独立的触控操作 UI 才维护端专属模板，并核验物理触控目标尺寸；具体读取相邻 roblox-ui-system。
+2. **多端固定画布与安全区避让**：
+   - 所有屏幕 UI（含 HUD、功能按钮、弹窗及移动端虚拟操作按键）统一使用固定 `1920×1080` Center 画布（`ScreenGui.ScreenInsets = None`、`IgnoreGuiInset = true`）和静态 `ScreenLayoutGuideFrame`，不增加运行时安全区重排、物理尺寸补偿或原生跳跃键坐标追踪。
+   - 触控独有操作预置在根画布的 `TouchControlsFrame` 中，默认压制原生 `JumpButton` 并使用自研固定跳跃键，统一按 `PreferredInput == Touch` 控制显隐；具体读取相邻 `roblox-ui-system`。
 3. **3D 浮动文字 (BillboardGui) 规范**：
    - 必须开启 `TextScaled = true`；
    - 挂载的 `UIStroke` 强制设置 `StrokeSizingMode = ScaledSize`，杜绝固定像素边框在大距离缩小时吞食字体。

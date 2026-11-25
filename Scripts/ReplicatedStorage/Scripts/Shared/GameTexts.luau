@@ -1,6 +1,6 @@
 -- 加工多语言文案：业务分组、TextId 查询、插件扁平采集及旧通知解析
 --!strict
-export type TextId = "PromptPickUp" | "PromptPool" | "PromptTable" | "PromptAltar" | "PromptShelf" | "PromptSigil" | "PromptBody" | "PromptPotion" | "PromptOffer" | "PromptChute" | "PromptChuteLanding" | "PromptAutoOutput" | "PromptAutoShelf" | "DepositBodies" | "TakeChuteBody" | "TakeAutoRuneBody" | "CollectAutoPotion" | "TakePotion" | "TakeRuneBody" | "TakeBody" | "PotionReady" | "AltarWorking" | "ReturnTable" | "FetchPool" | "StunNpc" | "PoolUnfinishedOnly" | "StoreBody" | "TakeSharedBody" | "PoolEmpty" | "TableOtherPainter" | "TableOccupied" | "PlaceBody" | "TableNeedsBody" | "CollectRuneBody" | "ContinuePainting" | "FetchAndPaint" | "TableEmpty" | "ShelfFull" | "AltarBusy" | "InsertRuneBody" | "AltarNeedsRuneBody" | "HandsFullHint" | "CollectPotion" | "NoPotion" | "OfferPotion" | "EquipPotion" | "BringPotion" | "CarryBody" | "ChuteLocked" | "ChuteUnfinishedOnly" | "ChuteNeedsBody" | "ChuteEmpty" | "AutoOutputEmpty" | "NoAutoPotion" | "TableInUse" | "StoreUnfinished" | "PoolFull" | "PoolIsEmpty" | "TableIsOccupied" | "BringUnfinished" | "BringStunned" | "AltarOccupied" | "AltarNeedsCompleted" | "HandsFull" | "PotionsNotReady" | "BringPotionSigil" | "CoinLimit" | "RuneComplete" | "StationChanged" | "StationTooFar" | "ItemChanged" | "ItemUnavailable" | "PaintOutOfSequence" | "PaintRateExceeded" | "InvalidPaintPart" | "PaintVersionMismatch" | "PaintRejected" | "InvalidVisualSegment" | "DuplicateVisualSegment" | "SegmentOriginChanged" | "PaintBudgetReached" | "Coins" | "Stock" | "AltarCountdown" | "AltarShelfFull" | "CarryingPotion" | "CarryingRuneBody" | "CarryingBody" | "CarryingBodies" | "HandsEmpty" | "Painting" | "PaintingFlat" | "PaintFlipped" | "TakeTableBody" | "ThrowAim" | "TargetStunned" | "HitCount" | "StunnedCarry" | "CoinsAwarded" | "FacilityUnlocked" | "PaintSyncFailed" | "PaintSurfaceUnavailable" | "PaintSegmentLimit" | "UnknownNotice" | "PadNameA00" | "PadNameA01" | "PadNameA02" | "PadNameA03" | "PadNameA04" | "PadNameA05" | "PadDescA00" | "PadDescA01" | "PadDescA02" | "PadDescA03" | "PadDescA04" | "PadDescA05" | "PadPrereqNone" | "PadPrereqUnlocked" | "PadPrereqRequires" | "PadPrice"
+export type TextId = "ShopTitle" | "ShopAbilities" | "ShopTools" | "ShopMove" | "ShopRunes" | "ShopSales" | "ShopWeapon" | "ShopCarry" | "ShopSprint" | "ShopStamina" | "ShopEquipped" | "ShopMax" | "ShopPrice" | "ShopWalkValue" | "ShopUnlimitedSprint" | "ShopRuneValue" | "ShopSellValue" | "ShopWeaponValue" | "ShopCarryValue" | "ShopWalkCompare" | "ShopSprintCompare" | "ShopSprintUnlimitedCompare" | "ShopRuneCompare" | "ShopSellCompare" | "ShopCarryCompare" | "ShopWeaponCompare" | "ShopPendingAbility" | "ShopPendingWeapon" | "ShopPendingCarry" | "ShopW01" | "ShopW02" | "ShopW03" | "ShopW04" | "ShopW05" | "ShopW06" | "ShopT0" | "ShopT1" | "ShopT2" | "ShopT3" | "ShopT4" | "PromptPickUp" | "PromptPool" | "PromptTable" | "PromptAltar" | "PromptShelf" | "PromptSigil" | "PromptBody" | "PromptPotion" | "PromptOffer" | "PromptChute" | "PromptChuteLanding" | "PromptAutoOutput" | "PromptAutoShelf" | "DepositBodies" | "TakeChuteBody" | "TakeAutoRuneBody" | "CollectAutoPotion" | "TakePotion" | "TakeRuneBody" | "TakeBody" | "PotionReady" | "AltarWorking" | "ReturnTable" | "FetchPool" | "StunNpc" | "PoolUnfinishedOnly" | "StoreBody" | "TakeSharedBody" | "PoolEmpty" | "TableOtherPainter" | "TableOccupied" | "PlaceBody" | "TableNeedsBody" | "CollectRuneBody" | "ContinuePainting" | "FetchAndPaint" | "TableEmpty" | "ShelfFull" | "AltarBusy" | "InsertRuneBody" | "AltarNeedsRuneBody" | "HandsFullHint" | "CollectPotion" | "NoPotion" | "OfferPotion" | "EquipPotion" | "BringPotion" | "CarryBody" | "ChuteLocked" | "ChuteUnfinishedOnly" | "ChuteNeedsBody" | "ChuteEmpty" | "AutoOutputEmpty" | "NoAutoPotion" | "TableInUse" | "StoreUnfinished" | "PoolFull" | "PoolIsEmpty" | "TableIsOccupied" | "BringUnfinished" | "BringStunned" | "AltarOccupied" | "AltarNeedsCompleted" | "HandsFull" | "PotionsNotReady" | "BringPotionSigil" | "CoinLimit" | "RuneComplete" | "StationChanged" | "StationTooFar" | "ItemChanged" | "ItemUnavailable" | "PaintOutOfSequence" | "PaintRateExceeded" | "InvalidPaintPart" | "PaintVersionMismatch" | "PaintRejected" | "InvalidVisualSegment" | "DuplicateVisualSegment" | "SegmentOriginChanged" | "PaintBudgetReached" | "Coins" | "Stock" | "AltarCountdown" | "AltarShelfFull" | "CarryingPotion" | "CarryingRuneBody" | "CarryingBody" | "CarryingBodies" | "HandsEmpty" | "Painting" | "PaintingFlat" | "PaintFlipped" | "TakeTableBody" | "ThrowAim" | "TargetStunned" | "HitCount" | "StunnedCarry" | "CoinsAwarded" | "FacilityUnlocked" | "PaintSyncFailed" | "PaintSurfaceUnavailable" | "PaintSegmentLimit" | "UnknownNotice" | "PadNameA00" | "PadNameA01" | "PadNameA02" | "PadNameA03" | "PadNameA04" | "PadNameA05" | "PadDescA00" | "PadDescA01" | "PadDescA02" | "PadDescA03" | "PadDescA04" | "PadDescA05" | "PadPrereqNone" | "PadPrereqUnlocked" | "PadPrereqRequires" | "PadPrice"
 export type Description = { textId: TextId, args: {string}?, argTextIds: {[number]: TextId}? }
 export type Entry = { source: string, key: string }
 
@@ -141,6 +141,48 @@ local GameTexts = {
 		PadPrereqRequires = { source = "REQUIRES: {1}", key = "Processing.PadPrereqRequires" }, -- 用途：前置未解锁时提示需先解锁的目标设施；{1} 为前置设施名称；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.PrereqText
 		PadPrice = { source = "{1} COINS", key = "Processing.PadPrice" }, -- 用途：解锁底盘价格胶囊文本；{1} 为格式化金币数值；UI：ReplicatedStorage.Models.UnlockPad.GuiAnchor.PadGui.CardFrame.PriceFrame.PriceText
 	},
+	PersonalShop = {
+		ShopTitle = { source = "SHOP", key = "" },
+		ShopAbilities = { source = "ABILITY UPGRADES", key = "" },
+		ShopTools = { source = "TOOL EVOLUTION", key = "" },
+		ShopMove = { source = "MOVE SPEED", key = "" },
+		ShopRunes = { source = "RUNE BATCH", key = "" },
+		ShopSales = { source = "SALE BONUS", key = "" },
+		ShopWeapon = { source = "WEAPON EVOLUTION", key = "" },
+		ShopCarry = { source = "CARRY EVOLUTION", key = "" },
+		ShopSprint = { source = "SPRINT", key = "" },
+		ShopStamina = { source = "STAMINA", key = "" },
+		ShopEquipped = { source = "EQUIPPED", key = "" },
+		ShopMax = { source = "MAX", key = "" },
+		ShopPrice = { source = "{1} COINS", key = "Processing.ShopPrice" },
+		ShopWalkValue = { source = "WALK {1}", key = "Processing.ShopWalkValue" },
+		ShopUnlimitedSprint = { source = "SPRINT {1} / UNLIMITED", key = "Processing.ShopUnlimitedSprint" },
+		ShopRuneValue = { source = "{1} PER PAINTING", key = "Processing.ShopRuneValue" },
+		ShopSellValue = { source = "+{1}% SALE VALUE", key = "Processing.ShopSellValue" },
+		ShopWeaponValue = { source = "{1} DAMAGE / {2} TARGETS", key = "Processing.ShopWeaponValue" },
+		ShopCarryValue = { source = "HOLDS {1}", key = "Processing.ShopCarryValue" },
+		ShopWalkCompare = { source = "WALK {1} > {2}", key = "Processing.ShopWalkCompare" },
+		ShopSprintCompare = { source = "SPRINT {1} > {2}", key = "Processing.ShopSprintCompare" },
+		ShopSprintUnlimitedCompare = { source = "SPRINT {1} > {2} / UNLIMITED", key = "Processing.ShopSprintUnlimitedCompare" },
+		ShopRuneCompare = { source = "{1} > {2} PER PAINTING", key = "Processing.ShopRuneCompare" },
+		ShopSellCompare = { source = "+{1}% > +{2}% SALE VALUE", key = "Processing.ShopSellCompare" },
+		ShopCarryCompare = { source = "HOLDS {1} > {2}", key = "Processing.ShopCarryCompare" },
+		ShopWeaponCompare = { source = "{1} > {2} DAMAGE / {3} > {4} TARGETS", key = "Processing.ShopWeaponCompare" },
+		ShopPendingAbility = { source = "RUNE BATCH PREVIEW", key = "" },
+		ShopPendingWeapon = { source = "WEAPON PREVIEW", key = "" },
+		ShopPendingCarry = { source = "CARRY TOOL PREVIEW", key = "" },
+		ShopW01 = { source = "RUSTY PAN", key = "" },
+		ShopW02 = { source = "IRON CROWBAR", key = "" },
+		ShopW03 = { source = "DEMON SCIMITAR", key = "" },
+		ShopW04 = { source = "REAPER SCYTHE", key = "" },
+		ShopW05 = { source = "VOID CANNON", key = "" },
+		ShopW06 = { source = "ABYSSAL HAMMER", key = "" },
+		ShopT0 = { source = "BARE SHOULDER", key = "" },
+		ShopT1 = { source = "DEMON SACK", key = "" },
+		ShopT2 = { source = "HELL WHEELBARROW", key = "" },
+		ShopT3 = { source = "DEMON TETHER", key = "" },
+		ShopT4 = { source = "GRAVITY PACK", key = "" },
+	},
 }
 
 -- 分组是词条唯一来源；索引和采集顺序均由它们构建。
@@ -164,7 +206,7 @@ end
 
 local groups: {{[string]: Entry}} = {
 	GameTexts.Prompts, GameTexts.Guidance, GameTexts.Interactions,
-	GameTexts.Hud, GameTexts.Combat, GameTexts.Notices, GameTexts.Automation,
+	GameTexts.Hud, GameTexts.Combat, GameTexts.Notices, GameTexts.Automation, GameTexts.PersonalShop,
 }
 for _, group in groups do
 	local names: {string} = {}

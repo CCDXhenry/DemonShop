@@ -385,6 +385,7 @@ do
 	pActive1:SetAttribute('Coins', 25000)
 	manager:AddPlayer(pActive1)
 	manager:AddPlayer(pActive2)
+	manager.players[pActive2].levels.sellBonus = 5
 	manager:AddPlayer(pLeft)
 
 	check(manager:TryUnlockFacility(pActive1, 'A05'), 'unlock A05 independently')
@@ -431,17 +432,17 @@ do
 	check(sawZeroRack, 'AutoClerk clears autoShelfCount and autoShelfVisible at AutoShelfPickupAnchor')
 	check(manager.stationVersions.AutoShelf > autoShelfVerBefore, 'AutoClerk pickup increments AutoShelf station version and broadcasts Changed')
 	check(sawReturnedIdle, 'AutoClerk returns to AutoClerkStation IdleAtStation after delivery')
-	check(coinsEarned[pActive1] == 4 * Config.PotionReward and coinsEarned[pActive2] == 4 * Config.PotionReward,
-		'AutoClerk awards 4 * PotionReward to every active player via AddCoins')
+	check(coinsEarned[pActive1] == 4 * Config.PotionReward and coinsEarned[pActive2] == 8 * Config.PotionReward,
+		'AutoClerk applies each recipient multiplier via AddCoins')
 	check((coinsEarned[pLeft] or 0) == 0, 'AutoClerk skips inactive player')
 	check(manager:ShelfCount() == 5 and manager:PoolCount() == 2, 'strict isolation: manual ShelfCount(5) and PoolCount(2) remain untouched')
 
 	local awardedCount1, awardedCount2 = 0, 0
 	for _, entry in B.notices do
-		if entry.notice.kind == 'Message' and entry.notice.textId == 'CoinsAwarded' and entry.notice.textArgs and entry.notice.textArgs[1] == tostring(4 * Config.PotionReward) then
-			if entry.player == pActive1 then
+		if entry.notice.kind == 'Message' and entry.notice.textId == 'CoinsAwarded' and entry.notice.textArgs then
+			if entry.player == pActive1 and entry.notice.textArgs[1] == tostring(4 * Config.PotionReward) then
 				awardedCount1 += 1
-			elseif entry.player == pActive2 then
+			elseif entry.player == pActive2 and entry.notice.textArgs[1] == tostring(8 * Config.PotionReward) then
 				awardedCount2 += 1
 			end
 		end
@@ -460,8 +461,8 @@ do
 
 	makeStreetBody(manager, Vector3.new(-35, 23.0, -60), 0)
 	stepSeconds(manager, 26.0, 0.1)
-	check(coinsEarned[pActive1] == 5 * Config.PotionReward and coinsEarned[pActive2] == 5 * Config.PotionReward,
-		'full A00->A01->A03->A04->A05 pipeline turns 1 street NPC into +100 coins for all active players')
+	check(coinsEarned[pActive1] == 5 * Config.PotionReward and coinsEarned[pActive2] == 10 * Config.PotionReward,
+		'full A00->A01->A03->A04->A05 pipeline applies personal payout for one street NPC')
 	check(manager:ShelfCount() == 5 and manager:PoolCount() == 2,
 		'manual shelf and pool remain completely untouched across full automation pipeline')
 	manager:Destroy()

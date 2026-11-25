@@ -26,6 +26,14 @@ function Net.Validate(value: unknown): boolean
 	if typeof(r.action) ~= "string" or #r.action > 24 then
 		return false
 	end
+	if r.action == "PersonalUpgrade" then
+		return typeof(r.category) == "string" and Config.PersonalUpgradeCosts[r.category] ~= nil
+			and Surface.IsFinite(r.expectedNextLevel) and (r.expectedNextLevel :: number) % 1 == 0
+			and (r.expectedNextLevel :: number) >= 2 and (r.expectedNextLevel :: number) <= #Config.PersonalUpgradeCosts[r.category]
+	end
+	if r.action == "Sprint" then
+		return typeof(r.sprint) == "boolean"
+	end
 	if r.target ~= nil and (typeof(r.target) ~= "string" or #r.target > 80) then
 		return false
 	end
@@ -100,6 +108,12 @@ function Net.Validate(value: unknown): boolean
 end
 function Net.FireRequest(request: Types.Request): ()
 	requestEvent:FireServer(request)
+end
+function Net.RequestPersonalUpgrade(category: string, expectedNextLevel: number): ()
+	Net.FireRequest({ action = "PersonalUpgrade", category = category, expectedNextLevel = expectedNextLevel })
+end
+function Net.RequestSprint(sprint: boolean): ()
+	Net.FireRequest({ action = "Sprint", sprint = sprint })
 end
 function Net.ConnectRequest(callback: (Player, Types.Request) -> ()): RBXScriptConnection
 	return requestEvent.OnServerEvent:Connect(function(player: Player, value: unknown): ()

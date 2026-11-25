@@ -64,7 +64,8 @@ def coverage(rect, union):
 
 def build(data):
     padded_rectangles = []
-    included_names = data.get("includedRegionNames", ["TopLeftCore", "JumpButton"])
+    # Default guide reserves only TopLeftCore; projects keeping native JumpButton may opt in via includedRegionNames.
+    included_names = data.get("includedRegionNames", ["TopLeftCore"])
     for sample in data["samples"]:
         assert sample["logicalSize"] == list(CANVAS)
         assert sample["movementExcluded"]
@@ -106,8 +107,9 @@ def preview(result):
     for index, (x1, y1, x2, y2) in enumerate(result["rectangles"], 1):
         parts.append(f'<rect x="{x1}" y="{y1}" width="{x2-x1}" height="{y2-y1}" fill="#f04444" fill-opacity=".6" stroke="#ff9b9b"/>')
         parts.append(f'<text x="{x1+8}" y="{y1+22}" fill="white" font-family="sans-serif" font-size="16">{index}</text>')
+    regions_label = " + ".join(result.get("includedRegionNames", ["TopLeftCore"]))
     parts.append('<text x="960" y="480" fill="#e6f4fc" text-anchor="middle" font-family="sans-serif" font-size="34">1920 x 1080 | SHARED SCREEN LAYOUT GUIDE</text>')
-    parts.append('<text x="960" y="530" fill="#a7c3d3" text-anchor="middle" font-family="sans-serif" font-size="24">Top-left system + jump only | 24 design px padding | No bottom strip</text>')
+    parts.append(f'<text x="960" y="530" fill="#a7c3d3" text-anchor="middle" font-family="sans-serif" font-size="24">Reserved: {regions_label} | {result.get("padding", 24)} design px padding | No bottom strip</text>')
     parts.append('</svg>')
     return '\n'.join(parts)
 

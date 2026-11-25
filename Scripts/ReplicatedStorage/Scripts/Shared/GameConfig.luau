@@ -311,4 +311,51 @@ GameConfig.AutoClerkPickupRange = 4.0 -- A05 自动售货员在自动药水架�
 GameConfig.AutoClerkSubmitRange = 5.0 -- A05 自动售货员在召唤法阵提交距离，studs
 GameConfig.AgentRootHeight = 3.01 -- R15 AI 代理根节点相对地面的标准站立高度，studs
 
+-- 个人等级与价格仅用于本局。后续阶段按同一档位启用画符、搬运和战斗能力。
+GameConfig.PersonalUpgradeOrder = { "moveSpeed", "runeBatch", "sellBonus", "weapon", "carryTool" }
+GameConfig.PersonalUpgradeCosts = {
+	moveSpeed = { 0, 50, 200, 600, 2000 },
+	runeBatch = { 0, 250, 800, 2000, 4500 },
+	sellBonus = { 0, 150, 600, 2000, 7500 },
+	weapon = { 0, 80, 350, 1500, 5500, 18000 },
+	carryTool = { 0, 100, 450, 1800, 6000 },
+} :: { [string]: { number } }
+GameConfig.PersonalMoveTiers = {
+	{ walk = 16, sprint = 22, unlimited = false },
+	{ walk = 19, sprint = 26, unlimited = false },
+	{ walk = 22, sprint = 30, unlimited = false },
+	{ walk = 25, sprint = 34, unlimited = false },
+	{ walk = 28, sprint = 38, unlimited = true },
+}
+GameConfig.PersonalRuneBatches = { 1, 2, 3, 4, 5 }
+GameConfig.PersonalSellBonuses = { 0, 0.1, 0.25, 0.5, 1 }
+GameConfig.PersonalWeaponTiers = {
+	{ id = "W01", model = "W01_RustyPan", damage = 10, targets = 1, shape = "Single", range = 7 },
+	{ id = "W02", model = "W02_IronCrowbar", damage = 15, targets = 1, shape = "Single", range = 7 },
+	{ id = "W03", model = "W03_DemonScimitar", damage = 30, targets = 3, shape = "Cone", range = 8, angle = 120 },
+	{ id = "W04", model = "W04_ReaperScythe", damage = 60, targets = 8, shape = "Spin", range = 10 },
+	{ id = "W05", model = "W05_VoidCannon", damage = 120, targets = 20, shape = "Line", range = 20, width = 5 },
+	{ id = "W06", model = "W06_AbyssalHammer", damage = 250, targets = 30, shape = "Slam", range = 18 },
+}
+GameConfig.PersonalCarryTiers = {
+	{ id = "T0", model = "", capacity = 1 },
+	{ id = "T1", model = "CarryRig_T1", capacity = 3 },
+	{ id = "T2", model = "CarryRig_T2", capacity = 8 },
+	{ id = "T3", model = "CarryRig_T3", capacity = 15 },
+	{ id = "T4", model = "CarryRig_T4", capacity = 30 },
+}
+GameConfig.CarryVisibleLimit = 8
+GameConfig.ExpandedStreet = { population = 18, spawnInterval = 2, maximumBodies = 60, citizenHP = 30 }
+GameConfig.Sprint = {
+	stamina = 100,
+	drainPerSecond = 25,
+	recoverPerSecond = 20,
+	recoverDelay = 0.6,
+	restartStamina = 20,
+	replicationInterval = 0.1,
+	speedCheckInterval = 0.2,
+	speedTolerance = 3,
+	distanceTolerance = 7,
+}
+
 return GameConfig

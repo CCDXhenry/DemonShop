@@ -1,6 +1,9 @@
 # SVN metadata and external working copies
 .svn/
 /.agents/skills/roblox-game-dev/
+# Junction linked skills from Roblox-Development-Kit
+/.agents/skills/rdk-capture/
+/.agents/skills/rdk-reuse/
 /Tools/excel2json/
 /stylua.toml
 # SVN-owned files; refresh when SVN ownership changes
@@ -10,6 +13,7 @@
 /GameLocalizationTables/GameLocalizationTable.csv
 # Local generated output and credentials
 .cache/
+.superpowers/
 __pycache__/
 .pytest_cache/
 .tmp/

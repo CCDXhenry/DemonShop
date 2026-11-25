@@ -9,8 +9,8 @@
 1. **唯一来源 (Single Source of Truth)**：
    - 游戏中所有 UI 预制体必须在 Studio **Edit 模式** 下创建，并持久化保存在 `ReplicatedStorage.UI`（Folder）中。
    - 包含的模板类型矩阵：
-     - **全屏主画布**：`GameFrame`、`XxxHudFrame`（1920×1080，挂载根 `UIScale`）；
-     - **端独立操作变体**：`XxxControlLayouts`（Folder，内含 `Desktop` 键鼠操作卡与 `Touch` 触控虚拟按键）；
+     - **全屏主画布**：`GameFrame` / `CenterFrame`、`XxxHudFrame`（1920×1080，主画布根节点挂载唯一 `UIScale`）；
+     - **触控操作容器**：`TouchControlsFrame`（直接预置在主画布 `1920×1080` 根下，统一收纳自研跳跃/攻击/冲刺/虚拟摇杆等触控独有控件，与 HUD/工具栏同画布所见即所得排版，按 `PreferredInput == Touch` 控制显隐）；
      - **卡片/战况变体**：`XxxStatusLayouts`（Folder，内含 `Main` 本队、`Other` 他队、`Lobby` 大厅等几何与字号预置项）；
      - **动效与反馈组件**：`XxxRewardFrame`（`CanvasGroup` 整体渐隐渐变飘字）、`XxxFlightImage`（`ImageLabel` 曲线飞行动效）；
      - **交互遮罩**：`ModalButton`（全屏 1×1 交互拦截层）；
@@ -26,11 +26,11 @@
 
 ## 二、1920 × 1080 设计基准与画布层级
 
-所有普通屏幕 UI 均在固定 `1920 × 1080` 横屏画布内设计，完整画布只做居中等比缩放。
+所有屏幕 UI（含 HUD、通用功能按钮、弹窗及移动端虚拟操作按键）均在固定 `1920 × 1080` 横屏画布内设计，完整画布只做居中等比缩放。宿主 `ScreenGui` 强制配置 `ScreenInsets = Enum.ScreenInsets.None` 与 `IgnoreGuiInset = true`，保证居中原点、根缩放基数与实际视口严格一致。
 
-公共 `ScreenLayoutGuideFrame` 在设计时对齐根画布 `(0,0)`，半透明红色矩形表示多端采样禁放区并集（已含 24 设计像素间距，不含左下摇杆）。普通内容避开红区，背景/装饰可进入；正式业务模板移除临时参考副本。
+公共 `ScreenLayoutGuideFrame` 在设计时对齐根画布 `(0,0)`，半透明红色矩形表示多端采样系统禁放区并集（默认仅含左上系统区 `TopLeftCore`，已含 24 设计像素间距，不含左下摇杆；仅当个别旧项目显式保留原生跳跃键时才按需纳入 `JumpButton`）。业务内容避开红区，背景/装饰可进入；正式业务模板移除临时参考副本。
 
-### 1. 全屏主界面（Main HUD / 全屏窗口）
+### 1. 全屏主界面（Main HUD / 全屏窗口 / 触控操作区）
 - **尺寸与位置**：
   - `Size = UDim2.fromOffset(1920, 1080)`（或 `{0, 1920}, {0, 1080}`）。
   - `AnchorPoint = Vector2.new(0.5, 0.5)`。
@@ -40,6 +40,7 @@
   - 必须直接挂载子节点 `UIScale`，初始 `Scale = 1`。
   - 运行时交由屏幕适配器（如 `UIAdapter` 或系统视口缩放管理），仅设置 `min(屏幕宽/1920, 屏幕高/1080)`，不得改变根逻辑尺寸。使用项目 UIAdapter 时选 `Center`，不选会扩展画布的 `FullScreen`。
   - **严禁在同一节点树上叠加第二套视口缩放**。
+  - 移动端触控按键统一放入根画布子容器 `TouchControlsFrame` 内，通过设计尺寸（主操作键建议 `180~200 px`）自然满足手机端触控体验，禁止脱离画布或运行时改写坐标与物理尺寸。
 
 ### 2. 居中弹窗（Dialog / Modal Window）
 - 完整窗口模板使用 `1920×1080` 居中根画布；局部弹窗面板作为子节点，按设计稿使用 Offset 尺寸，如 `800×520`。
@@ -86,14 +87,10 @@
 - 辅助组件：`UIScale`、`UIStroke`、`UICorner`、`UIPadding`，均保留其类名。
 
 ### 2. 声明式 Attribute 契约驱动全景表
-固定几何使用模板 Position/Size；状态与动画参数使用 Attributes。下表按键依附和 MinimumTouchSize 仅供独立端操作 UI 使用，不应用到普通 HUD：
+所有屏幕 UI（含移动端触控操作按钮）的固定几何直接使用模板 Position/Size 维护，不再使用原生跳跃键依附或最小物理触控尺寸等动态布局 Attributes（已废除 `JumpAnchor`、`JumpGapDirection`、`JumpRelativeSize`、`MinimumTouchSize`）；状态、颜色与动画参数使用 Attributes 声明：
 
 | Attribute 字段名 | 类型 | 适用对象 | 契约与作用说明 |
 | :--- | :--- | :--- | :--- |
-| **`JumpAnchor`** | string | 触控操作按钮 | 相对原生跳跃键的锚点（如 `"0, 0.5"` 为左侧垂直居中，`"0.5, 0"` 为正上方） |
-| **`JumpGapDirection`**| string | 触控操作按钮 | 相对原生跳跃键的外推间距方向（如 `"-1, 0"` 为向左外推，`"0, -1"` 为向上外推） |
-| **`JumpRelativeSize`**| number | 触控操作按钮 | 相对原生跳跃键物理尺寸的比例（如 `0.75` 或 `1.0`） |
-| **`MinimumTouchSize`** | number | 移动端交互按钮 | 保证移动端实际触控区域不低于指定像素（默认 `44` 或 `52` px） |
 | **`DesignTextSize`** | number | 动态单行文本 | 声明设计上限字号（如 `28`、`36`、`44`、`72`），运行时由 `FitTextLabel` 在设计框内只缩不放 |
 | **`HasInteractionEffect`**| bool | 交互按钮 | 声明需要通用移入放大/按下缩小微动效（必须挂载直接子级 `UIScale`） |
 | **`PressedScale`** | number | 按钮 / 动作卡 | 按下时目标缩放比例（如 `0.94` 或 `0.80`） |

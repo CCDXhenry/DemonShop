@@ -3,11 +3,12 @@
 local replicatedStorage: ReplicatedStorage = game:GetService("ReplicatedStorage")
 local tweenService: TweenService = game:GetService("TweenService")
 local userInputService: UserInputService = game:GetService("UserInputService")
+local guiService: GuiService = game:GetService("GuiService")
 local UIManager = {}
 local LifecycleTool = require(script.Parent.Parent:WaitForChild("Shared"):WaitForChild("LifecycleTool"))
 local scope = LifecycleTool.new()
 local initialized = false
-local buttonScopes: { [GuiButton]: LifecycleTool.Lifecycle } = {}
+local buttonEffects: { [GuiObject]: { beginPress: (InputObject) -> (), cleanup: () -> () } } = {}
 
 local uiTemplatesFolder: Folder = replicatedStorage:FindFirstChild("UI") :: Folder
 local scripts = replicatedStorage:WaitForChild("Scripts")
@@ -42,11 +43,13 @@ local ModalTransparency: number = 0.4
 local ButtonHoveredScale: number = 1.1 --按钮鼠标移入放大
 local ButtonPressedScale: number = 0.8 --按钮按下缩小
 local ButtonInteractionTweenInfo: TweenInfo = TweenInfo.new(0.1) --按钮交互动画缓动信息
+local ButtonPressTweenInfo = TweenInfo.new(0.07, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 export type WindowConfig = {
 	frameName: string,
 	isModal: boolean,
 	modalTransparency: number?,
+	modalContentRegions: {string}?,
 	openAnimation: string?,
 	newWindow: (frame: Frame, windowId: string, uiActions: UIActions, ...any) -> WindowBase,
 }
@@ -56,7 +59,6 @@ local WindowConfigs: { [string]: WindowConfig } = {}
 local addedWindows: { [string]: WindowBase } = {}
 local gameScreenGui: ScreenGui?
 local modalButton: ImageButton
-local interactionEffectAppliedButtons: { [GuiButton]: boolean } = {}
 local uiActions: UIActions
 
 local function SetWindowLayer(frame: Frame, layer: number): ()
@@ -100,56 +102,128 @@ local function CheckModalButtonVisible(): ()
 	end
 end
 
---给按钮加点击和悬停缩放效果
-local function ApplyButtonEffects(button: GuiButton): ()
-	--如果按钮不需要交互效果
-	if not button:GetAttribute("HasInteractionEffect") then
-		return
-	end
-	if interactionEffectAppliedButtons[button] then
-		return
-	end
-	--确保按钮有UIScale
-	local uiScale: UIScale? = button:FindFirstChildOfClass("UIScale") :: UIScale?
-	if uiScale == nil then
-		return
-	end
-	interactionEffectAppliedButtons[button] = true
-	local buttonScope = LifecycleTool.new()
-	buttonScopes[button] = buttonScope
-	buttonScope:Connect(button.Destroying:Connect(function(): ()
-		buttonScope:Destroy()
-		buttonScopes[button] = nil
-		interactionEffectAppliedButtons[button] = nil
-	end))
-	local normalScale: number = uiScale.Scale
-	local hoveredScale: number = ButtonHoveredScale * normalScale
-	local pressedScale: number = ButtonPressedScale * normalScale
-	local mouseEnterTween: Tween = tweenService:Create(uiScale, ButtonInteractionTweenInfo, { Scale = hoveredScale })
-	local mouseLeaveTween: Tween = tweenService:Create(uiScale, ButtonInteractionTweenInfo, { Scale = normalScale })
-	local clickTween1: Tween = tweenService:Create(uiScale, ButtonInteractionTweenInfo, { Scale = pressedScale })
-	local clickTween2: Tween = tweenService:Create(uiScale, ButtonInteractionTweenInfo, { Scale = normalScale })
-	buttonScope:Connect(clickTween1.Completed:Connect(function(playbackState: Enum.PlaybackState)
-		if playbackState == Enum.PlaybackState.Completed then
-			buttonScope:Play(clickTween2)
+local function InsideModalContent(window: Frame, regions: {string}?, gui: ScreenGui, input: InputObject?): boolean
+	if not regions or not input then return false end
+	local point = if input.UserInputType == Enum.UserInputType.MouseButton1
+		then userInputService:GetMouseLocation()
+		else Vector2.new(input.Position.X, input.Position.Y)
+	if not gui.IgnoreGuiInset then point -= guiService:GetGuiInset() end
+	for _, name in regions do
+		local region = window:FindFirstChild(name, true)
+		if region and region:IsA("GuiObject") and region.Visible then
+			local topLeft = region.AbsolutePosition
+			local bottomRight = topLeft + region.AbsoluteSize
+			if point.X >= topLeft.X and point.X < bottomRight.X and point.Y >= topLeft.Y and point.Y < bottomRight.Y then
+				return true
+			end
 		end
-	end))
-	buttonScope:Connect(button.MouseEnter:Connect(function()
-		if not button.Active then
+	end
+	return false
+end
+
+-- 按钮按住时保持缩小，松开恢复设计比例。
+local function ApplyButtonEffects(button: GuiButton): ()
+	if not button:GetAttribute("HasInteractionEffect") or buttonEffects[button] then
+		return
+	end
+	local uiScale = button:FindFirstChildOfClass("UIScale")
+	if not uiScale then
+		return
+	end
+
+	local buttonScope = LifecycleTool.new()
+	local normalScale = uiScale.Scale
+	local pressedScale = button:GetAttribute("PressedScale")
+	local pressRatio = if typeof(pressedScale) == "number" then pressedScale else ButtonPressedScale
+	local hover = tweenService:Create(uiScale, ButtonInteractionTweenInfo, { Scale = ButtonHoveredScale * normalScale })
+	local reset = tweenService:Create(uiScale, ButtonInteractionTweenInfo, { Scale = normalScale })
+	local press = tweenService:Create(uiScale, ButtonPressTweenInfo, { Scale = normalScale * pressRatio })
+	local playing: Tween? = nil
+	local heldInputConnection: RBXScriptConnection? = nil
+
+	local function CancelTween(): ()
+		if playing then
+			playing:Cancel()
+			playing = nil
+		end
+	end
+
+	local function Play(tween: Tween): ()
+		CancelTween()
+		playing = tween
+		buttonScope:Play(tween)
+	end
+
+	local function ClearHeldInput(): ()
+		if heldInputConnection then
+			heldInputConnection:Disconnect()
+			heldInputConnection = nil
+		end
+	end
+
+	local function RestoreScale(): ()
+		ClearHeldInput()
+		CancelTween()
+		if uiScale.Parent == button then
+			uiScale.Scale = normalScale
+		end
+	end
+
+	local function BeginPress(input: InputObject): ()
+		if not button.Active or not button.Interactable or not button.Visible or heldInputConnection
+			or input.UserInputState ~= Enum.UserInputState.Begin then
 			return
 		end
-		if userInputService.PreferredInput == Enum.PreferredInput.KeyboardAndMouse then
-			buttonScope:Play(mouseEnterTween)
+		heldInputConnection = input:GetPropertyChangedSignal("UserInputState"):Connect(function(): ()
+			if input.UserInputState == Enum.UserInputState.End or input.UserInputState == Enum.UserInputState.Cancel then
+				ClearHeldInput()
+				Play(reset)
+			end
+		end)
+		Play(press)
+	end
+
+	local function Cleanup(): ()
+		buttonEffects[button] = nil
+		RestoreScale()
+		buttonScope:Destroy()
+	end
+
+	buttonEffects[button] = { beginPress = BeginPress, cleanup = Cleanup }
+	buttonScope:Connect(button.Destroying:Connect(Cleanup))
+	buttonScope:Connect(button.MouseEnter:Connect(function(): ()
+		if button.Active and button.Interactable and not heldInputConnection
+			and userInputService.PreferredInput == Enum.PreferredInput.KeyboardAndMouse then
+			Play(hover)
 		end
 	end))
-	buttonScope:Connect(button.MouseLeave:Connect(function()
-		if userInputService.PreferredInput == Enum.PreferredInput.KeyboardAndMouse then
-			buttonScope:Play(mouseLeaveTween)
+	buttonScope:Connect(button.MouseLeave:Connect(function(): ()
+		if not heldInputConnection and userInputService.PreferredInput == Enum.PreferredInput.KeyboardAndMouse then
+			Play(reset)
 		end
 	end))
-	buttonScope:Connect(button.Activated:Connect(function(inputObject: InputObject, clickCount: number)
-		GameSoundTool.Play("UIClick")
-		buttonScope:Play(clickTween1)
+	buttonScope:Connect(button:GetPropertyChangedSignal("Visible"):Connect(function(): ()
+		if not button.Visible then
+			RestoreScale()
+		end
+	end))
+	buttonScope:Connect(button:GetPropertyChangedSignal("Interactable"):Connect(function(): ()
+		if not button.Interactable then
+			RestoreScale()
+		end
+	end))
+	buttonScope:Connect(userInputService.WindowFocusReleased:Connect(function(): ()
+		if heldInputConnection then
+			RestoreScale()
+		end
+	end))
+	buttonScope:Connect(button.InputBegan:Connect(function(input: InputObject): ()
+		if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+			BeginPress(input)
+		end
+	end))
+	buttonScope:Connect(button.Activated:Connect(function(): ()
+		if button:GetAttribute("HasClickSound") ~= false then GameSoundTool.Play("UIClick") end
 	end))
 end
 
@@ -204,12 +278,24 @@ function UIManager.Init(gameScreenGuiNew: ScreenGui): ()
 		UIManager.Destroy()
 	end))
 	scope:Connect(workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(BindCamera))
-	scope:Connect(modalButton.Activated:Connect(function(): ()
+	scope:Connect(modalButton.Activated:Connect(function(input: InputObject): ()
 		for index = #windowOrder, 1, -1 do
 			local id = windowOrder[index]
-			if WindowConfigs[id].isModal then
-				UIManager.CloseWindow(id)
+			local config = WindowConfigs[id]
+			if config.isModal then
+				if not InsideModalContent(addedWindows[id].frame, config.modalContentRegions, gameScreenGuiNew, input) then
+					UIManager.CloseWindow(id)
+				end
 				break
+			end
+		end
+	end))
+	scope:Connect(userInputService.InputBegan:Connect(function(input: InputObject): ()
+		if input.KeyCode == Enum.KeyCode.ButtonA then
+			local selected = guiService.SelectedObject
+			local effect = if selected then buttonEffects[selected] else nil
+			if effect then
+				effect.beginPress(input)
 			end
 		end
 	end))
@@ -398,16 +484,14 @@ end
 function UIManager.Destroy(): ()
 	screenManager:UnbindActions()
 	UIManager.CloseAllWindow()
-	for _, buttonScope in buttonScopes do
-		buttonScope:Destroy()
+	for _, effect in buttonEffects do
+		effect.cleanup()
 	end
-	table.clear(buttonScopes)
 	scope:Destroy()
 	if viewportScope then
 		viewportScope:Destroy()
 		viewportScope = nil
 	end
-	table.clear(interactionEffectAppliedButtons)
 	if hudWrapper then
 		hudWrapper:OnDestroy()
 		hudWrapper = nil

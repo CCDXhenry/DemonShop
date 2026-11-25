@@ -19,6 +19,11 @@ end
 for _,name in {"SoulHoldingPool","RuneBodyTable","SoulConversionAltar","SoulCrystalDisplay"} do district[name].ModelStreamingMode=Enum.ModelStreamingMode.Persistent end
 assert(models:FindFirstChild("WhiteR15") and models.WhiteR15:GetAttribute("SurfaceVersion")==1,
  "Import Assets/Models/GameModels.rbxm containing the curved WhiteR15 template before building")
+for _, bruteName in {"HellBrute_1", "HellBrute_2", "AutoClerk"} do
+ local brute = models:FindFirstChild(bruteName)
+ assert(brute and brute:IsA("Model") and brute:FindFirstChild("HumanoidRootPart") and brute:FindFirstChildOfClass("Humanoid"),
+  "Import Assets/Models/GameModels.rbxm containing " .. bruteName .. " before building")
+end
 -- 自动化底盘圈模板从 GameModels.rbxm 恢复；场景空洞与 AutomationLine 设施由 build-automation-assets.luau 构建。
 assert(models:FindFirstChild("UnlockPad") and models.UnlockPad:FindFirstChild("GuiAnchor"),
  "Import Assets/Models/GameModels.rbxm containing UnlockPad or run Tools/Gameplay/build-automation-assets.luau")
@@ -47,6 +52,8 @@ else
  local created=Instance.new("ScreenGui");created.Name="GameScreenGui";created.ResetOnSpawn=false;created.IgnoreGuiInset=true;created.DisplayOrder=10;created.Parent=ui
  gui=created
 end
+gui.IgnoreGuiInset=true
+gui.ScreenInsets=Enum.ScreenInsets.None
 local function label(parent,name,text,x,y,w,h,font)
  local l=Instance.new("TextLabel");l.Name=name;l.Text=text;l.Position=UDim2.fromOffset(x,y);l.Size=UDim2.fromOffset(w,h)
  l.BackgroundTransparency=1;l.TextColor3=Color3.fromRGB(245,238,255);l.Font=Enum.Font.GothamBold;l.TextSize=font;l.TextScaled=false;l.TextWrapped=false;l.AutoLocalize=false;l:SetAttribute("DesignTextSize",font);l.Parent=parent
@@ -78,16 +85,30 @@ else
  label(paint,"ProgressText","0%",20,55,780,42,28)
  local bar=Instance.new("Frame");bar.Name="ProgressBarFrame";bar.Position=UDim2.fromOffset(40,115);bar.Size=UDim2.fromOffset(740,22);bar.BorderSizePixel=0;bar.BackgroundColor3=Color3.fromRGB(59,37,78);bar.Parent=paint
  local fill=Instance.new("Frame");fill.Name="FillFrame";fill.Size=UDim2.fromScale(0,1);fill.BorderSizePixel=0;fill.BackgroundColor3=Color3.fromRGB(180,85,255);fill.Parent=bar
- local function button(name,text,x,y,w)
-  local b=Instance.new("ImageButton");b.Name=name;b.Position=UDim2.fromOffset(x,y);b.Size=UDim2.fromOffset(w,72);b.Image="";b.BackgroundColor3=Color3.fromRGB(89,44,133);b.BorderSizePixel=0;b.AutoButtonColor=true;b.Parent=root
+ local function button(name,text,cx,cy,w,h)
+  local b=Instance.new("ImageButton");b.Name=name;b.AnchorPoint=Vector2.new(.5,.5);b.Position=UDim2.fromOffset(cx,cy);b.Size=UDim2.fromOffset(w,h);b.Image="";b.BackgroundColor3=Color3.fromRGB(89,44,133);b.BorderSizePixel=0;b.AutoButtonColor=true;b.Parent=root
   local c=Instance.new("UICorner");c.CornerRadius=UDim.new(0,14);c.Parent=b
-  label(b,"LabelText",text,8,8,w-16,56,28);return b
+  label(b,"LabelText",text,8,8,w-16,h-16,28);return b
  end
- local exit=button("ExitPaintButton","EXIT",560,950,350);exit.Visible=false
- local reset=button("ResetViewButton","RESET VIEW",1010,950,350);reset.Visible=false
+ local exit=button("ExitPaintButton","EXIT",735,982,350,84);exit.Visible=false
+ local reset=button("ResetViewButton","RESET VIEW",1185,982,350,84);reset.Visible=false
 end
 if not root:FindFirstChildOfClass("UIScale") then
  local scale=Instance.new("UIScale");scale.Parent=root
+end
+for _, info in { { name = "ExitPaintButton", cx = 735, cy = 982 }, { name = "ResetViewButton", cx = 1185, cy = 982 } } do
+ local b = root:FindFirstChild(info.name)
+ if b and b:IsA("GuiButton") then
+  b.AnchorPoint = Vector2.new(0.5, 0.5)
+  b.Size = UDim2.fromOffset(350, 84)
+  b.Position = UDim2.fromOffset(info.cx, info.cy)
+  local lbl = b:FindFirstChild("LabelText")
+  if lbl and lbl:IsA("TextLabel") then
+   lbl.Position = UDim2.fromOffset(8, 8)
+   lbl.Size = UDim2.fromOffset(334, 68)
+   lbl:SetAttribute("DesignTextSize", 28)
+  end
+ end
 end
 local windowCanvas=gui:FindFirstChild("WindowCanvas")
 if not windowCanvas then
@@ -100,66 +121,201 @@ end
 if not gui:FindFirstChild("ModalButton") then
  local modal=Instance.new("ImageButton");modal.Name="ModalButton";modal.Size=UDim2.fromScale(1,1);modal.BackgroundColor3=Color3.new(0,0,0);modal.BackgroundTransparency=.4;modal.Image="";modal.Modal=true;modal.AutoButtonColor=false;modal.Visible=false;modal.ZIndex=101;modal.Parent=gui
 end
--- 画符触控仍用固定像素；攻击钮单独贴在原生跳跃键旁，不进 Center 画布。
-local function touchPaint()
- if gui:FindFirstChild("TouchPaintFrame") then return end
- local f=Instance.new("Frame");f.Name="TouchPaintFrame";f.BackgroundTransparency=1;f.Visible=false;f.Parent=gui
- f.Size=UDim2.fromOffset(300,50);f.AnchorPoint=Vector2.new(.5,1);f.Position=UDim2.new(.5,0,1,-24)
- local names={"ExitPaintButton","ResetViewButton"}
- local texts={"EXIT","RESET"}
- for index,buttonName in names do
-  local b=Instance.new("ImageButton");b.Name=buttonName;b.Image="";b.Size=UDim2.fromOffset(140,50);b.Position=UDim2.fromOffset((index-1)*160,0)
-  b.BackgroundColor3=Color3.fromRGB(89,44,133);b.BorderSizePixel=0;b.Parent=f
-  local c=Instance.new("UICorner");c.CornerRadius=UDim.new(0,12);c.Parent=b
-  label(b,"LabelText",texts[index],8,2,124,46,24)
+-- 清理已合并/废弃的独立触控模板（画符双端共用 CenterFrame 按钮；触控操作键固定于 CenterFrame.TouchControlsFrame）。
+for _, old in { gui:FindFirstChild("TouchPaintFrame"), ui:FindFirstChild("TouchAttackFrame"), ui:FindFirstChild("TouchSprintFrame"), ui:FindFirstChild("ThrowStick") } do
+ if old then old:Destroy() end
+end
+local function touchControls()
+ local controls = root:FindFirstChild("TouchControlsFrame")
+ if not (controls and controls:IsA("Frame")) then
+  if controls then controls:Destroy() end
+  local f = Instance.new("Frame")
+  f.Name = "TouchControlsFrame"
+  f.Parent = root
+  controls = f
  end
+ local tc = controls :: Frame
+ tc.Size = UDim2.fromOffset(1920, 1080)
+ tc.AnchorPoint = Vector2.new(0.5, 0.5)
+ tc.Position = UDim2.fromScale(0.5, 0.5)
+ tc.BackgroundTransparency = 1
+ tc.BorderSizePixel = 0
+ tc.Active = false
+ tc.Selectable = false
+ tc.ZIndex = 10
+ tc.Visible = false
+
+ local function ensureSlot(name: string, cx: number, cy: number, sizePx: number, visible: boolean): Frame
+  local slot = tc:FindFirstChild(name)
+  if not (slot and slot:IsA("Frame")) then
+   if slot then slot:Destroy() end
+   local created = Instance.new("Frame")
+   created.Name = name
+   created.Parent = tc
+   slot = created
+  end
+  local frame = slot :: Frame
+  frame.BackgroundTransparency = 1
+  frame.BorderSizePixel = 0
+  frame.AnchorPoint = Vector2.new(0.5, 0.5)
+  frame.Position = UDim2.fromOffset(cx, cy)
+  frame.Size = UDim2.fromOffset(sizePx, sizePx)
+  frame.Active = false
+  frame.Selectable = false
+  frame.ZIndex = 10
+  frame.Visible = visible
+  frame:SetAttribute("MinimumTouchSize", nil)
+  frame:SetAttribute("JumpGap", nil)
+  frame:SetAttribute("JumpSizeRatio", nil)
+  return frame
+ end
+
+ local function ensureActionButton(slot: Frame, btnName: string, imageUri: string, textValue: string, fontSize: number): ImageButton
+  local existingBtn = slot:FindFirstChild(btnName)
+  if not (existingBtn and existingBtn:IsA("ImageButton")) then
+   if existingBtn then existingBtn:Destroy() end
+   local created = Instance.new("ImageButton")
+   created.Name = btnName
+   created.Parent = slot
+   existingBtn = created
+  end
+  local btn = existingBtn :: ImageButton
+  btn.AnchorPoint = Vector2.new(0.5, 0.5)
+  btn.Position = UDim2.fromScale(0.5, 0.5)
+  btn.Size = UDim2.fromScale(1, 1)
+  btn.BackgroundTransparency = 1
+  btn.BorderSizePixel = 0
+  btn.ImageContent = Content.fromUri(imageUri)
+  btn.ImageRectSize = Vector2.zero
+  btn.ImageRectOffset = Vector2.zero
+  btn.ScaleType = Enum.ScaleType.Fit
+  btn.ZIndex = 10
+  btn.AutoButtonColor = true
+  btn.Active = true
+  btn.Selectable = true
+  btn.InputSink = Enum.InputSink.Activate
+  btn:SetAttribute("HasInteractionEffect", true)
+  btn:SetAttribute("HasClickSound", false)
+  btn:SetAttribute("ScaleWhilePressed", true)
+  btn:SetAttribute("PressedScale", 0.86)
+  btn:SetAttribute("PressTweenSeconds", 0.1)
+  local uiScale = btn:FindFirstChildOfClass("UIScale")
+  if not uiScale then
+   local s = Instance.new("UIScale")
+   s.Parent = btn
+   uiScale = s
+  end
+  uiScale.Scale = 1
+  local textNode = btn:FindFirstChild("ActionText")
+  if not (textNode and textNode:IsA("TextLabel")) then
+   if textNode then textNode:Destroy() end
+   local t = Instance.new("TextLabel")
+   t.Name = "ActionText"
+   t.Parent = btn
+   textNode = t
+  end
+  local text = textNode :: TextLabel
+  text.BackgroundTransparency = 1
+  text.BorderSizePixel = 0
+  text.Position = UDim2.fromScale(0, 0.65)
+  text.Size = UDim2.fromScale(1, 0.25)
+  text.Font = Enum.Font.GothamBold
+  text.Text = textValue
+  text.TextColor3 = Color3.new(1, 1, 1)
+  text.TextSize = fontSize
+  text.TextScaled = false
+  text.TextWrapped = false
+  text.TextXAlignment = Enum.TextXAlignment.Center
+  text.TextYAlignment = Enum.TextYAlignment.Center
+  text.ZIndex = 11
+  text.AutoLocalize = true
+  text:SetAttribute("DesignTextSize", fontSize)
+  local stroke = text:FindFirstChildOfClass("UIStroke")
+  if not stroke then
+   local s = Instance.new("UIStroke")
+   s.Parent = text
+   stroke = s
+  end
+  stroke.StrokeSizingMode = Enum.StrokeSizingMode.ScaledSize
+  stroke.Thickness = 0.05
+  stroke.Color = Color3.fromRGB(25, 37, 43)
+  return btn
+ end
+
+ local jumpSlot = ensureSlot("TouchJumpFrame", 1765, 915, 190, true)
+ ensureActionButton(jumpSlot, "JumpButton", "rbxassetid://138878448546121", "JUMP", 26)
+
+ local attackSlot = ensureSlot("TouchAttackFrame", 1545, 845, 190, true)
+ local attackBtn = ensureActionButton(attackSlot, "AttackButton", "rbxassetid://110366066946567", "ATTACK", 26)
+ attackBtn:SetAttribute("AttackImage", "rbxassetid://110366066946567")
+ attackBtn:SetAttribute("AttackRectOffset", Vector2.zero)
+
+ local stickSlot = ensureSlot("ThrowStick", 1545, 845, 190, false)
+ local stickNode = stickSlot:FindFirstChild("StickButton")
+ if not (stickNode and stickNode:IsA("ImageButton")) then
+  if stickNode then stickNode:Destroy() end
+  local created = Instance.new("ImageButton")
+  created.Name = "StickButton"
+  created.Parent = stickSlot
+  stickNode = created
+ end
+ local stick = stickNode :: ImageButton
+ stick.AnchorPoint = Vector2.new(0.5, 0.5)
+ stick.Position = UDim2.fromScale(0.5, 0.5)
+ stick.Size = UDim2.fromScale(1, 1)
+ stick.BackgroundColor3 = Color3.fromRGB(23, 16, 36)
+ stick.BackgroundTransparency = 0.25
+ stick.Image = ""
+ stick.BorderSizePixel = 0
+ stick.AutoButtonColor = false
+ stick.Active = true
+ stick.Selectable = true
+ stick.ZIndex = 10
+ stick:SetAttribute("HasInteractionEffect", true)
+ stick:SetAttribute("HasClickSound", false)
+ stick:SetAttribute("ScaleWhilePressed", nil)
+ if not stick:FindFirstChildOfClass("UICorner") then
+  local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1, 0); c.Parent = stick
+ end
+ local stickStroke = stick:FindFirstChildOfClass("UIStroke")
+ if not stickStroke then
+  local s = Instance.new("UIStroke"); s.Parent = stick; stickStroke = s
+ end
+ stickStroke.StrokeSizingMode = Enum.StrokeSizingMode.ScaledSize
+ stickStroke.Thickness = 0.02
+ stickStroke.Color = Color3.fromRGB(180, 85, 255)
+ local stickScale = stick:FindFirstChildOfClass("UIScale")
+ if not stickScale then
+  local s = Instance.new("UIScale"); s.Parent = stick; stickScale = s
+ end
+ stickScale.Scale = 1
+ local knobNode = stick:FindFirstChild("KnobImage")
+ if not (knobNode and knobNode:IsA("ImageLabel")) then
+  if knobNode then knobNode:Destroy() end
+  local created = Instance.new("ImageLabel")
+  created.Name = "KnobImage"
+  created.Parent = stick
+  knobNode = created
+ end
+ local knob = knobNode :: ImageLabel
+ knob.AnchorPoint = Vector2.new(0.5, 0.5)
+ knob.Position = UDim2.fromScale(0.5, 0.5)
+ knob.Size = UDim2.fromScale(0.42, 0.42)
+ knob.BackgroundColor3 = Color3.fromRGB(245, 238, 255)
+ knob.BackgroundTransparency = 0.05
+ knob.Image = ""
+ knob.BorderSizePixel = 0
+ knob.ZIndex = 11
+ if not knob:FindFirstChildOfClass("UICorner") then
+  local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(1, 0); c.Parent = knob
+ end
+
+ local sprintSlot = ensureSlot("TouchSprintFrame", 1765, 695, 156, true)
+ local sprintBtn = ensureActionButton(sprintSlot, "SprintButton", "rbxassetid://114836508163438", "SPRINT", 24)
+ sprintBtn:SetAttribute("IdleColor", Color3.fromRGB(255, 255, 255))
+ sprintBtn:SetAttribute("ActiveColor", Color3.fromRGB(255, 222, 148))
 end
-touchPaint()
-local function touchAttack()
- if ui:FindFirstChild("TouchAttackFrame") then return end
- local frame=Instance.new("Frame");frame.Name="TouchAttackFrame";frame.BackgroundTransparency=1;frame.BorderSizePixel=0
- frame.AnchorPoint=Vector2.zero;frame.Position=UDim2.fromOffset(0,0);frame.Size=UDim2.fromOffset(76,76)
- frame.Visible=false;frame.Active=false;frame.Selectable=false;frame.ZIndex=10
- frame:SetAttribute("MinimumTouchSize",64);frame:SetAttribute("JumpGap",8);frame:SetAttribute("JumpSizeRatio",0.9)
- local attack=Instance.new("ImageButton");attack.Name="AttackButton";attack.AnchorPoint=Vector2.new(.5,.5)
- attack.Position=UDim2.fromScale(.5,.5);attack.Size=UDim2.fromScale(1,1);attack.BackgroundTransparency=1;attack.BorderSizePixel=0
- attack.Image="rbxassetid://110366066946567";attack.ImageRectSize=Vector2.zero;attack.ImageRectOffset=Vector2.zero
- attack.ScaleType=Enum.ScaleType.Fit;attack.ZIndex=10;attack.AutoButtonColor=true;attack.Active=true;attack.Selectable=true
- attack.InputSink=Enum.InputSink.Activate
- attack:SetAttribute("PressedScale",0.86);attack:SetAttribute("PressTweenSeconds",0.1)
- attack:SetAttribute("AttackImage","rbxassetid://110366066946567");attack:SetAttribute("AttackRectOffset",Vector2.zero)
- attack.Parent=frame
- local scale=Instance.new("UIScale");scale.Parent=attack
- local text=Instance.new("TextLabel");text.Name="ActionText";text.BackgroundTransparency=1;text.BorderSizePixel=0
- text.Position=UDim2.fromScale(0,.65);text.Size=UDim2.fromScale(1,.25);text.Font=Enum.Font.GothamBold;text.Text="ATTACK"
- text.TextColor3=Color3.new(1,1,1);text.TextSize=20;text.TextScaled=false;text.TextWrapped=false
- text.TextXAlignment=Enum.TextXAlignment.Center;text.TextYAlignment=Enum.TextYAlignment.Center;text.ZIndex=11
- text.AutoLocalize=true;text:SetAttribute("DesignTextSize",20);text.Parent=attack
- local stroke=Instance.new("UIStroke");stroke.StrokeSizingMode=Enum.StrokeSizingMode.ScaledSize;stroke.Thickness=.05
- stroke.Color=Color3.fromRGB(25,37,43);stroke.Parent=text
- frame.Parent=ui
-end
-touchAttack()
-local function throwStick()
- if ui:FindFirstChild("ThrowStick") then return end
- local frame=Instance.new("Frame");frame.Name="ThrowStick";frame.BackgroundTransparency=1;frame.BorderSizePixel=0
- frame.AnchorPoint=Vector2.zero;frame.Position=UDim2.fromOffset(0,0);frame.Size=UDim2.fromOffset(76,76)
- frame.Visible=false;frame.Active=false;frame.Selectable=false;frame.ZIndex=10
- frame:SetAttribute("MinimumTouchSize",64);frame:SetAttribute("JumpGap",8);frame:SetAttribute("JumpSizeRatio",0.9)
- local stick=Instance.new("ImageButton");stick.Name="StickButton";stick.AnchorPoint=Vector2.new(.5,.5)
- stick.Position=UDim2.fromScale(.5,.5);stick.Size=UDim2.fromScale(1,1);stick.BackgroundColor3=Color3.fromRGB(23,16,36)
- stick.BackgroundTransparency=.25;stick.Image="";stick.BorderSizePixel=0;stick.AutoButtonColor=false
- stick.Active=true;stick.Selectable=true;stick.ZIndex=10;stick.Parent=frame
- local corner=Instance.new("UICorner");corner.CornerRadius=UDim.new(1,0);corner.Parent=stick
- local stroke=Instance.new("UIStroke");stroke.StrokeSizingMode=Enum.StrokeSizingMode.ScaledSize;stroke.Thickness=.02
- stroke.Color=Color3.fromRGB(180,85,255);stroke.Parent=stick
- local knob=Instance.new("ImageLabel");knob.Name="KnobImage";knob.AnchorPoint=Vector2.new(.5,.5)
- knob.Position=UDim2.fromScale(.5,.5);knob.Size=UDim2.fromScale(.42,.42);knob.BackgroundColor3=Color3.fromRGB(245,238,255)
- knob.BackgroundTransparency=.05;knob.Image="";knob.BorderSizePixel=0;knob.ZIndex=11;knob.Parent=stick
- local knobCorner=Instance.new("UICorner");knobCorner.CornerRadius=UDim.new(1,0);knobCorner.Parent=knob
- frame.Parent=ui
-end
-throwStick()
+touchControls()
 local function throwAim()
  if models:FindFirstChild("ThrowAim") then return end
  local root=Instance.new("Model");root.Name="ThrowAim"
@@ -223,7 +379,7 @@ for _, value in gui:GetDescendants() do
 	end
 end
 for _, node in gui:GetDescendants() do
-	if node.Name == "InteractButton" or node.Name == "HintKeyText" or node.Name == "DropButton" or node.Name == "AttackButton" then node:Destroy() end
+	if node.Name == "InteractButton" or node.Name == "HintKeyText" or node.Name == "DropButton" or (node.Name == "AttackButton" and not node:FindFirstAncestor("TouchControlsFrame")) then node:Destroy() end
 end
 local target = ui:FindFirstChild("TargetGui")
 if target then
@@ -292,6 +448,33 @@ setupStationPrompt(district:WaitForChild("SummoningSubmitAnchor"))
 setupStationPrompt(ui)
 
 
+end
+
+-- 在 Edit 补齐可见按钮的中心缩放，保留每个按钮在 1× 时的设计位置。
+for _, node in ui:GetDescendants() do
+	if node:IsA("GuiButton") and node.Name ~= "ModalButton" then
+		local delta = Vector2.new(0.5, 0.5) - node.AnchorPoint
+		if delta ~= Vector2.zero then
+			local p, s = node.Position, node.Size
+			node.Position = UDim2.new(p.X.Scale + s.X.Scale * delta.X, p.X.Offset + s.X.Offset * delta.X,
+				p.Y.Scale + s.Y.Scale * delta.Y, p.Y.Offset + s.Y.Offset * delta.Y)
+			node.AnchorPoint = Vector2.new(0.5, 0.5)
+		end
+		if not node:FindFirstChildOfClass("UIScale") then
+			local scale = Instance.new("UIScale")
+			scale.Parent = node
+		end
+		node:SetAttribute("HasInteractionEffect", true)
+		if node.Name == "JumpButton" or node.Name == "AttackButton" or node.Name == "SprintButton" then
+			node:SetAttribute("HasClickSound", false)
+			node:SetAttribute("ScaleWhilePressed", true)
+			node:SetAttribute("PressedScale", 0.86)
+			node:SetAttribute("PressTweenSeconds", 0.1)
+		elseif node.Name == "StickButton" then
+			node:SetAttribute("HasClickSound", false)
+			node:SetAttribute("ScaleWhilePressed", nil)
+		end
+	end
 end
 
 return {rigParts=#models.WhiteR15:GetChildren(),ui=gui:GetFullName(),models=models:GetFullName()}

@@ -4,7 +4,7 @@ local Types = require(script.Parent.GameTypes)
 local Config = require(script.Parent.GameConfig)
 local GameTexts = require(script.Parent.GameTexts)
 local Hints = {}
-export type Potions = { stored: number, equipped: boolean }
+export type Potions = { stored: number, equipped: boolean, reward: number? }
 type CarryLoad = { unfinished: boolean, painted: boolean, body: boolean, other: boolean }
 local function Describe(textId: GameTexts.TextId, args: {string}?): GameTexts.Description
 	return { textId = textId, args = args }
@@ -39,7 +39,7 @@ end
 function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?, potions: Potions?, stack: { Types.ItemView }?): GameTexts.Description
 	local load = ReadCarry(held, stack)
 	if load.body then return Describe("ThrowAim") end
-	if potions and (potions.equipped or potions.stored > 0) then return Describe("TakePotion", { tostring(Config.PotionReward) }) end
+	if potions and (potions.equipped or potions.stored > 0) then return Describe("TakePotion", { tostring(potions.reward or Config.PotionReward) }) end
 	if snapshot then
 		if snapshot.shelf > 0 then return Describe("PotionReady") end
 		if (snapshot.autoShelfCount or 0) > 0 then return Describe("CollectAutoPotion") end
@@ -78,7 +78,7 @@ function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.Ite
 		if load.body then return Describe("HandsFullHint") end
 		return if snapshot and snapshot.shelf > 0 then Describe("CollectPotion") else Describe("NoPotion")
 	elseif target == "Sigil" then
-		if potions and (potions.equipped or potions.stored > 0) then return Describe("OfferPotion", { tostring(Config.PotionReward) }) end
+		if potions and (potions.equipped or potions.stored > 0) then return Describe("OfferPotion", { tostring(potions.reward or Config.PotionReward) }) end
 		return Describe("BringPotion")
 	elseif target == "Chute" then
 		if not (snapshot and snapshot.unlockedFacilities and snapshot.unlockedFacilities.A00) then return Describe("ChuteLocked") end

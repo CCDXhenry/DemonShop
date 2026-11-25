@@ -448,6 +448,11 @@ local whiteHum = Instance.new('Humanoid')
 whiteHum.Parent = whiteTemplate
 whiteTemplate.PrimaryPart = whiteHrp
 whiteTemplate.Parent = modelsFolder
+for _, bruteName in { 'HellBrute_1', 'HellBrute_2', 'AutoClerk' } do
+	local brute = whiteTemplate:Clone()
+	brute.Name = bruteName
+	brute.Parent = modelsFolder
+end
 
 B.ModelsFolder = modelsFolder
 

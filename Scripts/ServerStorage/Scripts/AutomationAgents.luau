@@ -4,7 +4,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Scripts.Shared
 local Config = require(Shared.GameConfig)
-local GameTexts = require(Shared.GameTexts)
 local Types = require(Shared.GameTypes)
 local Net = require(Shared.ProcessingNet)
 local Lifecycle = require(Shared.LifecycleTool)
@@ -23,12 +22,9 @@ export type Host = {
 	isUnlocked: (facilityId: string) -> boolean,
 	getAutoShelfCount: () -> number,
 	takeAutoShelf: () -> number,
-	isActivePlayer: (player: Player) -> boolean,
-	canAddCoins: (player: Player, amount: number) -> boolean,
-	addCoins: (player: Player, amount: number) -> boolean,
+	payPotionSale: (count: number, warnIfBlocked: boolean) -> boolean,
 	pushChuteItem: (item: Types.Item) -> (),
 	stepAutomation: (now: number) -> boolean,
-	tell: (player: Player, textId: GameTexts.TextId, args: { string }?) -> (),
 	changed: () -> (),
 }
 
@@ -91,34 +87,6 @@ export type State = {
 	targetLocks: { [string]: string },
 }
 
-type Palette = {
-	skin: Color3,
-	armor: Color3,
-	accent: Color3,
-	glow: Color3,
-}
-
-local BRUTE_PALETTES: { Palette } = {
-	{
-		skin = Color3.fromRGB(165, 38, 52),
-		armor = Color3.fromRGB(36, 24, 38),
-		accent = Color3.fromRGB(68, 42, 54),
-		glow = Color3.fromRGB(255, 86, 68),
-	},
-	{
-		skin = Color3.fromRGB(132, 34, 88),
-		armor = Color3.fromRGB(32, 22, 46),
-		accent = Color3.fromRGB(64, 38, 82),
-		glow = Color3.fromRGB(255, 132, 64),
-	},
-}
-
-local CLERK_PALETTE: Palette = {
-	skin = Color3.fromRGB(214, 212, 232),
-	armor = Color3.fromRGB(30, 26, 48),
-	accent = Color3.fromRGB(48, 220, 255),
-	glow = Color3.fromRGB(46, 229, 145),
-}
 
 local DEFAULT_CHUTE_TOP = Vector3.new(-58.8, 21.797, -37.25)
 local SHOP_FLOOR_Y = 21.397
@@ -132,25 +100,6 @@ local WAYPOINT_STREET_LANE = Vector3.new(-58.8, STREET_DECK_Y, -51.0)
 local WAYPOINT_DOOR_OUTSIDE = Vector3.new(-59.025, SIDEWALK_Y, -44.5)
 local WAYPOINT_DOOR_INSIDE = Vector3.new(-59.025, SHOP_FLOOR_Y, -38.4)
 
-local TORSO_PARTS: { [string]: boolean } = {
-	UpperTorso = true,
-	LowerTorso = true,
-}
-
-local LIMB_PARTS: { [string]: boolean } = {
-	LeftUpperArm = true,
-	LeftLowerArm = true,
-	LeftHand = true,
-	RightUpperArm = true,
-	RightLowerArm = true,
-	RightHand = true,
-	LeftUpperLeg = true,
-	LeftLowerLeg = true,
-	LeftFoot = true,
-	RightUpperLeg = true,
-	RightLowerLeg = true,
-	RightFoot = true,
-}
 
 local function FlatVector(v: Vector3): Vector3
 	return Vector3.new(v.X, 0, v.Z)
@@ -251,43 +200,6 @@ local function SampleFloorY(host: Host, state: State, x: number, z: number, fall
 	return fallbackY
 end
 
-local function MakeAccessoryPart(
-	parent: Instance,
-	name: string,
-	size: Vector3,
-	cf: CFrame,
-	color: Color3,
-	material: Enum.Material,
-	shape: Enum.PartType?,
-	transparency: number?
-): Part
-	local part = Instance.new("Part")
-	part.Name = name
-	part.Size = size
-	part.CFrame = cf
-	part.Color = color
-	part.Material = material
-	part.Shape = shape or Enum.PartType.Block
-	part.Transparency = transparency or 0
-	part.Anchored = false
-	part.CanCollide = false
-	part.CanTouch = false
-	part.CanQuery = false
-	part.Massless = true
-	part.CastShadow = false
-	part.TopSurface = Enum.SurfaceType.Smooth
-	part.BottomSurface = Enum.SurfaceType.Smooth
-	part.Parent = parent
-	return part
-end
-
-local function WeldPart(part0: BasePart, part1: BasePart): ()
-	local weld = Instance.new("WeldConstraint")
-	weld.Name = "AgentWeld_" .. part1.Name
-	weld.Part0 = part0
-	weld.Part1 = part1
-	weld.Parent = part1
-end
 
 local function LoadTrack(animator: Animator, animId: string, looped: boolean, priority: Enum.AnimationPriority): AnimationTrack?
 	local anim = Instance.new("Animation")
@@ -381,174 +293,6 @@ local function SetAgentMotion(tracks: Tracks, current: string, nextState: string
 	return nextState
 end
 
-local function CreateRigBase(agentId: string, role: string, palette: Palette): (Model, BasePart)
-	local models = ReplicatedStorage:FindFirstChild("Models")
-	local template = if models then models:FindFirstChild("WhiteR15") else nil
-	local model: Model
-	if template and template:IsA("Model") then
-		model = template:Clone()
-	else
-		model = Instance.new("Model")
-		local hrp = Instance.new("Part")
-		hrp.Name = "HumanoidRootPart"
-		hrp.Size = Vector3.new(2, 2, 1)
-		hrp.Transparency = 1
-		hrp.Parent = model
-		local torso = Instance.new("Part")
-		torso.Name = "UpperTorso"
-		torso.Size = Vector3.new(1.7, 1.7, 0.95)
-		torso.Parent = model
-		WeldPart(hrp, torso)
-		local head = Instance.new("Part")
-		head.Name = "Head"
-		head.Size = Vector3.new(1.15, 1.15, 1.15)
-		head.CFrame = CFrame.new(0, 1.6, 0)
-		head.Parent = model
-		WeldPart(torso, head)
-		local rightHand = Instance.new("Part")
-		rightHand.Name = "RightHand"
-		rightHand.Size = Vector3.new(0.55, 0.35, 0.65)
-		rightHand.CFrame = CFrame.new(1.2, -0.85, 0)
-		rightHand.Parent = model
-		WeldPart(torso, rightHand)
-		local hum = Instance.new("Humanoid")
-		hum.Parent = model
-		model.PrimaryPart = hrp
-	end
-
-	model.Name = agentId
-	model:SetAttribute("AgentId", agentId)
-	model:SetAttribute("AgentRole", role)
-	model:SetAttribute("Paintable", nil)
-	model:SetAttribute("SurfaceVersion", nil)
-	model:SetAttribute("GroundPresentation", nil)
-
-	local root = model.PrimaryPart or model:FindFirstChild("HumanoidRootPart")
-	assert(root and root:IsA("BasePart"), "Agent rig requires HumanoidRootPart")
-	model.PrimaryPart = root
-
-	local bodyColors = model:FindFirstChildOfClass("BodyColors")
-	if bodyColors then
-		bodyColors.HeadColor3 = palette.skin
-		bodyColors.TorsoColor3 = palette.armor
-		bodyColors.LeftArmColor3 = palette.skin
-		bodyColors.RightArmColor3 = palette.skin
-		bodyColors.LeftLegColor3 = palette.armor
-		bodyColors.RightLegColor3 = palette.armor
-	end
-
-	for _, desc in model:GetDescendants() do
-		if desc:IsA("LuaSourceContainer") then
-			desc:Destroy()
-		elseif desc:IsA("BasePart") then
-			desc:SetAttribute("Paintable", nil)
-			desc:SetAttribute("SurfaceVersion", nil)
-			desc.Anchored = desc == root
-			desc.CanCollide = false
-			desc.CanTouch = false
-			desc.CanQuery = false
-			desc.Massless = true
-			desc.CollisionGroup = "Default"
-			if desc == root then
-				desc.Transparency = 1
-			elseif TORSO_PARTS[desc.Name] then
-				desc.Color = palette.armor
-			elseif LIMB_PARTS[desc.Name] then
-				desc.Color = if string.find(desc.Name, "Leg") or string.find(desc.Name, "Foot") then palette.armor else palette.skin
-			else
-				desc.Color = palette.skin
-			end
-		end
-	end
-
-	local humanoid = model:FindFirstChildOfClass("Humanoid")
-	if humanoid then
-		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
-		humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
-		humanoid.EvaluateStateMachine = false
-		humanoid.PlatformStand = true
-		humanoid.AutoRotate = false
-		humanoid.BreakJointsOnDeath = false
-		humanoid.WalkSpeed = 0
-	end
-
-	return model, root
-end
-
-local function DecorateBrute(model: Model, palette: Palette): ()
-	local head = model:FindFirstChild("Head")
-	local torso = model:FindFirstChild("UpperTorso")
-	local rightHand = model:FindFirstChild("RightHand")
-	if head and head:IsA("BasePart") then
-		for _, side in { -1, 1 } do
-			local horn = MakeAccessoryPart(
-				model,
-				if side < 0 then "HornLeft" else "HornRight",
-				Vector3.new(0.22, 0.72, 0.22),
-				head.CFrame * CFrame.new(side * 0.44, 0.68, -0.14) * CFrame.Angles(math.rad(-22), 0, math.rad(-side * 18)),
-				palette.glow,
-				Enum.Material.Neon,
-				Enum.PartType.Block
-			)
-			WeldPart(head, horn)
-		end
-	end
-	if torso and torso:IsA("BasePart") then
-		for _, side in { -1, 1 } do
-			local pauldron = MakeAccessoryPart(
-				model,
-				if side < 0 then "PauldronLeft" else "PauldronRight",
-				Vector3.new(0.68, 0.42, 1.08),
-				torso.CFrame * CFrame.new(side * 1.02, 0.62, 0) * CFrame.Angles(0, 0, math.rad(-side * 14)),
-				palette.accent,
-				Enum.Material.Metal,
-				Enum.PartType.Block
-			)
-			WeldPart(torso, pauldron)
-		end
-		local core = MakeAccessoryPart(
-			model,
-			"ChestSigil",
-			Vector3.new(0.55, 0.55, 0.14),
-			torso.CFrame * CFrame.new(0, 0.12, -0.49),
-			palette.glow,
-			Enum.Material.Neon,
-			Enum.PartType.Block
-		)
-		WeldPart(torso, core)
-	end
-	if rightHand and rightHand:IsA("BasePart") then
-		local models = ReplicatedStorage:FindFirstChild("Models")
-		local clubTemplate = if models then models:FindFirstChild("Club") else nil
-		local handleTemplate = if clubTemplate then clubTemplate:FindFirstChild("Handle") else nil
-		if handleTemplate and handleTemplate:IsA("BasePart") then
-			local prop = handleTemplate:Clone()
-			prop.Name = "BruteClubProp"
-			for _, child in prop:GetDescendants() do
-				child:Destroy()
-			end
-			prop.Anchored = false
-			prop.CanCollide = false
-			prop.CanTouch = false
-			prop.CanQuery = false
-			prop.Massless = true
-			prop.CFrame = rightHand.CFrame * CFrame.new(0, -0.25, -1.2) * CFrame.Angles(math.rad(90), 0, 0)
-			prop.Parent = model
-			WeldPart(rightHand, prop)
-		else
-			local club = MakeAccessoryPart(
-				model,
-				"BruteClubProp",
-				Vector3.new(0.28, 0.28, 2.5),
-				rightHand.CFrame * CFrame.new(0, -0.15, -1.25),
-				palette.accent,
-				Enum.Material.Metal,
-				Enum.PartType.Block
-			)
-			WeldPart(rightHand, club)
-		end
-	end
-end
 
 local function SetClerkPotionVisible(agent: ClerkAgent, visible: boolean): ()
 	for _, part in agent.potionParts do
@@ -563,85 +307,6 @@ local function SetClerkPotionVisible(agent: ClerkAgent, visible: boolean): ()
 	end
 end
 
-local function DecorateClerk(model: Model, palette: Palette): ({ BasePart }, { PointLight })
-	local head = model:FindFirstChild("Head")
-	local torso = model:FindFirstChild("UpperTorso")
-	local potionParts: { BasePart } = {}
-	local potionLights: { PointLight } = {}
-	if head and head:IsA("BasePart") then
-		local visor = MakeAccessoryPart(
-			model,
-			"ClerkVisor",
-			Vector3.new(1.18, 0.26, 0.35),
-			head.CFrame * CFrame.new(0, 0.14, -0.46),
-			palette.accent,
-			Enum.Material.Neon,
-			Enum.PartType.Block
-		)
-		WeldPart(head, visor)
-	end
-	if torso and torso:IsA("BasePart") then
-		local badge = MakeAccessoryPart(
-			model,
-			"ClerkBadge",
-			Vector3.new(0.32, 0.68, 0.12),
-			torso.CFrame * CFrame.new(0, 0.05, -0.48),
-			palette.glow,
-			Enum.Material.Neon,
-			Enum.PartType.Block
-		)
-		WeldPart(torso, badge)
-
-		local baseCf = torso.CFrame * CFrame.new(0, -0.05, -1.05)
-		local bottle = MakeAccessoryPart(
-			model,
-			"Bottle",
-			Vector3.new(0.85, 1.05, 0.85),
-			baseCf,
-			Color3.fromRGB(157, 141, 181),
-			Enum.Material.SmoothPlastic,
-			Enum.PartType.Ball,
-			1
-		)
-		WeldPart(torso, bottle)
-		table.insert(potionParts, bottle)
-
-		local core = MakeAccessoryPart(
-			model,
-			"HeldPotionCore",
-			Vector3.new(0.58, 0.70, 0.58),
-			baseCf * CFrame.new(0, -0.08, 0),
-			Color3.fromRGB(166, 63, 255),
-			Enum.Material.Neon,
-			Enum.PartType.Ball,
-			1
-		)
-		WeldPart(torso, core)
-		table.insert(potionParts, core)
-
-		local light = Instance.new("PointLight")
-		light.Color = Color3.fromRGB(176, 83, 255)
-		light.Brightness = 0.7
-		light.Range = 5
-		light.Enabled = false
-		light.Parent = core
-		table.insert(potionLights, light)
-
-		local stopper = MakeAccessoryPart(
-			model,
-			"HeldPotionStopper",
-			Vector3.new(0.3, 0.26, 0.3),
-			baseCf * CFrame.new(0, 0.65, 0),
-			Color3.fromRGB(222, 180, 107),
-			Enum.Material.Metal,
-			Enum.PartType.Block,
-			1
-		)
-		WeldPart(torso, stopper)
-		table.insert(potionParts, stopper)
-	end
-	return potionParts, potionLights
-end
 
 local function SetModelPose(model: Model, pose: CFrame): ()
 	model:PivotTo(pose)
@@ -892,11 +557,67 @@ local function BruteDepositBody(host: Host, state: State, agent: BruteAgent, now
 	return false
 end
 
-local function SpawnBrute(state: State, variant: number, now: number): BruteAgent
+local missingBruteTemplate: { [string]: boolean } = {}
+local missingClerkTemplate = false
+
+local function PrepareClonedAgent(model: Model, agentId: string, role: string): BasePart
+	model.Name = agentId
+	model:SetAttribute("AgentId", agentId)
+	model:SetAttribute("AgentRole", role)
+	model:SetAttribute("Paintable", nil)
+	model:SetAttribute("SurfaceVersion", nil)
+	model:SetAttribute("GroundPresentation", nil)
+
+	local root = model.PrimaryPart or model:FindFirstChild("HumanoidRootPart")
+	assert(root and root:IsA("BasePart"), "Agent rig requires HumanoidRootPart")
+	model.PrimaryPart = root
+
+	for _, desc in model:GetDescendants() do
+		if desc:IsA("LuaSourceContainer") then
+			desc:Destroy()
+		elseif desc:IsA("BasePart") then
+			desc:SetAttribute("Paintable", nil)
+			desc:SetAttribute("SurfaceVersion", nil)
+			desc.Anchored = desc == root
+			desc.CanCollide = false
+			desc.CanTouch = false
+			desc.CanQuery = false
+			desc.Massless = true
+			desc.CollisionGroup = "Default"
+			if desc == root then
+				desc.Transparency = 1
+			end
+		end
+	end
+
+	local humanoid = model:FindFirstChildOfClass("Humanoid")
+	if humanoid then
+		humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+		humanoid.HealthDisplayType = Enum.HumanoidHealthDisplayType.AlwaysOff
+		humanoid.EvaluateStateMachine = false
+		humanoid.PlatformStand = true
+		humanoid.AutoRotate = false
+		humanoid.BreakJointsOnDeath = false
+		humanoid.WalkSpeed = 0
+	end
+
+	return root
+end
+
+local function SpawnBrute(state: State, variant: number, now: number): ()
 	local agentId = "Brute" .. tostring(variant)
-	local palette = BRUTE_PALETTES[variant] or BRUTE_PALETTES[1]
-	local model, root = CreateRigBase(if variant == 1 then "HellBrute_1" else "HellBrute_2", "Brute", palette)
-	DecorateBrute(model, palette)
+	local templateName = if variant == 1 then "HellBrute_1" else "HellBrute_2"
+	local models = ReplicatedStorage:FindFirstChild("Models")
+	local template = if models then models:FindFirstChild(templateName) else nil
+	if not template or not template:IsA("Model") then
+		if not missingBruteTemplate[templateName] then
+			missingBruteTemplate[templateName] = true
+			warn(string.format("[AutomationAgents] Missing ReplicatedStorage.Models.%s", templateName))
+		end
+		return
+	end
+	local model = template:Clone()
+	local root = PrepareClonedAgent(model, templateName, "Brute")
 	local floorPos = BruteSpawnFloor(variant)
 	local facing = -Vector3.zAxis
 	SetModelPose(model, FacingFrame(RootPosFromFloor(floorPos), facing))
@@ -924,12 +645,46 @@ local function SpawnBrute(state: State, variant: number, now: number): BruteAgen
 	}
 	agent.motionState = SetAgentMotion(tracks, agent.motionState, "Idle")
 	state.brutes[agentId] = agent
-	return agent
 end
 
-local function SpawnClerk(state: State): ClerkAgent
-	local model, root = CreateRigBase("AutoClerk", "Clerk", CLERK_PALETTE)
-	local potionParts, potionLights = DecorateClerk(model, CLERK_PALETTE)
+local CLERK_POTION_PARTS: { [string]: boolean } = {
+	Bottle = true,
+	Neck = true,
+	HeldPotionCore = true,
+	HeldPotionStopper = true,
+}
+
+local function CollectClerkProps(model: Model): ({ BasePart }, { PointLight })
+	local parts: { BasePart } = {}
+	local lights: { PointLight } = {}
+	for _, desc in model:GetDescendants() do
+		if desc:IsA("BasePart") and CLERK_POTION_PARTS[desc.Name] then
+			table.insert(parts, desc)
+		elseif desc:IsA("PointLight") then
+			table.insert(lights, desc)
+		end
+	end
+	return parts, lights
+end
+
+local function SpawnClerk(state: State): ()
+	local models = ReplicatedStorage:FindFirstChild("Models")
+	local template = if models then models:FindFirstChild("AutoClerk") else nil
+	if not template or not template:IsA("Model") then
+		if not missingClerkTemplate then
+			missingClerkTemplate = true
+			warn("[AutomationAgents] Missing ReplicatedStorage.Models.AutoClerk")
+		end
+		return
+	end
+	local cloned = template:Clone()
+	if not cloned:IsA("Model") then
+		cloned:Destroy()
+		return
+	end
+	local model = cloned
+	local root = PrepareClonedAgent(model, "AutoClerk", "Clerk")
+	local potionParts, potionLights = CollectClerkProps(model)
 	local floorPos = ClerkSpawnFloor()
 	local facing = Vector3.zAxis
 	SetModelPose(model, FacingFrame(RootPosFromFloor(floorPos), facing))
@@ -953,7 +708,6 @@ local function SpawnClerk(state: State): ClerkAgent
 	SetClerkPotionVisible(clerk, false)
 	clerk.motionState = SetAgentMotion(tracks, clerk.motionState, "Idle")
 	state.clerk = clerk
-	return clerk
 end
 
 -- 创建并绑定自动化 AI 状态容器（随宿主生命周期或作用域销毁自动释放）
@@ -1199,41 +953,14 @@ local function TrySubmitClerkPotions(host: Host, agent: ClerkAgent): (boolean, b
 	if count <= 0 then
 		return false, true
 	end
-	local totalReward = count * Config.PotionReward
-	local recipients: { Player } = {}
-	local blocked: { Player } = {}
-	for _, other in Players:GetPlayers() do
-		if host.isActivePlayer(other) then
-			if host.canAddCoins(other, totalReward) then
-				table.insert(recipients, other)
-			else
-				table.insert(blocked, other)
-			end
-		end
-	end
-	if #recipients == 0 then
-		if not agent.warnedLimit then
-			agent.warnedLimit = true
-			for _, other in blocked do
-				host.tell(other, "CoinLimit")
-			end
-		end
+	if not host.payPotionSale(count, not agent.warnedLimit) then
+		agent.warnedLimit = true
 		return false, false
 	end
 	agent.carryingPotions = 0
 	agent.warnedLimit = false
 	SetClerkPotionVisible(agent, false)
 	host.stationVersions.Sigil += 1
-	for _, other in recipients do
-		if host.addCoins(other, totalReward) then
-			host.tell(other, "CoinsAwarded", { tostring(totalReward) })
-		else
-			host.tell(other, "CoinLimit")
-		end
-	end
-	for _, other in blocked do
-		host.tell(other, "CoinLimit")
-	end
 	return true, true
 end
 

@@ -29,6 +29,8 @@ local ThrowArc = require(Shared.ThrowArc)
 local AutomationRules = require(Shared.AutomationRules)
 local AutoRunePattern = require(Shared.AutoRunePattern)
 local AutomationAgents = require(script.Parent.AutomationAgents)
+local PersonalRules = require(Shared.PersonalUpgradeRules)
+local PersonalMovement = require(script.Parent.PersonalMovement)
 type PlayerData = {
 	IsActive: (Player) -> boolean,
 	CanAddCoins: (Player, number) -> boolean,
@@ -45,6 +47,9 @@ type PlayerRecord = {
 	lastThrow: number,
 	lastRequest: number,
 	lastSync: number,
+	lastUpgrade: number,
+	levels: PersonalRules.Levels,
+	movement: PersonalMovement.State,
 	closing: boolean,
 }
 local PotionReserveName = "PotionReserve"
@@ -562,23 +567,14 @@ function Manager.EnsureAgents(self: Manager): AutomationAgents.State
 			self:SyncAutoShelfVisible()
 			return count
 		end,
-		isActivePlayer = function(player: Player): boolean
-			return self.data.IsActive(player)
-		end,
-		canAddCoins = function(player: Player, amount: number): boolean
-			return self.data.CanAddCoins(player, amount)
-		end,
-		addCoins = function(player: Player, amount: number): boolean
-			return self.data.AddCoins(player, amount)
+		payPotionSale = function(count: number, warnIfBlocked: boolean): boolean
+			return self:PayPotionSale(count, warnIfBlocked)
 		end,
 		pushChuteItem = function(item: Types.Item): ()
 			self:PushChuteItem(item, false)
 		end,
 		stepAutomation = function(now: number): boolean
 			return self:StepAutomation(now)
-		end,
-		tell = function(player: Player, textId: GameTexts.TextId, args: { string }?): ()
-			self:Tell(player, textId, args)
 		end,
 		changed = function(): ()
 			self:Changed()
@@ -1003,7 +999,11 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 	local hum = character and character:FindFirstChildOfClass("Humanoid")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if hum then
-		hum.WalkSpeed = session.walkSpeed
+		local record = self.players[player]
+		if record then
+			hum.WalkSpeed = PersonalRules.GetMoveTier(record.levels.moveSpeed).walk
+			if character then PersonalMovement.Publish(record.movement, character, hum.WalkSpeed, false) end
+		end
 		hum.JumpPower = session.jumpPower
 		hum.JumpHeight = session.jumpHeight
 	end
@@ -1041,7 +1041,6 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): bo
 		last = workspace:GetServerTimeNow(),
 		sequence = 0,
 		orientation = initialOrientation,
-		walkSpeed = hum.WalkSpeed,
 		jumpPower = hum.JumpPower,
 		jumpHeight = hum.JumpHeight,
 	}
@@ -1053,6 +1052,12 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): bo
 	local keep = self:HasOtherBodies(player, item)
 	hum:UnequipTools()
 	hum.WalkSpeed = 0
+	local record = self.players[player]
+	if record then
+		record.movement.wanted = false
+		record.movement.lastPosition = nil
+		PersonalMovement.Publish(record.movement, character, 0, false)
+	end
 	hum.JumpPower = 0
 	hum.JumpHeight = 0
 	root.Anchored = true
@@ -1532,6 +1537,28 @@ function Manager.OwnedPotions(self: Manager, player: Player): ({ Types.Item }, n
 	Scan(player:FindFirstChildOfClass("Backpack"))
 	return list, totalCount
 end
+function Manager.PayPotionSale(self: Manager, count: number, warnIfBlocked: boolean): boolean
+	local paid = false
+	local blocked: { Player } = {}
+	for _, other in Players:GetPlayers() do
+		if self.data.IsActive(other) then
+			local record = self.players[other]
+			local amount = PersonalRules.ComputePlayerPayout(count * Config.PotionReward, if record then record.levels.sellBonus else 1)
+			if self.data.CanAddCoins(other, amount) and self.data.AddCoins(other, amount) then
+				self:Tell(other, "CoinsAwarded", { tostring(amount) })
+				paid = true
+			else
+				table.insert(blocked, other)
+			end
+		end
+	end
+	if paid or warnIfBlocked then
+		for _, other in blocked do
+			self:Tell(other, "CoinLimit")
+		end
+	end
+	return paid
+end
 function Manager.Submit(self: Manager, player: Player): boolean
 	local record = self.players[player]
 	if not record or not self.data.IsActive(player) then
@@ -1542,20 +1569,7 @@ function Manager.Submit(self: Manager, player: Player): boolean
 		self:Tell(player, "BringPotionSigil")
 		return false
 	end
-	-- 一键全额售出：汇总手持与背包中全部药水堆叠总数，为当前服务器每位活跃玩家发放完整总奖励。
-	local totalReward = totalCount * Config.PotionReward
-	local recipients: { Player } = {}
-	local blocked: { Player } = {}
-	for _, other in Players:GetPlayers() do
-		if self.data.IsActive(other) then
-			if self.data.CanAddCoins(other, totalReward) then
-				table.insert(recipients, other)
-			else
-				table.insert(blocked, other)
-			end
-		end
-	end
-	if #recipients == 0 then
+	if not self:PayPotionSale(totalCount, false) then
 		self:Tell(player, "CoinLimit")
 		return false
 	end
@@ -1565,16 +1579,6 @@ function Manager.Submit(self: Manager, player: Player): boolean
 		potion.model:Destroy()
 	end
 	self.stationVersions.Sigil += 1
-	for _, other in recipients do
-		if self.data.AddCoins(other, totalReward) then
-			self:Tell(other, "CoinsAwarded", { tostring(totalReward) })
-		else
-			self:Tell(other, "CoinLimit")
-		end
-	end
-	for _, other in blocked do
-		self:Tell(other, "CoinLimit")
-	end
 	return true
 end
 function Manager.Attack(self: Manager, player: Player, request: Types.Request): ()
@@ -1834,6 +1838,24 @@ function Manager.Throw(self: Manager, player: Player, request: Types.Request): (
 	end
 	self:Changed()
 end
+function Manager.SyncPersonal(self: Manager, player: Player, record: PlayerRecord): ()
+	local character = player.Character
+	if character then
+		for category, level in record.levels do
+			character:SetAttribute("Upgrade_" .. category, level)
+		end
+	end
+	Net.FireNotify(player, { kind = "PersonalUpgrades", personalLevels = table.clone(record.levels) })
+end
+function Manager.TryPersonalUpgrade(self: Manager, player: Player, record: PlayerRecord, request: Types.Request): ()
+	local category, level = request.category, request.expectedNextLevel
+	local cost = PersonalRules.GetPurchaseCost(record.levels, category, level)
+	local spend = self.data.TrySpendCoins
+	if category and level and cost and spend and spend(player, cost) then
+		record.levels[category] = level
+	end
+	self:SyncPersonal(player, record)
+end
 function Manager.OnRequest(self: Manager, player: Player, request: Types.Request): ()
 	local record = self.players[player]
 	if not record or record.closing or self.closing or not self.data.IsActive(player) then
@@ -1845,6 +1867,7 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 			return
 		end
 		record.lastSync = now
+		self:SyncPersonal(player, record)
 		Net.FireNotify(player, { kind = "State", snapshot = self:Snapshot() })
 		local histories: {{id: string,item: Types.Item,revision: number,segments: {Types.VisualSegment}}}={}
 		for _,item in self.items do
@@ -1872,6 +1895,18 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 		return
 	end
 	if not self:Root(player) then
+		return
+	end
+	local painting = self.paint ~= nil and self.paint.player == player
+	if request.action == "Sprint" then
+		record.movement.wanted = request.sprint == true and not painting
+		return
+	end
+	if request.action == "PersonalUpgrade" then
+		if not painting and now - record.lastUpgrade >= 0.15 then
+			record.lastUpgrade = now
+			self:TryPersonalUpgrade(player, record, request)
+		end
 		return
 	end
 	if request.action == "Paint" then
@@ -2065,6 +2100,10 @@ function Manager.OnCharacter(self: Manager, player: Player, character: Model): (
 	end
 	local root: BasePart = rootInst
 	root.CFrame = Scene.Spawn.CFrame * CFrame.new(0, 4, 0)
+	record.movement = PersonalMovement.New()
+	humanoid.WalkSpeed = PersonalRules.GetMoveTier(record.levels.moveSpeed).walk
+	PersonalMovement.Publish(record.movement, character, humanoid.WalkSpeed, false)
+	self:SyncPersonal(player, record)
 	local backpack = player:WaitForChild("Backpack", 10)
 	if not record.scope.alive or record.closing or player.Character ~= character or not backpack then
 		return
@@ -2111,9 +2150,14 @@ function Manager.AddPlayer(self: Manager, player: Player): ()
 		return
 	end
 	if not self.data.IsActive(player) then return end
-	local record: PlayerRecord = { scope = Lifecycle.new(), characterScope = nil, lastAttack = 0, lastThrow = 0, lastRequest = 0, lastSync = 0, closing = false }
+	local record: PlayerRecord = {
+		scope = Lifecycle.new(), characterScope = nil, lastAttack = 0, lastThrow = 0,
+		lastRequest = 0, lastSync = 0, lastUpgrade = -math.huge, closing = false,
+		levels = PersonalRules.New(), movement = PersonalMovement.New(),
+	}
 	self.players[player] = record
 	record.scope:Connect(player.CharacterRemoving:Connect(function(character: Model): ()
+		record.movement = PersonalMovement.New()
 		if record.characterScope then
 			record.characterScope:Destroy()
 			record.characterScope = nil
@@ -2131,6 +2175,7 @@ function Manager.AddPlayer(self: Manager, player: Player): ()
 			end
 		end)
 	end
+	self:SyncPersonal(player, record)
 	Net.FireNotify(player, { kind = "State", snapshot = self:Snapshot() })
 end
 function Manager.RemovePlayer(self: Manager, player: Player): ()
@@ -2317,7 +2362,14 @@ function Manager.Init(self: Manager): ()
 	self.scope:Connect(Net.ConnectRequest(function(player: Player, request: Types.Request): ()
 		self:OnRequest(player, request)
 	end))
-	self.scope:Connect(RunService.Heartbeat:Connect(function(): ()
+	self.scope:Connect(RunService.Heartbeat:Connect(function(dt: number): ()
+		local now = workspace:GetServerTimeNow()
+		for player, record in self.players do
+			local character = player.Character
+			if character and record.characterScope and not record.closing then
+				PersonalMovement.Step(record.movement, character, record.levels.moveSpeed, self.paint ~= nil and self.paint.player == player, now, dt)
+			end
+		end
 		self:Update()
 	end))
 	for facilityId, pad in Scene.UnlockPads do

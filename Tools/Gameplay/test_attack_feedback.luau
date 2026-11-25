@@ -9,6 +9,12 @@ local function Check(value,message) assert(value,message); checks+=1 end
 local Protocol=require("./VisualProtocol")
 Check(Protocol.Validate({action="Attack",attackSequence=1}),"positive integer attack sequence accepted")
 Check(Protocol.Validate({action="Attack"}),"optional sequence preserves compatibility")
+Check(Protocol.Validate({action="PersonalUpgrade",category="weapon",expectedNextLevel=6}),"valid upper weapon tier is accepted")
+Check(not Protocol.Validate({action="PersonalUpgrade",category="moveSpeed",expectedNextLevel=6}),"tier is bounded by category")
+Check(not Protocol.Validate({action="PersonalUpgrade",category="unknown",expectedNextLevel=2}),"unknown upgrade category is rejected")
+Check(not Protocol.Validate({action="PersonalUpgrade",category="moveSpeed",expectedNextLevel=math.huge}),"non-finite tier is rejected")
+Check(Protocol.Validate({action="Sprint",sprint=false}),"sprint release is accepted")
+Check(not Protocol.Validate({action="Sprint",sprint=1}),"non-boolean sprint intent is rejected")
 for _,sequence in {0,-1,1.5,math.huge,0/0,1e16,"1"} do
 	Check(not Protocol.Validate({action="Attack",attackSequence=sequence}),"invalid attack sequence rejected")
 end

@@ -1,4 +1,5 @@
 -- 屏幕布局采样器：在 Studio 客户端插件上下文只读采集真实几何，返回可持久化的 JSON。
+-- 默认合并仅纳入 TopLeftCore；原生 JumpButton 原始几何一并留档，仅保留原生跳跃键的项目按需开启合并。
 --!strict
 local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")

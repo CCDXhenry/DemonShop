@@ -11,7 +11,7 @@ local BodyPose = require(Shared.PaintBodyPose)
 local Painting = {}
 export type Session = {
 	player: Player, id: string, token: string, last: number, sequence: number,
-	orientation: CFrame, walkSpeed: number, jumpPower: number, jumpHeight: number,
+	orientation: CFrame, jumpPower: number, jumpHeight: number,
 	geometry: Rotation.Geometry?,
 	bodyMesh: Curve.BodyMesh?, bodyMeshModel: Model?,
 	visualSequence: number?, visualWindow: number?, visualPackets: number?, finishing: boolean?,

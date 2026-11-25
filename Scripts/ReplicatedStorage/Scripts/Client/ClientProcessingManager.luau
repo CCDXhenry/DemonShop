@@ -36,6 +36,9 @@ local AltarSacrifice = require(script.Parent.AltarSacrificeView)
 local PotionShelf = require(script.Parent.PotionShelfView)
 local AutomationRules = require(Shared.AutomationRules)
 local ProcessingText = require(script.Parent.ProcessingTextTool)
+local PersonalShop = require(script.Parent.PersonalShop)
+local PersonalRules = require(Shared.PersonalUpgradeRules)
+local TouchJumpController = require(script.Parent.TouchJumpController)
 local Client = {}
 Client.__index = Client
 local player = Players.LocalPlayer
@@ -43,6 +46,7 @@ export type Client = typeof(setmetatable(
 	{} :: {
 		scope: Lifecycle.Lifecycle,
 		worldInteraction: WorldInteractionManager.Manager?,
+		closePersonalShop: (() -> ())?,
 		ui: GameScreenGuiManager.Manager,
 		padTexts: ProcessingText.Controller,
 		view: PaintView.View,
@@ -111,6 +115,7 @@ export type Client = typeof(setmetatable(
 		flipFlash: { id: string, started: number }?,
 		initialized: boolean,
 		throw: ManualThrow.Controller?,
+		touchJump: TouchJumpController.Controller?,
 	},
 	Client
 ))
@@ -255,6 +260,7 @@ function Client.new(): Client
 			flipFlash = nil,
 			initialized = false,
 			throw = nil,
+			touchJump = nil,
 		},
 		Client
 	)
@@ -324,7 +330,9 @@ function Client.Potions(self: Client): Hints.Potions
 	end
 	Scan(backpack, false)
 	Scan(character, true)
-	return { stored = stored, equipped = equipped }
+	local sellLevel = if character then character:GetAttribute("Upgrade_sellBonus") :: number? else nil
+	local reward = PersonalRules.ComputePlayerPayout(Config.PotionReward * stored, sellLevel or 1)
+	return { stored = stored, equipped = equipped, reward = reward }
 end
 local function SetHiddenTransparency(instance: Instance, modifier: number): ()
 	if instance:IsA("BasePart") or instance:IsA("Decal") then
@@ -1700,6 +1708,17 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 	self.initialized = true
 	if not self.scope.alive then self.scope=Lifecycle.new() end
 	self.ui:Init(gui)
+	local modal = gui:FindFirstChild("ModalButton")
+	self.touchJump = TouchJumpController.new(self.ui:GetJumpButton(), function(): boolean
+		if not self.initialized or self.paintId ~= nil or UIManager.HasShowingWindow() or GuiService.MenuIsOpen then
+			return false
+		end
+		if modal and modal:IsA("GuiObject") and modal.Visible then
+			return false
+		end
+		return true
+	end)
+	self.closePersonalShop = PersonalShop.Init(gui, self.ui:GetSprintButton(), self.scope)
 	self.worldInteraction = WorldInteractionManager.new(interactionAnchors, function(): WorldInteractionManager.State
 		local character = player.Character
 		local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -1874,6 +1893,10 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 	end))
 end
 function Client.Destroy(self: Client): ()
+	if self.touchJump then
+		self.touchJump:Destroy()
+		self.touchJump = nil
+	end
 	if self.throw then
 		self.throw:Destroy()
 		self.throw = nil
@@ -1897,6 +1920,10 @@ function Client.Destroy(self: Client): ()
 	self.padTexts:Destroy()
 	UIManager.GetTargetGuiManager():Destroy()
 	if self.worldInteraction then self.worldInteraction:Destroy(); self.worldInteraction = nil end
+	if self.closePersonalShop then
+		self.closePersonalShop()
+		self.closePersonalShop = nil
+	end
 	self.scope:Destroy()
 	self.potionShelf:Destroy()
 	if self.autoPotionShelf then

@@ -14,6 +14,30 @@ local models = roots[1]
 check(models:FindFirstChild("WhiteR15") ~= nil, "WhiteR15 preserved in GameModels.rbxm")
 check(models:FindFirstChild("Club") ~= nil, "Club preserved in GameModels.rbxm")
 check(models:FindFirstChild("Potion") ~= nil, "Potion preserved in GameModels.rbxm")
+local bruteGlow = {}
+for _, bruteName in { "HellBrute_1", "HellBrute_2" } do
+	local brute = models:FindFirstChild(bruteName)
+	check(brute ~= nil and brute:IsA("Model"), bruteName .. " template exists in GameModels.rbxm")
+	check(brute:FindFirstChild("HumanoidRootPart") ~= nil, bruteName .. " has HumanoidRootPart")
+	check(brute:FindFirstChildOfClass("Humanoid") ~= nil, bruteName .. " has Humanoid")
+	check(brute:GetAttribute("Paintable") == nil and brute:GetAttribute("SurfaceVersion") == nil, bruteName .. " is not a paintable white body")
+	for _, partName in { "HornLeft", "HornRight", "PauldronLeft", "PauldronRight", "ChestSigil", "BruteClubProp" } do
+		check(brute:FindFirstChild(partName) ~= nil, bruteName .. " has baked part: " .. partName)
+	end
+	bruteGlow[bruteName] = brute.HornLeft.Color
+end
+check(bruteGlow.HellBrute_1 ~= bruteGlow.HellBrute_2, "HellBrute variants keep distinct baked colors")
+local clerk = models:FindFirstChild("AutoClerk")
+check(clerk ~= nil and clerk:IsA("Model"), "AutoClerk template exists in GameModels.rbxm")
+check(clerk:FindFirstChild("HumanoidRootPart") ~= nil, "AutoClerk has HumanoidRootPart")
+check(clerk:FindFirstChildOfClass("Humanoid") ~= nil, "AutoClerk has Humanoid")
+check(clerk:GetAttribute("Paintable") == nil and clerk:GetAttribute("SurfaceVersion") == nil, "AutoClerk is not a paintable white body")
+for _, partName in { "ClerkVisor", "ClerkBadge", "Bottle", "HeldPotionCore", "HeldPotionStopper" } do
+	local part = clerk:FindFirstChild(partName)
+	check(part ~= nil and part:IsA("BasePart"), "AutoClerk has baked part: " .. partName)
+end
+check(clerk.HeldPotionCore:FindFirstChildOfClass("PointLight") ~= nil, "AutoClerk potion core owns a PointLight")
+check(clerk.Bottle.Transparency == 1 and clerk.ClerkVisor.Transparency == 0, "AutoClerk hides the carried potion and shows the visor")
 
 local pad = models:FindFirstChild("UnlockPad")
 check(pad ~= nil and pad:IsA("Model"), "UnlockPad template exists in GameModels.rbxm")

@@ -12,7 +12,7 @@ description: DemonShop 项目身份、源码入口、Studio、工具及版本管
 - 本地文件为源码入口，经 Script Sync 同步。MCP 只读核对源码，Edit 模式修改 UI/模型，不启动未经请求的 Play。
 - 实例模型与道具模板统一放置于 `ReplicatedStorage.Models`，服务端从该目录克隆；恢复导出为 `Assets/Models/GameModels.rbxm`。不使用 ServerStorage 保存业务模型模板。
 - 主 GUI 由 `UIManager.CreateGameScreenGui` 创建和持有；加工客户端只接收 GUI 引用。`GameFrameWrapper` 维护 HUD 根缩放，UIManager 维护窗口根缩放，嵌套包装器不重复缩放。资料补发只更新缓存和设置，不重复初始化业务。
-- UI 唯一模板位于 `ReplicatedStorage.UI`。`GameScreenGui.CenterFrame` 使用固定 Center 画布；`PaintFaceGui` / `PaintCellFrame` 用于本地身体笔迹；`ScreenLayoutGuideFrame` 仅作设计参考。可恢复导出在 `Assets/UI`，通过 MCP 导入，不作为运行时文件依赖。
+- UI 唯一模板位于 `ReplicatedStorage.UI`。`GameScreenGui` 使用 `ScreenInsets = None`、`IgnoreGuiInset = true` 与固定 `1920×1080` `CenterFrame` 画布（所有屏幕 UI 含移动端触控操作容器 `TouchControlsFrame` 与自研固定跳跃键均固定在画布内，按 `PreferredInput == Touch` 控制显隐，不动态追踪原生 `JumpButton`）；`PaintFaceGui` / `PaintCellFrame` 用于本地身体笔迹；`ScreenLayoutGuideFrame` 仅作设计参考。可恢复导出在 `Assets/UI`，通过 MCP 导入，不作为运行时文件依赖。
 - 基础总控为 `ServerGameManager` / `ClientGameManager`，只装配通用能力与业务；加工总控为 `ProcessingManager` / `ClientProcessingManager`，布娃娃模块为 `Ragdoll`。`ServerGameInfo.GetPlayerInfo` 返回无元表的原生 `GameConfig.PlayerInfo`；修订号、保存锁和关闭状态仅保存在私有 sessions，不公开 profile 包装。`ServerGameInfo` 唯一持有玩家资料，当前项目没有旧存档；`PlayerInfo` DataStore 直接保存完整原生 `PlayerSaveInfo`（金币、设置、登录/在线统计与通行证），保留基础初始 `dataVersion = 0`，不新增版本或兼容历史存档。加工模块不得另建存档或玩家全局生命周期。集中参数为 `Shared/GameConfig`，场景加工状态仅本局有效。GameConfig 保持参考框架分段赋值、原生 PlayerSaveInfo/PlayerInfo 类型和默认工厂结构，业务参数追加到末尾；SaveRules 只做当前原生结构校验与快照复制，不维护独立 version 字段或格式转换；不在 GameConfig 增加元表或持久化替身类型。
 - 基础初始化顺序为 AcquirePlayerSaveInfo → 地区/最终配置解析 → InitPlayerInfo（服务端事件、本玩家及其他玩家通知）→ 加工装配/GameReady；资料补发不重新初始化。离场或关服时取消加载并释放租约。PlayerSaveInfoVersionUpdateTool 仅保留基础框架预留接口，不注册迁移步骤；参考框架的第一步示例保留但不调用，删除本项目新增的版本 2 模块。
 - 客户端基础初始化禁用原生 Backpack。自定义统计按玩家缓存，8 秒批量发送，失败保留重试；离场队列与在途请求在基础总控的同一 25 秒关服预算内收尾。默认关闭时不创建发送循环或访问网络。清档传送携带 GameConfig.CreateDefaultPlayerSaveInfo 原生结构。
@@ -25,6 +25,6 @@ description: DemonShop 项目身份、源码入口、Studio、工具及版本管
 - 录屏优先 Studio MCP 的 `video_capture`（或实时 schema 含录像参数的 `screen_capture`）。MCP 录像不可用或失败后，OBS 作为后备：默认场景 `DemonShop_Studio_Viewport`、来源 `DemonShop_Studio_Window`，Studio 标题默认匹配 `Place1`；可用 `ROBLOX_OBS_SCENE` / `ROBLOX_OBS_SOURCE` / `ROBLOX_OBS_PROJECT` 覆盖；工具位于 `Tools/Studio`，依赖 `requirements-obs.txt`。校准、录制与 live tests 按实际任务授权执行。
 - 音频工具位于 `Tools/Audio`；上传显式提供 names、sounds-dir、manifest、creator-type、creator-id、prefix。凭证由 ROBLOX_API_KEY 环境变量提供。部署工具只生成 Luau，检查目标后经 MCP 执行；没有预置业务素材或归属 ID。
 - 上传调用：`python Tools/Audio/upload_roblox_audio.py --names Click --sounds-dir Assets/Sounds --manifest Assets/Sounds/audio_manifest.json --creator-type group --creator-id <实际归属ID> --prefix DemonShop_`。部署前使用相同 names、sounds-dir、manifest、creator-type、creator-id 调用 `setup_sounds_in_studio.py --emit-code`，再经目标 MCP 执行。依赖声明在 `Tools/Audio/requirements.txt`。
-- UI 离线工具：`python Tools/UI/build_screen_layout_guide.py <实测samples.json> --output-dir .cache/layout`；采样器和 Edit 构建器复用 roblox-ui-system/assets，不额外复制实现。当前禁放参考继承来源项目的 14 份样本，未在本项目重新做设备验证；系统区变化时补采样。
+- UI 离线工具：`python Tools/UI/build_screen_layout_guide.py <实测samples.json> --output-dir .cache/layout`；采样器和 Edit 构建器复用 roblox-ui-system/assets，不额外复制实现。离线并集默认仅合并 `TopLeftCore`（仅保留原生跳跃键时按需传入 `JumpButton`）；系统区变化时补采样更新。
 - SVN 文件及 External 不纳入 Git；保留所有 .svn。不发布 Package。提交、推送与资产发布分别按实际授权执行。
 - 新增/维护业务脚本首行中文作用注释，第二行 --!strict。用户要求保存的设计文档放根目录 功能文档。

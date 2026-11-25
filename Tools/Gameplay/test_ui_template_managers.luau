@@ -1,4 +1,4 @@
--- UI 模板管理器回归：单例、动作重绑、端显隐、翻译释放、标牌及参考层生命周期
+-- UI 模板管理器回归：单例、动作重绑、1920×1080 触控区、双端画符按钮、翻译释放、标牌及参考层生命周期
 local U=require('./FoundationUIBoundary')
 local UI=require('./UIManager')
 local R=require('@lune/roblox')
@@ -8,31 +8,41 @@ local screen=UI.GetGameScreenGuiManager()
 local gui=UI.CreateGameScreenGui()
 local root=gui:WaitForChild('CenterFrame')
 check(UI.CreateGameScreenGui()==gui and screen.gui==gui,'one main GUI belongs to its dedicated manager')
+check(gui:FindFirstChild('TouchPaintFrame')==nil,'legacy TouchPaintFrame is removed')
+local tc=root:WaitForChild('TouchControlsFrame')
+check(screen.touchControls==tc and tc.Size==R.UDim2.fromOffset(1920,1080),'TouchControlsFrame lives inside CenterFrame at 1920x1080')
 local calls=0
 local function onAction() calls+=1 end
 local actions={attack=onAction,exitPaint=onAction,resetView=onAction}
+local attack=screen.attackButton
+local baseAttackInputs=attack.InputBegan:Count()
 screen:BindActions(actions);screen:BindActions(actions)
 local button=root:WaitForChild('ExitPaintButton')
 button.Activated:Fire()
 check(calls==1 and button.Activated:Count()==1,'rebinding actions disconnects previous handlers')
-local attack=screen.attackButton
 attack.InputBegan:Fire({UserInputType=R.Enum.UserInputType.MouseButton1})
-check(calls==2 and attack.InputBegan:Count()==1,'touch attack presses once')
+check(calls==2 and attack.InputBegan:Count()==baseAttackInputs+1,'touch attack presses once')
+local touchJump=tc:WaitForChild('TouchJumpFrame')
+local touchAttack=tc:WaitForChild('TouchAttackFrame')
+local touchSprint=tc:WaitForChild('TouchSprintFrame')
+local throwStick=tc:WaitForChild('ThrowStick')
+check(screen:GetJumpButton()==touchJump:WaitForChild('JumpButton') and screen:GetSprintButton()==touchSprint:WaitForChild('SprintButton'),'manager exposes fixed jump and sprint buttons')
+local jumpPos,attackPos,sprintPos,stickPos=touchJump.Position,touchAttack.Position,touchSprint.Position,throwStick.Position
+local jumpSize,attackSize,sprintSize,stickSize=touchJump.Size,touchAttack.Size,touchSprint.Size,throwStick.Size
 screen:Refresh({painting=false,hasTarget=true})
-check(not screen.touchAttack.Visible,'desktop keeps the touch attack button hidden')
+check(not tc.Visible and not screen.touchAttack.Visible,'desktop keeps TouchControlsFrame hidden')
 U.UserInputService.TouchEnabled=true
 U.UserInputService.PreferredInput=R.Enum.PreferredInput.Touch
-local jump=U.Node('JumpButton','ImageButton')
-jump.AbsoluteSize=R.Vector2.new(100,100)
-jump.AbsolutePosition=R.Vector2.new(220,400)
-jump.Visible=true
-jump.Parent=U.playerGui
-check(screen.touchAttack.Visible and screen.touchAttack.Size==R.UDim2.fromOffset(90,90),'touch attack matches the jump button size')
-check(screen.touchAttack.Position==R.UDim2.fromOffset(122,302),'touch attack keeps a gap above the jump button')
-screen:Refresh({painting=false,hasTarget=false,windowOpen=true})
-check(not screen.touchAttack.Visible,'an open window hides the touch attack button')
+U.UserInputService.PreferredInputChanged:Fire()
+check(tc.Visible and screen.touchJump.Visible and screen.touchAttack.Visible and screen.touchSprint.Visible and not screen.throwStick.Visible,'touch preferred input shows jump, attack and sprint and hides throw stick')
+check(touchJump.Position==jumpPos and touchAttack.Position==attackPos and touchSprint.Position==sprintPos and throwStick.Position==stickPos,'touch positions stay fixed in 1920x1080 canvas')
+check(touchJump.Size==jumpSize and touchAttack.Size==attackSize and touchSprint.Size==sprintSize and throwStick.Size==stickSize,'touch sizes stay fixed in 1920x1080 canvas')
+screen:Refresh({painting=false,hasTarget=false,carryingBody=true})
+check(tc.Visible and not screen.touchAttack.Visible and screen.throwStick.Visible and screen.touchJump.Visible,'carrying body swaps attack for throw stick while keeping jump visible')
+screen:Refresh({painting=false,hasTarget=false,windowOpen=true,carryingBody=true})
+check(not tc.Visible and not screen.touchAttack.Visible and not screen.touchSprint.Visible and not screen.throwStick.Visible,'an open window hides all touch controls')
 screen:SetPainting(true)
-check(screen.paintFrame.Visible and screen.touchFrames.TouchPaintFrame.Visible and not screen.buttons.ExitPaintButton.Visible and not screen.touchAttack.Visible,'touch paint controls replace the attack button')
+check(screen.paintFrame.Visible and screen.buttons.ExitPaintButton.Visible and screen.buttons.ResetViewButton.Visible and not tc.Visible,'touch painting uses shared ExitPaintButton and ResetViewButton and hides TouchControlsFrame')
 screen:SetProgress(.375)
 check(screen.labels.ProgressText.Text=='37%' and screen.fill.Size==R.UDim2.fromScale(.375,1),'paint progress updates number and fill')
 local brush=root:WaitForChild('PaintBrushCursorImage')
@@ -47,12 +57,13 @@ screen:UpdatePointer(R.Vector2.zero,false)
 check(brush.Visible,'lifting the finger leaves the brush attached')
 screen:SetPainting(false)
 U.UserInputService.TouchEnabled=false
+U.UserInputService.PreferredInput=R.Enum.PreferredInput.KeyboardAndMouse
 U.UserInputService.MouseIconEnabled=true
 U.GuiService.MenuIsOpen=false
 screen:SetPainting(true)
 screen:UpdatePointer(R.Vector2.zero,false)
 check(not U.UserInputService.MouseIconEnabled,'desktop paint hides the system cursor')
-check(screen.buttons.ResetViewButton.Visible,'desktop painting exposes the reset control')
+check(screen.buttons.ExitPaintButton.Visible and screen.buttons.ResetViewButton.Visible,'desktop painting exposes shared paint buttons')
 U.GuiService.MenuIsOpen=true
 screen:Refresh({painting=true,hasTarget=false})
 check(U.UserInputService.MouseIconEnabled,'the Roblox menu restores the system cursor')
@@ -117,10 +128,9 @@ guide:Create(root);guide:Destroy();guide:Destroy()
 check(next(guide.frames)==nil,'guide bulk teardown is idempotent')
 local textSignal=notice:GetPropertyChangedSignal('Text')
 screen:UnbindActions();button.Activated:Fire();attack.InputBegan:Fire({UserInputType=R.Enum.UserInputType.MouseButton1})
-check(calls==2 and button.Activated:Count()==0 and attack.InputBegan:Count()==0,'stopped gameplay cannot receive UI actions')
+check(calls==2 and button.Activated:Count()==0 and attack.InputBegan:Count()==baseAttackInputs,'stopped gameplay cannot receive UI actions')
 UI.Destroy();UI.Destroy()
 check(gui.destroyed and textSignal:Count()==0 and notice.translationKey==nil,'main teardown releases GUI, text listeners and translation registration')
-U.workspace.CurrentCamera=camera
 U.UserInputService.TouchEnabled=false
 local replacement=UI.CreateGameScreenGui()
 check(replacement~=gui and replacement.Parent==U.playerGui,'whole UI can initialize again after repeated destruction')

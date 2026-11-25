@@ -186,11 +186,24 @@ function Controller.Begin(self: Controller, input: InputObject, useStick: boolea
 	return true
 end
 
+local function IsEffectivelyVisible(node: GuiObject): boolean
+	local current: Instance? = node
+	while current do
+		if current:IsA("GuiObject") and not current.Visible then
+			return false
+		elseif current:IsA("ScreenGui") and not current.Enabled then
+			return false
+		end
+		current = current.Parent
+	end
+	return true
+end
+
 function Controller.OnMouseBegan(self: Controller, input: InputObject): boolean
 	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
 		return false
 	end
-	if self.stick and self.stick.Visible then
+	if self.stick and IsEffectivelyVisible(self.stick) then
 		return false
 	end
 	return self:Begin(input, false)
