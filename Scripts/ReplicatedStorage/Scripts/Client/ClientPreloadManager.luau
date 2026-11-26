@@ -7,8 +7,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local GameData = require(ReplicatedStorage.Scripts.Shared.GameData)
 local ModelTemplates = require(ReplicatedStorage.Scripts.Shared.ModelTemplates)
-local ShopIconData = require(ReplicatedStorage.Scripts.Shared.ShopIconData)
-
 local Manager = {}
 
 export type WarmupOptions = {
@@ -35,6 +33,8 @@ local generation = 0
 local characterConnection: RBXScriptConnection? = nil
 local heldAnimations: { Animation } = {}
 local heldSlashSounds: { Sound } = {}
+local ownedAnimations: { Animation } = {}
+local ownedSounds: { Sound } = {}
 
 local function IsCurrent(token: number): boolean
 	return token == generation
@@ -181,10 +181,27 @@ end
 local function CreateConfiguredAnimations(): { Animation }
 	local animations: { Animation } = {}
 	local seen: { [string]: boolean } = {}
-	local function AddAnimation(animationId: string)
+	local function AddOwnedAnimation(animationId: string)
 		if animationId ~= "" and not seen[animationId] then
 			seen[animationId] = true
-			table.insert(animations, CreateAnimation(animationId))
+			local animation = CreateAnimation(animationId)
+			table.insert(ownedAnimations, animation)
+			table.insert(animations, animation)
+		end
+	end
+	local function AddTemplateAnimation(animation: Animation)
+		local animationId = animation.AnimationId
+		if animationId ~= "" and not seen[animationId] then
+			seen[animationId] = true
+			table.insert(animations, animation)
+		end
+	end
+	for _, weapon in GameData.GetAllWeapons() do
+		local template = weapon.slashAnimation
+		if template then
+			AddTemplateAnimation(template)
+		else
+			AddOwnedAnimation(weapon.slashAnim)
 		end
 	end
 	local baseIds = {
@@ -194,10 +211,7 @@ local function CreateConfiguredAnimations(): { Animation }
 		Config.WalkAnimation,
 	}
 	for _, animationId in baseIds do
-		AddAnimation(animationId)
-	end
-	for _, weapon in GameData.GetAllWeapons() do
-		AddAnimation(weapon.slashAnim)
+		AddOwnedAnimation(animationId)
 	end
 	return animations
 end
@@ -205,19 +219,32 @@ end
 local function CreateSlashSounds(): { Sound }
 	local sounds: { Sound } = {}
 	local seen: { [string]: boolean } = {}
-	local function AddSound(soundId: string, suffix: string)
+	local function AddOwnedSound(soundId: string, suffix: string)
 		if soundId ~= "" and not seen[soundId] then
 			seen[soundId] = true
 			local sound = Instance.new("Sound")
 			sound.Name = SlashSoundName .. suffix
 			sound.SoundId = soundId
+			table.insert(ownedSounds, sound)
 			table.insert(sounds, sound)
 		end
 	end
-	AddSound(Config.WeaponSlashSound, "")
-	for _, weapon in GameData.GetAllWeapons() do
-		AddSound(weapon.slashSound, "_" .. tostring(weapon.id))
+	local function AddTemplateSound(sound: Sound)
+		local soundId = sound.SoundId
+		if soundId ~= "" and not seen[soundId] then
+			seen[soundId] = true
+			table.insert(sounds, sound)
+		end
 	end
+	for _, weapon in GameData.GetAllWeapons() do
+		local template = weapon.slashSoundTemplate
+		if template then
+			AddTemplateSound(template)
+		else
+			AddOwnedSound(weapon.slashSound, "_" .. tostring(weapon.id))
+		end
+	end
+	AddOwnedSound(Config.WeaponSlashSound, "")
 	return sounds
 end
 
@@ -394,6 +421,8 @@ end
 -- 后台收集本局资源并预渲染克隆。取消后在途任务不再继续挂载。
 function Manager.PrepareGame()
 	local token = generation
+	table.clear(ownedAnimations)
+	table.clear(ownedSounds)
 	local animations = CreateConfiguredAnimations()
 	local slashSounds = CreateSlashSounds()
 	heldAnimations = animations
@@ -422,10 +451,13 @@ function Manager.PrepareGame()
 		table.insert(shopIcons, decal)
 		table.insert(assets, decal)
 	end
-	for _, iconList in { ShopIconData.weapon, ShopIconData.carryTool } do
-		for _, icon in iconList do AddShopImage(icon) end
+	for _, weapon in GameData.GetAllWeapons() do
+		AddShopImage(weapon.icon)
 	end
-	AddShopImage(ShopIconData.potion)
+	for _, carryTool in GameData.GetAllCarryTools() do
+		AddShopImage(carryTool.icon)
+	end
+	AddShopImage(Config.PotionIcon)
 	local ui = ReplicatedStorage:FindFirstChild("UI")
 	local shop = if ui then ui:FindFirstChild("PersonalShopFrame") else nil
 	if shop then
@@ -434,6 +466,14 @@ function Manager.PrepareGame()
 			if uri then AddShopImage(uri) end
 		end
 	end
+	local effectTemplates: { Instance } = {}
+	for _, weapon in GameData.GetAllWeapons() do
+		local effect = ModelTemplates.FindEffect(weapon.model)
+		if effect then
+			table.insert(effectTemplates, effect)
+		end
+	end
+	Manager.WarmupEffects(effectTemplates)
 	Manager.PreloadAsync(assets)
 	for _, decal in shopIcons do
 		decal:Destroy()
@@ -451,7 +491,9 @@ function Manager.Cancel()
 		characterConnection:Disconnect()
 		characterConnection = nil
 	end
-	ReleaseAssets(heldAnimations, heldSlashSounds)
+	ReleaseAssets(ownedAnimations, ownedSounds)
+	table.clear(ownedAnimations)
+	table.clear(ownedSounds)
 	table.clear(heldAnimations)
 	table.clear(heldSlashSounds)
 end

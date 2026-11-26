@@ -51,14 +51,6 @@ function Preview.Update(self: Preview, origin: Vector3, direction: Vector3, grav
 	local duration, landing, surface, normal, hit = Arc.Sweep(origin, velocity, gravity, Config.PreviewStepSeconds, Config.PreviewDurationSeconds, Config.SweepSize, Cast)
 	local hitBaffle = hit ~= nil and baffles ~= nil and hit:IsDescendantOf(baffles)
 	local legal = if surface then legalAt(surface, normal, hitBaffle) else false
-	if normal and not legal and math.abs(normal.Y) <= 0.2 then
-		local function CastFloor(start: Vector3, delta: Vector3): RaycastResult?
-			return workspace:Raycast(start, delta, self.params)
-		end
-		local corrected, floor = Arc.WallLanding(landing, normal, CastFloor)
-		if floor then surface, normal = floor, Vector3.yAxis end
-		legal = legalAt(corrected)
-	end
 	self.origin, self.velocity, self.gravity, self.baffles, self.legal = origin, velocity, gravity, baffles, legal
 	self.nextTrace = now + Config.RefreshIntervalSeconds
 	local color = if legal then Config.LegalColor else Config.WarningColor

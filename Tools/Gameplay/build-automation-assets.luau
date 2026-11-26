@@ -849,11 +849,11 @@ weldAllToRoot(clerkModel, clerkRoot)
 -- ============================================================================
 -- 5. 放置 6 处解锁底盘圈（A00 ~ A05，使用英文基准词条 + PadGui.AutoLocalize=false）
 -- ============================================================================
-spawnUnlockPad(padsFolder, "A01_Brute1", Vector3.new(-54.0, streetTopY, -44.2), 2, "HELL BRUTE #1", "AUTO-STUNS CITIZENS AND DROPS INTO CHUTE", 1, "REQUIRES: FAST DROP CHUTE", 1000, "1,000 COINS", "Locked")
-spawnUnlockPad(padsFolder, "A02_Brute2", Vector3.new(-50.2, streetTopY, -44.2), 3, "HELL BRUTE #2", "ADDS A SECOND BRUTE TO DOUBLE SUPPLY", 2, "REQUIRES: HELL BRUTE #1", 2500, "2,500 COINS", "Locked")
-spawnUnlockPad(padsFolder, "A03_AutoRune", Vector3.new(-19.0, 0.0, -19.25), 4, "AUTO RUNE TABLE", "AUTO-PULLS BODIES AND ENGRAVES RUNES", 1, "REQUIRES: FAST DROP CHUTE", 2000, "2,000 COINS", "Locked")
-spawnUnlockPad(padsFolder, "A04_AutoSmelter", Vector3.new(-1.0, 0.0, -17.25), 5, "AUTO SMELTER", "AUTO-SMELTS RUNE BODIES INTO POTIONS", 4, "REQUIRES: AUTO RUNE TABLE", 4500, "4,500 COINS", "Locked")
-spawnUnlockPad(padsFolder, "A05_AutoClerk", Vector3.new(22.0, 0.0, -19.25), 6, "AUTO CLERK", "AUTO-DELIVERS POTIONS FOR COINS", 0, "PRE-REQ: NONE", 9000, "9,000 COINS", "Insufficient")
+spawnUnlockPad(padsFolder, "A01_Brute1", Vector3.new(-54.0, streetTopY, -44.2), 2, "HELL BRUTE #1", "AUTO-STUNS CITIZENS AND DROPS INTO CHUTE", 1, "REQUIRES: FAST DROP CHUTE", 1000, "1K COINS", "Locked")
+spawnUnlockPad(padsFolder, "A02_Brute2", Vector3.new(-50.2, streetTopY, -44.2), 3, "HELL BRUTE #2", "ADDS A SECOND BRUTE TO DOUBLE SUPPLY", 2, "REQUIRES: HELL BRUTE #1", 2500, "2.5K COINS", "Locked")
+spawnUnlockPad(padsFolder, "A03_AutoRune", Vector3.new(-19.0, 0.0, -19.25), 4, "AUTO RUNE TABLE", "AUTO-PULLS BODIES AND ENGRAVES RUNES", 1, "REQUIRES: FAST DROP CHUTE", 2000, "2K COINS", "Locked")
+spawnUnlockPad(padsFolder, "A04_AutoSmelter", Vector3.new(-1.0, 0.0, -17.25), 5, "AUTO SMELTER", "AUTO-SMELTS RUNE BODIES INTO POTIONS", 4, "REQUIRES: AUTO RUNE TABLE", 4500, "4.5K COINS", "Locked")
+spawnUnlockPad(padsFolder, "A05_AutoClerk", Vector3.new(22.0, 0.0, -19.25), 6, "AUTO CLERK", "AUTO-DELIVERS POTIONS FOR COINS", 0, "PRE-REQ: NONE", 9000, "9K COINS", "Insufficient")
 
 unlockPadTemplate:Destroy()
 return BuildSummary()

@@ -134,6 +134,15 @@ for id, tool in drafts do
 	local oldRoot = models:FindFirstChild(tool.Name)
 	if oldRoot then oldRoot:Destroy() end
 	local old = (weapons :: Folder):FindFirstChild(tool.Name)
+	if old and old:IsA("Tool") then
+		tool.TextureId = old.TextureId
+		for _, childName in { "Slash", "SlashSound" } do
+			local child = old:FindFirstChild(childName)
+			if child then
+				child.Parent = tool
+			end
+		end
+	end
 	if old then old:Destroy() end
 	tool.Parent = weapons
 	for _, folder in {previews, legacyPreviews} do

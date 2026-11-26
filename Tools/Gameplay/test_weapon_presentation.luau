@@ -28,6 +28,23 @@ Check(weapons ~= nil and weapons:IsA("Folder"), "GameModels.rbxm contains Weapon
 for _, name in { "W01_RustyPan", "W02_IronCrowbar", "W03_DemonScimitar", "W04_ReaperScythe", "W05_VoidCannon", "W06_AbyssalHammer" } do
 	local tool = weapons and weapons:FindFirstChild(name)
 	Check(tool and tool:IsA("Tool") and not tool.CanBeDropped, "active weapon template exists under Weapons: " .. name)
+	local slash = tool and tool:FindFirstChild("Slash")
+	local slashSound = tool and tool:FindFirstChild("SlashSound")
+	Check(slash and slash:IsA("Animation") and tostring(slash.AnimationContent):find(Config.WeaponSlashAnimation, 1, true) ~= nil, "weapon slash animation is on the tool: " .. name)
+	Check(slashSound and slashSound:IsA("Sound") and tostring(slashSound.AudioContent):find(Config.WeaponSlashSound, 1, true) ~= nil, "weapon slash sound is on the tool: " .. name)
+end
+local effects = full[1]:FindFirstChild("Effects")
+Check(effects and effects:IsA("Folder") and effects:FindFirstChild("ThrowAim"), "existing ThrowAim effect stays archived")
+for _, spec in {
+	{ name = "W03_DemonScimitar", range = 8, width = nil },
+	{ name = "W04_ReaperScythe", range = 10, width = nil },
+	{ name = "W05_VoidCannon", range = 20, width = 5 },
+	{ name = "W06_AbyssalHammer", range = 18, width = nil },
+} do
+	local effect = effects and effects:FindFirstChild(spec.name)
+	Check(effect and effect:IsA("Model") and effect.PrimaryPart ~= nil, "attack effect template exists: " .. spec.name)
+	Check(effect and effect:GetAttribute("DesignRange") == spec.range, "attack effect design range: " .. spec.name)
+	Check(effect and effect:GetAttribute("DesignWidth") == spec.width, "attack effect design width: " .. spec.name)
 end
 
 local character = Boundary.Character()

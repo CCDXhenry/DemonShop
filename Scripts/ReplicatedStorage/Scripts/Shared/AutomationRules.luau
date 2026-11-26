@@ -1,5 +1,6 @@
 -- 自动化公共解锁规则：前置校验、三态 UI 状态计算及 UnlockPad 外观同步
 --!strict
+local NumberExtension = require(game:GetService("ReplicatedStorage").Core.Scripts.Shared.NumberExtension)
 local GameData = require(script.Parent.GameData)
 local Texts = require(script.Parent.GameTexts)
 export type PadState = string -- "Unlocked" | "Locked" | "Insufficient" | "Ready"
@@ -63,15 +64,7 @@ local function ComputePadState(facilityId: number, unlocked: { [number]: boolean
 end
 
 local function FormatCost(cost: number): string
-	local rounded = tostring(math.max(0, math.floor(cost + 0.5)))
-	while true do
-		local nextStr, count = string.gsub(rounded, "^(-?%d+)(%d%d%d)", "%1,%2")
-		rounded = nextStr
-		if count == 0 then
-			break
-		end
-	end
-	return rounded
+	return NumberExtension.FormatBigNumberAA(cost)
 end
 
 local function DescribeTitle(facilityId: number): string?

@@ -19,6 +19,13 @@ Check(velocity.Y > 0 and velocity.Z > 0 and math.abs(velocity.X) < 1e-6, "launch
 local origin = Vector3.new(0, 5, 0)
 Check((Arc.Position(origin, velocity, gravity, 0) - origin).Magnitude < 1e-6, "position at release")
 local flight = 2 * velocity.Y / gravity
+local visualPhase, roll = Arc.VisualFlight(0.40, 0.6)
+local _, earlyRoll = Arc.VisualFlight(0.20, 0.6)
+local _, lateRoll = Arc.VisualFlight(0.90, 0.6)
+local _, shortRoll = Arc.VisualFlight(0.40, 0.08)
+Check(visualPhase > 0 and earlyRoll < roll and roll < math.pi * 2 and lateRoll == math.pi * 2, "visible full roll before settling")
+Check(shortRoll < earlyRoll, "short throws use a smaller roll")
+Check(Arc.VisualBounce(0) == 0 and Arc.VisualBounce(0.08) > 0 and Arc.VisualBounce(0.25) == 0, "landing has one bounded rebound")
 local landed = Arc.Position(origin, velocity, gravity, flight)
 Check(math.abs(landed.Y - origin.Y) < 1e-3, "flat return height")
 Check(math.abs((landed - origin).Z - config.RangeStuds) < 1e-3, "flat range")

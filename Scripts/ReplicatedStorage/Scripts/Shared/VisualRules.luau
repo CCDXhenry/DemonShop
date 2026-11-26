@@ -66,6 +66,9 @@ function Rules.Validate(raw: unknown): boolean
 	elseif value.triangle ~= nil then
 		return false
 	end
+	if value.side ~= nil and value.side ~= 1 and value.side ~= 2 then
+		return false
+	end
 	return true
 end
 
@@ -91,6 +94,7 @@ function Rules.Apply(state: Types.VisualState, segments: { Types.VisualSegment }
 			or old.scale ~= segment.scale
 			or old.triangle ~= segment.triangle
 			or old.surfaceVersion ~= segment.surfaceVersion
+			or old.side ~= segment.side
 		) then
 			return nil, "SegmentOriginChanged"
 		end
@@ -118,6 +122,7 @@ function Rules.Apply(state: Types.VisualState, segments: { Types.VisualSegment }
 				scale = math.clamp(segment.scale, Config.RuneMinScale, 1),
 				triangle = segment.triangle,
 				surfaceVersion = segment.surfaceVersion,
+				side = segment.side,
 			}
 			state.segments[segment.key] = stored
 			if not old then

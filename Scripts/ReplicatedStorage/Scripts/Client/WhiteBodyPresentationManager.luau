@@ -4,7 +4,6 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local GameConfig = require(script.Parent.Parent.Shared.GameConfig)
 local Physics = require(script.Parent.Parent.Shared.PhysicsConfig)
-local ThrowArc = require(script.Parent.Parent.Shared.ThrowArc)
 local HitRules = require(script.Parent.Parent.Shared.HitFeedbackRules)
 local Rotation = require(script.Parent.Parent.Shared.PaintRotation)
 local Types = require(script.Parent.Parent.Shared.GameTypes)
@@ -16,6 +15,8 @@ local Contact = require(script.Parent.SoftContact)
 local Impact = require(script.Parent.ImpactReaction)
 local Mixer = require(script.Parent.PoseMixer)
 local Fall = require(script.Parent.LocalRagdoll)
+local ManualThrow = require(script.Parent.ManualThrowPresentation)
+local Sound = require(script.Parent.Parent.Shared.GameSoundTool)
 local Input = game:GetService("UserInputService")
 local Manager = {}
 Manager.__index = Manager
@@ -48,6 +49,8 @@ type BodyView = {
 	fall: Fall.State?, history: Fall.History?, sampleDt: number?,
 	handoff: AuthorityHandoff?,
 	altarToss: LocalAltarToss?,
+	manualToss: ManualThrow.State?,
+	manualVisible: boolean?,
 	offsets: {[string]: CFrame}, modelSince: number, boundAt: number, impacts: Impact.State, finalVersion: number?, mode: string, requested: string, jointMap: Adapter.Map, sourceJoints: Adapter.Map, rootTarget: BasePart?,
 	physicsMask: {[string]: boolean}, predictionTokens: {[number]: HitRules.Prediction},
 	cleanup: {RBXScriptConnection}, hidden: {[BasePart]: number}, dirty: boolean, retryAt: number, diagnostic: string?,
@@ -59,11 +62,13 @@ export type Manager = typeof(setmetatable({} :: {
 	generation: number, step: number, tableView: TableView.Presentation, hitView: HitView.Presentation,
 	onDisplay: (string, Model?) -> (), phases: {RBXScriptConnection}, debugEndpoint: BindableFunction?,
 	flyOrigin: { [string]: CFrame }, rootMissingAt: { [string]: number }, rootWarned: { [string]: boolean },
+	manualImpacts: { [string]: { started: number, lastPlayed: number, played: boolean, connections: { RBXScriptConnection } } },
 }, Manager))
 function Manager.new(tableView: TableView.Presentation, hitView: HitView.Presentation, onDisplay: (string, Model?) -> ()): Manager
 	local self: Manager = setmetatable({views={}, items={}, enabled=true, destroyed=false, generation=0, step=0,
 		contacts={}, retiredAt={}, lastPositions={}, queries=0, contactEnabled=true, impactEnabled=true, fallEnabled=true, pureModel=false,
-		tableView=tableView, hitView=hitView, onDisplay=onDisplay, phases={}, flyOrigin={}, rootMissingAt={}, rootWarned={}}, Manager)
+		tableView=tableView, hitView=hitView, onDisplay=onDisplay, phases={}, flyOrigin={}, rootMissingAt={}, rootWarned={},
+		manualImpacts={}}, Manager)
 	hitView.managed = function(id, source)
 		local v = self.views[id]
 		return v ~= nil and v.mode == "Street" and v.authorityModel == source
@@ -102,6 +107,7 @@ local function Release(self: Manager, v: BodyView)
 	self.contacts[v.id]=nil
 	v.handoff = nil
 	v.altarToss = nil
+	v.manualToss = nil
 	table.clear(v.impacts)
 	for part, value in v.hidden do part.LocalTransparencyModifier = value end
 	table.clear(v.hidden)
@@ -118,6 +124,18 @@ local function Release(self: Manager, v: BodyView)
 	for _,prediction in v.predictionTokens do prediction.resolved=true; prediction.retired=true end
 	table.clear(v.predictionTokens)
 end
+local function ReleaseManualImpact(self: Manager, id: string): ()
+	local entry = self.manualImpacts[id]
+	if not entry then return end
+	self.manualImpacts[id] = nil
+	for _, conn in entry.connections do
+		conn:Disconnect()
+	end
+end
+function Manager.HasManualImpactPlayed(self: Manager, id: string, started: number?): boolean
+	local entry = self.manualImpacts[id]
+	return entry ~= nil and entry.played and (started == nil or entry.started == started)
+end
 function Manager.Unbind(self: Manager, id: string)
 	local v = self.views[id]
 	if self.items[id] and not self.destroyed then self.retiredAt[id]=workspace:GetServerTimeNow() end
@@ -125,6 +143,7 @@ function Manager.Unbind(self: Manager, id: string)
 	self.flyOrigin[id] = nil
 	self.rootMissingAt[id] = nil
 	self.rootWarned[id] = nil
+	ReleaseManualImpact(self, id)
 	if v then Release(self,v); self.onDisplay(id,nil) end
 end
 local function HasPrimaryRoot(model: Model): boolean
@@ -173,13 +192,14 @@ local function Prepare(self: Manager, v: BodyView, receivedPose: Types.BodyPose?
 	clone.Name = if v.requested == "Table" then "LocalRuneBody" elseif v.requested == "Altar" then "LocalAltarBody" else "LocalWhiteBody"
 	local forTable = v.requested == "Table"
 	local forAltar = v.requested == "Altar"
-	Sanitize(clone,clone,forTable or forAltar,forTable)
+	local forManual = v.requested == "ManualToss"
+	Sanitize(clone,clone,forTable or forAltar or forManual,forTable)
 	v.jointMap = Adapter.Map(clone)
 	v.rootTarget = source.PrimaryPart
 	if forTable and not self.items[v.id].paintSlot then
 		self.tableView:Attach(source,clone,v.jointMap.Root.drive,receivedPose)
-	elseif forTable or forAltar or v.requested=="Ground" then
-		if forTable or forAltar then
+	elseif forTable or forAltar or forManual or v.requested=="Ground" then
+		if forTable or forAltar or forManual then
 			for _, joint in v.jointMap do
 				local drive = joint.drive
 				if drive:IsA("Motor6D") then
@@ -517,6 +537,26 @@ local function TransitionTableToAltar(self: Manager, v: BodyView, item: Types.It
 	return true
 end
 
+local function ManualMode(_self: Manager, _item: Types.ItemView, _source: Model, _view: BodyView?): boolean
+	return false
+end
+
+local function StepManual(v: BodyView, item: Types.ItemView, now: number): boolean
+	local state = v.manualToss
+	if not state then return false end
+	local keep, show = ManualThrow.Step(state, item, now)
+	if keep and show ~= v.manualVisible then
+		v.manualVisible = show
+		local clone = state.model
+		for part, original in v.hidden do
+			part.LocalTransparencyModifier = if show then 1 else original
+			local copy = clone:FindFirstChild(part.Name)
+			if copy and copy:IsA("BasePart") then copy.LocalTransparencyModifier = if show then original else 1 end
+		end
+	end
+	return keep
+end
+
 function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.BodyPose?)
 	if self.destroyed then return end
 	local id = item.id
@@ -535,7 +575,7 @@ function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.B
 		if v then Release(self,v); self.onDisplay(id,source) end
 		return
 	end
-	local mode = Mode(item, source, self.enabled)
+	local mode = if ManualMode(self, item, source, v) then "ManualToss" else Mode(item, source, self.enabled)
 	local carried = item.location == "Carried" or item.location == "BruteCarried"
 	if v and v.handoff then
 		local handoff = v.handoff
@@ -573,7 +613,10 @@ function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.B
 			return
 		end
 	end
-	if v and v.authorityModel == source and v.requested == mode and not v.dirty
+	local manual = v and v.manualToss
+	local differentThrow = mode == "ManualToss" and item.location == "Thrown" and manual and item.toss
+		and (manual.version ~= item.version or manual.toss.started ~= item.toss.started)
+	if v and v.authorityModel == source and v.requested == mode and not v.dirty and not differentThrow
 		and (not v.diagnostic or os.clock() < v.retryAt) and (not v.visualModel or v.visualModel.Parent == workspace) then
 		v.appliedVersion = item.version
 		if mode == "Altar" then
@@ -604,6 +647,10 @@ function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.B
 				BeginFall(self,view,item.fall,true)
 			elseif mode == "Altar" then
 				BeginAltarToss(view, item, false)
+			elseif mode == "ManualToss" and item.toss then
+				view.manualToss = ManualThrow.Begin(assert(view.visualModel), source, view.jointMap, view.sourceJoints, item.toss, item.version)
+				view.manualVisible = true
+				StepManual(view, item, workspace:GetServerTimeNow())
 			end
 		end)
 		if not ok then
@@ -775,34 +822,15 @@ local function DrivePoolToss(item: Types.ItemView, now: number): ()
 	local toss = item.toss
 	local player = Players.LocalPlayer
 	local model = item.model
-	if not toss or not player or toss.owner ~= player.UserId or not model or not model.Parent then return end
+	if not toss or toss.kind == "Manual" or not player or toss.owner ~= player.UserId or not model or not model.Parent then return end
 	local root = model.PrimaryPart
 	if (root and root.Anchored) or model:GetAttribute("MotionState") == "ChutePile" then return end
-	local launchOrigin = toss.origin
-	local launchVelocity = toss.velocity
-	local manual = toss.kind == "Manual" and launchOrigin ~= nil and launchVelocity ~= nil
-	local duration = if manual then (toss.duration or Physics.ManualThrow.PreviewDurationSeconds) else Physics.PoolTossSeconds
+	local duration = Physics.PoolTossSeconds
 	local elapsed = now - toss.started
-	local dropFrom = toss.chuteDropFrom
-	if dropFrom and elapsed >= duration then
-		local point = ThrowArc.DropPosition(dropFrom, toss.target.Position, workspace.Gravity, elapsed - duration)
-		model:PivotTo(CFrame.new(point) * toss.target.Rotation)
-		return
-	end
 	if elapsed < duration then
-		local rotation = toss.from.Rotation
-		local position: Vector3
-		if manual and launchOrigin and launchVelocity then
-			position = ThrowArc.Position(launchOrigin, launchVelocity, workspace.Gravity, math.max(elapsed, 0))
-			local floor = toss.target.Position.Y
-			if position.Y < floor then
-				position = Vector3.new(position.X, floor, position.Z)
-			end
-		else
-			local alpha = if duration <= 0 then 1 else elapsed / duration
-			position = ArcPosition(toss.from.Position, toss.target.Position, alpha)
-			rotation = toss.from.Rotation:Lerp(toss.target.Rotation, alpha)
-		end
+		local alpha = if duration <= 0 then 1 else elapsed / duration
+		local position = ArcPosition(toss.from.Position, toss.target.Position, alpha)
+		local rotation = toss.from.Rotation:Lerp(toss.target.Rotation, alpha)
 		model:PivotTo(CFrame.new(position) * rotation)
 		return
 	end
@@ -810,19 +838,69 @@ local function DrivePoolToss(item: Types.ItemView, now: number): ()
 	model:SetAttribute("PoolTossLaunched", toss.started)
 	model:PivotTo(toss.target)
 	local velocity = Vector3.new(0, -Physics.PoolDropSpeed, 0)
-	local spin = Vector3.zero
-	if toss.wallStop then
-		velocity = Vector3.zero
-	elseif manual and launchVelocity then
-		velocity = ThrowArc.Velocity(launchVelocity, workspace.Gravity, duration)
-		if velocity.Magnitude > Physics.MaximumLinearSpeed then
-			velocity = velocity.Unit * Physics.MaximumLinearSpeed
+	local limit = Physics.PoolSpin
+	local spin = Vector3.new((math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit)
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") and not part.Anchored then
+			part.AssemblyLinearVelocity = velocity
+			part.AssemblyAngularVelocity = spin
 		end
-		velocity = ThrowArc.LimitDrop(velocity)
-	else
-		local limit = Physics.PoolSpin
-		spin = Vector3.new((math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit)
 	end
+end
+local function DriveManualToss(self: Manager, item: Types.ItemView, now: number): ()
+	local toss = item.toss
+	local model = item.model
+	if item.location ~= "Thrown" or not toss or toss.kind ~= "Manual" or not model or not model.Parent then
+		if item.location ~= "Thrown" then
+			local entry = self.manualImpacts[item.id]
+			if entry and #entry.connections > 0 then
+				for _, conn in entry.connections do conn:Disconnect() end
+				table.clear(entry.connections)
+			end
+		end
+		return
+	end
+	local ownerPlayer = Players:GetPlayerByUserId(toss.owner)
+	local ownerCharacter = ownerPlayer and ownerPlayer.Character
+	local existing = self.manualImpacts[item.id]
+	if not existing or existing.started ~= toss.started then
+		ReleaseManualImpact(self, item.id)
+		local entry = {
+			started = toss.started,
+			lastPlayed = 0,
+			played = false,
+			connections = {} :: { RBXScriptConnection },
+		}
+		self.manualImpacts[item.id] = entry
+		local manualCfg = Physics.ManualThrow
+		for _, partName in { "UpperTorso", "LowerTorso", "Head" } do
+			local part = model:FindFirstChild(partName)
+			if part and part:IsA("BasePart") then
+				local conn = part.Touched:Connect(function(other: BasePart): ()
+					if not other.CanCollide or other:IsDescendantOf(model) then return end
+					if ownerCharacter and other:IsDescendantOf(ownerCharacter) then return end
+					local speed = part.AssemblyLinearVelocity.Magnitude
+					if speed < manualCfg.ImpactSoundMinSpeed then return end
+					local current = os.clock()
+					if current - entry.lastPlayed < manualCfg.ImpactSoundCooldownSeconds then return end
+					entry.lastPlayed = current
+					entry.played = true
+					Sound.Play("BodyDrop", part.Position)
+				end)
+				table.insert(entry.connections, conn)
+			end
+		end
+	end
+	local player = Players.LocalPlayer
+	if not player or toss.owner ~= player.UserId then return end
+	local root = model.PrimaryPart
+	if root and root.Anchored then return end
+	if model:GetAttribute("ManualTossLaunched") == toss.started then return end
+	model:SetAttribute("ManualTossLaunched", toss.started)
+	if now - toss.started > 0.35 then return end
+	local velocity = toss.velocity
+	local spin = toss.spin or Vector3.zero
+	if not velocity then return end
 	for _, part in model:GetDescendants() do
 		if part:IsA("BasePart") and not part.Anchored then
 			part.AssemblyLinearVelocity = velocity
@@ -841,8 +919,16 @@ function Manager.Step(self: Manager, now: number, seconds: number, painting: boo
 	local available=math.floor(if Input.TouchEnabled then cfg.Fall.MobileBodies else cfg.Fall.DesktopBodies)-(if painting or self.tableView.dynamic then 1 else 0)
 	for _,item in self.items do
 		DrivePoolToss(item, now)
+		DriveManualToss(self, item, now)
 		local v = self.views[item.id]
 		if not v then continue end
+		if v.manualToss then
+			if not StepManual(v, item, now) then
+				Release(self, v)
+				self:Bind(item)
+			end
+			continue
+		end
 		local handoff = v.handoff
 		if handoff then
 			if not StepHandoff(v, handoff, now) then
@@ -941,7 +1027,7 @@ function Manager.GetDebugStats(self: Manager)
 			elseif v.physicsMask[name] then owner="Physics" end
 			joints[name] = {owner=owner, submissions=submissions}
 		end
-		local controllers=(if streetController or v.handoff then 1 else 0)+(if tableController then 1 else 0)+(if altarController then 1 else 0)+(if authorityController then 1 else 0)
+		local controllers=(if streetController or v.handoff or v.manualToss then 1 else 0)+(if tableController then 1 else 0)+(if altarController then 1 else 0)+(if authorityController then 1 else 0)
 		local contact=self.contacts[id]
 		local touches,springs,pulses,predictions={},{},{},{}
 		for sequence,p in v.predictionTokens do predictions[sequence]={due=p.due,played=p.played,resolved=p.resolved} end
@@ -983,6 +1069,7 @@ function Manager.Destroy(self: Manager)
 	self.destroyed = true
 	table.clear(self.lastPositions)
 	for id in self.items do self:Unbind(id) end
+	for id in table.clone(self.manualImpacts) do ReleaseManualImpact(self, id) end
 	table.clear(self.retiredAt)
 	self.hitView.managed = nil
 	for _,connection in self.phases do connection:Disconnect() end

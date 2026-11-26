@@ -48,6 +48,24 @@ function Painting.SetPose(session: Session, item: Types.Item, base: CFrame, orie
 	item.paintOrientation = orientation
 end
 
+local function ResolveFlatTotals(item: Types.Item): (number, number)
+	local frontTotal = item.frontTotalArea
+	local backTotal = item.backTotalArea
+	if frontTotal and backTotal and frontTotal > 0 and backTotal > 0 then
+		return frontTotal, backTotal
+	end
+	local excluded = if item.area == 0 then item.covered else nil
+	local measuredFront, measuredBack = Surface.FlatSideTotals(item.model, excluded)
+	if measuredFront > 0 and measuredBack > 0 then
+		item.frontTotalArea = measuredFront
+		item.backTotalArea = measuredBack
+		return measuredFront, measuredBack
+	end
+	local flipAt = math.clamp(Config.PaintAutoFlipProgress, 0.05, 0.95)
+	local total = math.max(item.totalArea, 0.002)
+	return total * flipAt, total * (1 - flipAt)
+end
+
 function Painting.Apply(session: Session, item: Types.Item, request: Types.Request, pose: CFrame, origin: Vector3, now: number): Result?
 	local sequence = request.sequence
 	if not sequence or sequence <= session.sequence then return nil end
@@ -70,7 +88,15 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 	end
 	local targetRatio = if Config.PaintRotationEnabled then Config.PaintTarget else (Config.PaintFlatTarget or Config.PaintTarget)
 	local targetArea = math.max(item.totalArea * targetRatio, 0.001)
-	local requestFlipped = not Config.PaintRotationEnabled and request.orientation ~= nil and Rotation.IsFlipped(request.orientation)
+	local flatMode = not Config.PaintRotationEnabled
+	local frontTotal, backTotal = 0, 0
+	local frontArea, backArea = 0, 0
+	if flatMode then
+		frontTotal, backTotal = ResolveFlatTotals(item)
+		frontArea = item.frontArea or (if item.paintFlipped then frontTotal * targetRatio else item.area)
+		backArea = item.backArea or (if item.paintFlipped then math.max(0, item.area - frontArea) else 0)
+	end
+	local requestFlipped = flatMode and request.orientation ~= nil and Rotation.IsFlipped(request.orientation)
 	if requestFlipped and not item.paintFlipped and item.progress >= Config.PaintAutoFlipProgress * 0.85 then
 		item.paintFlipped = true
 	end
@@ -100,16 +126,20 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 		if not part or not part:IsA("BasePart") or not Surface.IsBody(part) or not Surface.IsPaintSample(part, sample) then previous = nil; continue end
 		local curved=Curve.IsPart(part)
 		local sampledOrientation: CFrame
+		local sampleSide: number? = nil
+		local sampleIsBack = false
 		if Config.PaintRotationEnabled then
 			sampledOrientation = (sample.orientation or orientation).Rotation
 		else
 			local sampleFlipped = if sample.orientation ~= nil then Rotation.IsFlipped(sample.orientation) else (item.paintFlipped == true)
-			local currentProgress = math.min(item.area / targetArea, 1)
+			local currentProgress = Surface.FlatProgress(frontArea, backArea, frontTotal, backTotal, item.paintFlipped == true)
 			if not item.paintFlipped and sampleFlipped and currentProgress >= Config.PaintAutoFlipProgress * 0.85 then
 				item.paintFlipped = true
 				orientation = Rotation.FlipOrientation
 			end
-			sampledOrientation = Rotation.FlatOrientation(sampleFlipped and item.paintFlipped == true)
+			sampleIsBack = sampleFlipped and item.paintFlipped == true
+			sampledOrientation = Rotation.FlatOrientation(sampleIsBack)
+			sampleSide = Curve.FlatSide(item.model, sampleIsBack)
 		end
 		if sampledOrientation ~= rayOrientation then
 			-- 将历史视点换算到当前模型姿态，每批只移动实体一次；保留连续笔划 previous 供同面线段补采样。
@@ -158,8 +188,8 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 			ink = table.clone(sample)
 			ink.u,ink.v = Curve.InkCenter(sample.u,sample.v)
 		end
-		local _, area = Surface.Stamp(part, ink, item.covered)
-		item.area += area
+		local _, area = Surface.Stamp(part, ink, item.covered, sampleSide)
+		local addedTotal = area
 		-- 批次内同面短段补采样，判定不依赖显示线段数量。
 		if previous and not previous.packedInk and not sample.packedInk and previous.part == sample.part and previous.face == sample.face then
 			if curved then
@@ -170,8 +200,8 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 					for index=1,math.ceil(distance/(Config.BrushRadius*.5))-1 do
 						local alpha=index/math.ceil(distance/(Config.BrushRadius*.5))
 						local intermediate=Curve.ProjectLocal(part,start:Lerp(finish,alpha))
-						local _,added=Surface.Stamp(part,intermediate,item.covered)
-						item.area+=added
+						local _,added=Surface.Stamp(part,intermediate,item.covered,sampleSide)
+						addedTotal+=added
 					end
 				end
 			else
@@ -181,10 +211,18 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 				local steps = math.ceil(distance / (Config.BrushRadius * 0.5))
 				for index = 1, steps - 1 do
 					local alpha = index / steps
-					local _, addedArea = Surface.Stamp(part, { part = sample.part, face = sample.face, u = previous.u + (sample.u - previous.u) * alpha, v = previous.v + (sample.v - previous.v) * alpha }, item.covered)
-					item.area += addedArea
+					local _, addedArea = Surface.Stamp(part, { part = sample.part, face = sample.face, u = previous.u + (sample.u - previous.u) * alpha, v = previous.v + (sample.v - previous.v) * alpha }, item.covered, sampleSide)
+					addedTotal += addedArea
 				end
 			end
+			end
+		end
+		item.area += addedTotal
+		if flatMode and addedTotal > 0 then
+			if sampleIsBack then
+				backArea += addedTotal
+			else
+				frontArea += addedTotal
 			end
 		end
 		table.insert(accepted, sample)
@@ -193,12 +231,19 @@ function Painting.Apply(session: Session, item: Types.Item, request: Types.Reque
 	if #accepted > 0 then
 		item.paintSeconds += math.min(elapsed, 0.15)
 	end
-	item.progress = math.min(item.area / targetArea, 1)
-	if not Config.PaintRotationEnabled and not item.paintFlipped then
-		if item.progress >= Config.PaintAutoFlipProgress or (requestFlipped and item.progress >= Config.PaintAutoFlipProgress * 0.85) then
-			item.paintFlipped = true
-			orientation = Rotation.FlipOrientation
+	if flatMode then
+		item.frontArea = frontArea
+		item.backArea = backArea
+		item.progress = Surface.FlatProgress(frontArea, backArea, frontTotal, backTotal, item.paintFlipped == true)
+		if not item.paintFlipped then
+			if item.progress >= Config.PaintAutoFlipProgress or (requestFlipped and item.progress >= Config.PaintAutoFlipProgress * 0.85) then
+				item.paintFlipped = true
+				orientation = Rotation.FlipOrientation
+				item.progress = Surface.FlatProgress(frontArea, backArea, frontTotal, backTotal, true)
+			end
 		end
+	else
+		item.progress = math.min(item.area / targetArea, 1)
 	end
 	Painting.SetPose(session, item, pose, orientation)
 	local stroke: Types.Stroke? = nil

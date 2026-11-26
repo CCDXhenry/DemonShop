@@ -687,6 +687,12 @@ B.Ragdoll = {
 B.Ground = {
 	Init = function() end,
 	Place = function() end,
+	ThrowRotation = function() return CFrame.identity end,
+	ThrowBounds = function() return Vector3.zero, Vector3.new(3, 5, 2) end,
+	FindThrowPose = function(_, landing)
+		if B.rejectThrowLanding then return nil, nil end
+		return CFrame.new(landing), landing
+	end,
 }
 
 B.Door = {
@@ -735,11 +741,14 @@ B.Carry = {
 		item.poolToss = nil
 		item.location = 'Ground'
 	end,
-	BeginManualToss = function(item)
+	BeginManualToss = function(item, from, velocity, duration, target, thrower, _, dropFrom, contact, canEnterChute)
 		item.holder = nil
 		item.location = 'Thrown'
 		item.version += 1
-		return false
+		item.poolToss = {
+			kind = 'Manual', from = from, velocity = velocity, duration = duration, target = target,
+			owner = thrower.UserId, started = B.now, chuteDropFrom = dropFrom, contact = contact, canEnterChute = canEnterChute,
+		}
 	end,
 	BeginAltarToss = function(item, _layer, _fromTable, now)
 		item.holder = nil

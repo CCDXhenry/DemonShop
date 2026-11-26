@@ -93,11 +93,64 @@ function Surface.Total(model: Model): number
 	end
 	return total
 end
-function Surface.Stamp(part: BasePart, sample: Types.Sample, covered: { [string]: boolean }): ({ string }, number)
-	if Curve.IsPart(part) then return Curve.Stamp(part,sample,covered,Config.BrushRadius) end
+function Surface.FlatSideTotals(model: Model, excluded: { [string]: boolean }?): (number, number)
+	if typeof(model) ~= "Instance" then
+		return 0, 0
+	end
+	local frontSide = Curve.FlatSide(model, false)
+	local frontFace = if frontSide == 1 then 2 else 1
+	local front, back = 0, 0
+	for _, child in model:GetChildren() do
+		if child:IsA("BasePart") and Surface.IsBody(child) then
+			if Curve.IsPart(child) then
+				local f, b = Curve.FlatSideTotals(child, excluded, frontSide)
+				front += f
+				back += b
+				continue
+			end
+			for _, face in { 1, 2 } do
+				if Surface.Allowed(child, face) then
+					local d = Surface.Dimensions(child.Size, face)
+					local faceArea = 0
+					for x = 0, Config.PaintGrid - 1 do
+						for y = 0, Config.PaintGrid - 1 do
+							if Surface.CellAllowed(child, face, x, y) then
+								faceArea += d.X * d.Y / Config.PaintGrid ^ 2
+							end
+						end
+					end
+					if face == frontFace then
+						front += faceArea
+					else
+						back += faceArea
+					end
+				end
+			end
+		end
+	end
+	return front, back
+end
+function Surface.FlatProgress(frontArea: number, backArea: number, frontTotal: number, backTotal: number, flipped: boolean): number
+	local flipAt = math.clamp(Config.PaintAutoFlipProgress, 0.05, 0.95)
+	local targetRatio = Config.PaintFlatTarget or Config.PaintTarget
+	local frontTarget = math.max(frontTotal * targetRatio, 0.001)
+	local backTarget = math.max(backTotal * targetRatio, 0.001)
+	if not flipped then
+		return math.clamp(frontArea / frontTarget, 0, 1) * flipAt
+	end
+	return math.min(1, flipAt + math.clamp(backArea / backTarget, 0, 1) * (1 - flipAt))
+end
+function Surface.Stamp(part: BasePart, sample: Types.Sample, covered: { [string]: boolean }, flatSide: number?): ({ string }, number)
+	if Curve.IsPart(part) then return Curve.Stamp(part,sample,covered,Config.BrushRadius,flatSide) end
 	local cells: { string } = {}
 	if not Surface.IsBody(part) or not Surface.Allowed(part, sample.face) then
 		return cells, 0
+	end
+	if flatSide ~= nil then
+		local expectedFace = if flatSide == 1 then 2 else 1
+		if sample.face ~= expectedFace then
+			return cells, 0
+		end
 	end
 	local d, grid = Surface.Dimensions(part.Size, sample.face), Config.PaintGrid
 	local area = 0

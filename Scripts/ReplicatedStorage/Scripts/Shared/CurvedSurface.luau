@@ -4,6 +4,28 @@ local Data = require(script.Parent.BodySurfaceData)
 local Types = require(script.Parent.GameTypes)
 local Curve = {}
 Curve.Version = Data.Version
+Curve.FlatCoverageMinDot = 0.2
+Curve.FlatVisualCenterMinDot = 0.15
+Curve.FlatVisualClipMinDot = 0.05
+
+function Curve.FlatSideDot(normal: Vector3, side: number): number
+	return if side == 1 then normal.Z else -normal.Z
+end
+
+function Curve.FlatSide(model: Instance?, flipped: boolean): number
+	local frontPositiveZ = false
+	if typeof(model) == "Instance" then
+		local torso = model:FindFirstChild("UpperTorso")
+		if torso and torso:IsA("BasePart") then
+			local rest = torso:GetAttribute("RestPose")
+			if typeof(rest) == "CFrame" then
+				frontPositiveZ = rest:VectorToObjectSpace(-Vector3.zAxis).Z >= 0
+			end
+		end
+	end
+	local wantPositiveZ = if flipped then not frontPositiveZ else frontPositiveZ
+	return if wantPositiveZ then 1 else 2
+end
 Curve.Neighbors = {
 	Head = { "UpperTorso" },
 	UpperTorso = { "Head", "LowerTorso", "LeftUpperArm", "RightUpperArm" },
@@ -766,7 +788,42 @@ function Curve.SliceCrossSection(
 	return samples
 end
 
-function Curve.Stamp(part: BasePart,sample: Types.Sample,covered: {[string]: boolean},radius: number): ({string},number)
+function Curve.FlatSideTotals(part: BasePart, excluded: { [string]: boolean }?, frontSide: number?): (number, number)
+	if not Curve.IsPart(part) then
+		return 0, 0
+	end
+	local fSide = frontSide or 2
+	local bSide = if fSide == 1 then 2 else 1
+	local geometry = Curve.Geometry(part)
+	local front, back = 0, 0
+	for index, triangle in geometry.triangles do
+		if not triangle.allowed then
+			continue
+		end
+		local area = triangle.area
+		if excluded then
+			local remaining = 0
+			for cell = 1, #CellWeights do
+				local key = part.Name .. ":" .. tostring(index) .. ":" .. tostring(cell)
+				if not excluded[key] then
+					remaining += 1
+				end
+			end
+			if remaining == 0 then
+				continue
+			end
+			area = triangle.area * (remaining / #CellWeights)
+		end
+		if Curve.FlatSideDot(triangle.normal, fSide) >= Curve.FlatCoverageMinDot then
+			front += area
+		elseif Curve.FlatSideDot(triangle.normal, bSide) >= Curve.FlatCoverageMinDot then
+			back += area
+		end
+	end
+	return front, back
+end
+
+function Curve.Stamp(part: BasePart,sample: Types.Sample,covered: {[string]: boolean},radius: number,flatSide: number?): ({string},number)
 	if not Curve.Valid(part,sample) then return {},0 end
 	local geometry=Curve.Geometry(part)
 	local center=Curve.Point(part,sample)
@@ -775,6 +832,7 @@ function Curve.Stamp(part: BasePart,sample: Types.Sample,covered: {[string]: boo
 	for _,index in Curve.Candidates(part,center,radius) do
 		local triangle=geometry.triangles[index]
 		if not triangle.allowed or triangle.normal:Dot(normal)<.2 then continue end
+		if flatSide ~= nil and Curve.FlatSideDot(triangle.normal, flatSide) < Curve.FlatCoverageMinDot then continue end
 		-- Four equal-area samples per triangle, independent of UV distortion and seams.
 		for cell,weights in CellWeights do
 			local point=triangle.a+(triangle.b-triangle.a)*weights.X+(triangle.c-triangle.a)*weights.Y

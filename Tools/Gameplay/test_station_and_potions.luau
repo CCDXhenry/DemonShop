@@ -633,6 +633,9 @@ do
 	for i = 2, 15 do pickUp('m7-tier3-' .. i) end
 	check(#m1:Carried(p1) == 8 and m1.players[p1].carryOverflowCount == 7, 'T3 stores seven virtual bodies after eight visible')
 	local top = m1:Carried(p1)[1]
+	sendM1(p1, {action = 'Throw', target = top.id, version = top.version, direction = Vector3.zero})
+	check(top.holder == p1 and top.poolToss == nil, 'invalid throw keeps the top body in hand')
+	B.now += 1
 	sendM1(p1, {action = 'Throw', target = top.id, version = top.version, direction = Vector3.zAxis})
 	check(top.holder == nil and #m1:Carried(p1) == 8 and m1.players[p1].carryOverflowCount == 6, 'throw removes one logical body and replenishes the visible slot')
 	movePlayer(p1Root, stationPositions.Pool + Vector3.new(0, 0, 4))
@@ -681,7 +684,13 @@ do
 
 	-- 斜抛入池第 11 具：同样直接接收并转入虚拟计数
 	local thrownBody = makeWorldBody('m1-thrown-11', 'Unpainted', 'Thrown')
-	thrownBody.poolToss = { kind = 'Manual', from = CFrame.identity, target = CFrame.new(-20, 2, 0), started = B.now, owner = p1.UserId }
+	B.PivotTo(thrownBody.model, CFrame.new(stationPositions.Pool))
+	local thrownTorso = thrownBody.model:FindFirstChild('UpperTorso')
+	if thrownTorso and thrownTorso:IsA('BasePart') then
+		thrownTorso.Position = stationPositions.Pool
+		thrownTorso.CFrame = CFrame.new(stationPositions.Pool)
+	end
+	thrownBody.poolToss = { kind = 'Manual', from = CFrame.identity, target = CFrame.new(stationPositions.Pool), started = B.now, owner = p1.UserId }
 	m1:SettleThrown(thrownBody)
 	check(#m1.pool == Config.PoolVisibleLimit and m1.poolOverflowCount == 3 and m1:PoolCount() == 11, 'SettleThrown accepts overflow throw without PoolFull block')
 	check(thrownBody.model.Parent == nil and m1.items[thrownBody.id] == nil, 'SettleThrown destroys overflow model')

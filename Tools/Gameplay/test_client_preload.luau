@@ -3,7 +3,6 @@ local Manager = require("./ClientPreloadManager")
 local Boundary = require("./ClientPreloadBoundary")
 local Config = require("./GameConfig")
 local GameData = require("./GameData")
-local ShopIconData = require("./ShopIconData")
 local assertions = 0
 local function Check(value, message)
 	assert(value, message)
@@ -60,11 +59,12 @@ for _, weapon in GameData.GetAllWeapons() do
 end
 Check(not sawString, "preload list contains instances")
 Check(#Boundary.imageUris == 12, "shop and potion icon decals are submitted")
-Check(table.find(Boundary.imageUris, ShopIconData.potion) ~= nil, "potion icon is preloaded")
-for _, iconList in { ShopIconData.weapon, ShopIconData.carryTool } do
-	for _, uri in iconList do
-		Check(table.find(Boundary.imageUris, uri) ~= nil, "shop icon submitted: " .. uri)
-	end
+Check(table.find(Boundary.imageUris, Config.PotionIcon) ~= nil, "potion icon is preloaded")
+for _, weapon in GameData.GetAllWeapons() do
+	Check(table.find(Boundary.imageUris, weapon.icon) ~= nil, "shop icon submitted: " .. weapon.icon)
+end
+for _, carryTool in GameData.GetAllCarryTools() do
+	Check(table.find(Boundary.imageUris, carryTool.icon) ~= nil, "shop icon submitted: " .. carryTool.icon)
 end
 Check(sawSlash and sawCarry and sawIdle and sawWalk, "configured animations are Animation instances")
 Check(sawModel, "archivable model template is preloaded")

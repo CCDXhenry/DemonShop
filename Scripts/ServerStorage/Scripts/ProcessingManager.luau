@@ -1,6 +1,7 @@
 -- 加工业务管理器：共享工位、搬运、权威画符和奖励；玩家生命周期由基础入口装配
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local NumberExtension = require(ReplicatedStorage.Core.Scripts.Shared.NumberExtension)
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -297,6 +298,8 @@ local function CreateStationBody(self: Manager, location: string, stage: string,
 		strokes = {},
 		strokePoints = 0,
 		area = 0,
+		frontArea = 0,
+		backArea = 0,
 		totalArea = Surface.Total(model),
 		progress = if stage == "Painted" then 1 else 0,
 		paintSeconds = 0,
@@ -827,11 +830,10 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 				started = item.poolToss.started,
 				owner = item.poolToss.owner,
 				kind = item.poolToss.kind,
-				origin = item.poolToss.origin,
 				velocity = item.poolToss.velocity,
 				duration = item.poolToss.duration,
 				chuteDropFrom = item.poolToss.chuteDropFrom,
-				wallStop = item.poolToss.wallStop,
+				releaseRotation = item.poolToss.releaseRotation,
 			} else nil,
 			altarToss = if item.altarToss then {
 				from = item.altarToss.from,
@@ -1290,6 +1292,11 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): bo
 	item.poseBody = frames
 	if not item.exteriorMeasured then
 		item.totalArea -= CurvedSurface.ExcludeInterior(item.model,item.covered)
+		local frontTotal, backTotal = Surface.FlatSideTotals(item.model, item.covered)
+		if frontTotal > 0 and backTotal > 0 then
+			item.frontTotalArea = frontTotal
+			item.backTotalArea = backTotal
+		end
 		item.exteriorMeasured = true
 	end
 	session.geometry = PaintRotation.Create(item.model, frames)
@@ -1749,7 +1756,7 @@ function Manager.PayPotionSale(self: Manager, count: number, warnIfBlocked: bool
 			local record = self.players[other]
 			local amount = PersonalRules.ComputePlayerPayout(count * Config.PotionReward, if record then record.levels.sellBonus else 1)
 			if self.data.CanAddCoins(other, amount) and self.data.AddCoins(other, amount) then
-				self:Tell(other, "CoinsAwarded", { tostring(amount) })
+				self:Tell(other, "CoinsAwarded", { NumberExtension.FormatBigNumberAA(amount) })
 				paid = true
 			else
 				table.insert(blocked, other)
@@ -1866,7 +1873,7 @@ function Manager.Attack(self: Manager, player: Player, request: Types.Request): 
 				if item.hits >= Config.StunHits then
 					self:Tell(player, "StunnedCarry")
 				else
-					self:Tell(player, "HitCount", {tostring(item.hits), tostring(Config.StunHits)})
+					self:Tell(player, "HitCount", {NumberExtension.FormatBigNumberAA(item.hits), NumberExtension.FormatBigNumberAA(Config.StunHits)})
 				end
 			end
 		end
@@ -1948,17 +1955,37 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 	if item.location ~= "Thrown" then
 		return
 	end
-	if item.poolToss and item.poolToss.chuteDropFrom then
-		self:PushChuteItem(item, false, item.poolToss.target)
-		self:StepAutomation(workspace:GetServerTimeNow())
-		return
-	end
 	local torso = item.model:FindFirstChild("UpperTorso")
 	local position = if torso and torso:IsA("BasePart") then torso.Position else item.model:GetPivot().Position
+	local canEnterChute = item.stage ~= "Painted" and self:IsFacilityUnlocked(GameData.FacilityId.FastChute)
+	local inChute = Scene.ChuteContains(position)
+	if canEnterChute and not inChute and Scene.ChuteBaffles then
+		local params = OverlapParams.new()
+		params.FilterType = Enum.RaycastFilterType.Include
+		params.FilterDescendantsInstances = { Scene.ChuteBaffles }
+		params.MaxParts = 1
+		for _, part in item.model:GetChildren() do
+			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and #workspace:GetPartsInPart(part, params) > 0 then
+				inChute = true
+				break
+			end
+		end
+	end
+	local inPool = Scene.PoolContainsStrict(position)
+	if inPool and Scene.PoolFloor then
+		local floor = Scene.PoolFloor
+		local manual = Physics.ManualThrow
+		local localPos = floor.CFrame:PointToObjectSpace(position)
+		local half = floor.Size * 0.5
+		local inset = math.min(manual.PoolCaptureInset, half.X * 0.5, half.Z * 0.5)
+		inPool = math.abs(localPos.X) <= half.X - inset
+			and math.abs(localPos.Z) <= half.Z - inset
+			and localPos.Y <= half.Y + manual.PoolCaptureHeight
+	end
 	local kind = ThrowArc.CanStoreThrow(
 		self:IsFacilityUnlocked(GameData.FacilityId.FastChute),
-		Scene.PoolContainsStrict(position),
-		Scene.ChuteContains(position),
+		inPool,
+		inChute,
 		item.stage == "Painted",
 		self:PoolCount(),
 		nil
@@ -1985,7 +2012,7 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 	end
 	Carry.FinishGround(item)
 end
-function Manager.SweepThrow(origin: Vector3, velocity: Vector3, ignored: { Instance }, canEnterChute: boolean): (number, Vector3, Vector3?, boolean)
+function Manager.SweepThrow(origin: Vector3, velocity: Vector3, ignored: { Instance }, canEnterChute: boolean, model: Model, rotation: CFrame): (number, Vector3, Vector3?)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = ignored
@@ -1999,30 +2026,33 @@ function Manager.SweepThrow(origin: Vector3, velocity: Vector3, ignored: { Insta
 		baffleParams = paramsForBaffles
 	end
 	local throwConfig = Physics.ManualThrow
-	local function Cast(frame: CFrame, size: Vector3, delta: Vector3): RaycastResult?
+	local function CastChute(frame: CFrame, size: Vector3, delta: Vector3): RaycastResult?
 		local solid = workspace:Blockcast(frame, size, delta, params)
 		local baffle = if baffleParams then workspace:Blockcast(frame, size, delta, baffleParams) else nil
 		return ThrowArc.FirstHit(solid, baffle)
 	end
-	local duration, landing, surface, normal, hit = ThrowArc.Sweep(origin, velocity, workspace.Gravity, throwConfig.PreviewStepSeconds, throwConfig.PreviewDurationSeconds, throwConfig.SweepSize, Cast)
 	local opening, dropZone = Scene.FastChuteOpening, Scene.ChuteDropZone
-	local chuteWall = canEnterChute and opening ~= nil and surface ~= nil and normal ~= nil
-		and ((hit ~= nil and baffles ~= nil and hit:IsDescendantOf(baffles)) or ThrowArc.IsChuteWall(opening.CFrame, opening.Size, surface, normal))
-	local wallStop = normal ~= nil and math.abs(normal.Y) <= 0.2
-	if normal and wallStop and not chuteWall then
-		local function CastFloor(start: Vector3, delta: Vector3): RaycastResult?
-			return workspace:Raycast(start, delta, params)
+	if canEnterChute and opening and dropZone then
+		local duration, landing, surface, normal, hit = ThrowArc.Sweep(origin, velocity, workspace.Gravity,
+			throwConfig.PreviewStepSeconds, throwConfig.PreviewDurationSeconds, throwConfig.SweepSize, CastChute)
+		local chuteWall = surface ~= nil and normal ~= nil
+			and ((hit ~= nil and baffles ~= nil and hit:IsDescendantOf(baffles)) or ThrowArc.IsChuteWall(opening.CFrame, opening.Size, surface, normal))
+		if chuteWall or Scene.ChuteContains(landing) then
+			local floorY = dropZone.Position.Y + throwConfig.SweepSize.Y * 0.5
+			local dropFrom = if landing.Y > dropZone.Position.Y + Physics.ChuteWallHeight
+				then ThrowArc.ChuteDropStart(opening.CFrame, opening.Size, landing)
+				else landing
+			return duration, Vector3.new(dropFrom.X, floorY, dropFrom.Z), dropFrom
 		end
-		landing = ThrowArc.WallLanding(landing, normal, CastFloor)
 	end
-	if canEnterChute and opening and dropZone and (chuteWall or Scene.ChuteContains(landing)) then
-		local floorY = dropZone.Position.Y + throwConfig.SweepSize.Y * 0.5
-		local dropFrom = if landing.Y > dropZone.Position.Y + Physics.ChuteWallHeight
-			then ThrowArc.ChuteDropStart(opening.CFrame, opening.Size, landing)
-			else landing
-		return duration, Vector3.new(dropFrom.X, floorY, dropFrom.Z), dropFrom, false
+	local offset, bounds = Ground.ThrowBounds(model)
+	local box = rotation * CFrame.new(offset)
+	local function CastBody(frame: CFrame, size: Vector3, delta: Vector3): RaycastResult?
+		return workspace:Blockcast(frame * box, size, delta, params)
 	end
-	return duration, landing, nil, wallStop
+	local duration, landing = ThrowArc.Sweep(origin, velocity, workspace.Gravity,
+		throwConfig.PreviewStepSeconds, throwConfig.PreviewDurationSeconds, bounds, CastBody)
+	return duration, landing, nil
 end
 function Manager.Throw(self: Manager, player: Player, request: Types.Request): ()
 	local record = self.players[player]
@@ -2063,16 +2093,12 @@ function Manager.Throw(self: Manager, player: Player, request: Types.Request): (
 	if velocity.Magnitude < 0.001 then
 		return
 	end
-	record.lastThrow = now
-	local ignored: { Instance } = { character }
-	for _, item in stack do table.insert(ignored, item.model) end
 	local canEnterChute = top.stage ~= "Painted" and self:IsFacilityUnlocked(GameData.FacilityId.FastChute)
-	local duration, landing, dropFrom, wallStop = Manager.SweepThrow(origin, velocity, ignored, canEnterChute)
-	local target = CFrame.new(landing) * top.model:GetPivot().Rotation
-	local placed = Carry.BeginManualToss(top, origin, velocity, duration, target, player, not self:HasOtherBodies(player, top), dropFrom, wallStop)
-	if placed then
-		self:SettleThrown(top)
-	end
+	local rotation = Ground.ThrowRotation(direction)
+	local duration = Physics.ManualThrow.PreviewDurationSeconds
+	local target = CFrame.new(origin) * rotation
+	record.lastThrow = now
+	Carry.BeginManualToss(top, target, velocity, duration, target, player, not self:HasOtherBodies(player, top), nil, nil, canEnterChute)
 	self:Restack(player)
 	self:Changed()
 end

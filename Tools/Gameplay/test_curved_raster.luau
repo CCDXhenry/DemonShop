@@ -175,6 +175,39 @@ local by = math.clamp(math.floor((1 - backUv.Y) * 1024), 0, 1023)
 check(buffer.readu8(frontOnly.textures.body.alpha, by * 1024 + bx) == 0, 'front-face rune does not bleed onto the opposite backside')
 frontOnly:Destroy()
 
+-- 验证躺平模式 side=2 (-Z) 印在曲面肢体边缘时，严格裁剪在 -Z 半球，+Z 对侧三角面像素保持 0
+do
+	local sideView = View.new()
+	local sideRecords = {}
+	local hand = parts[3]
+	sideView:Bind('side', model, sideRecords)
+	sideView:Update('side')
+	local edgeSample = Curve.ProjectLocal(hand, R.Vector3.new(hand.Size.X * 0.48, 0, -hand.Size.Z * 0.18))
+	local edgeRune = runeStamp(hand, edgeSample, 1, 0, 1)
+	edgeRune.side = 2
+	sideRecords[edgeRune.key] = edgeRune
+	sideView:Apply('side', edgeRune)
+	B.step = 0.001
+	repeat sideView:Update('side') until sideView:IsReady('side')
+	local tex = sideView.textures.side
+	local handGeo = Curve.Geometry(hand)
+	local activeInked, oppositeInked = 0, 0
+	for idx, tri in handGeo.triangles do
+		local uv = Curve.UV(hand.Name, idx, 1 / 3, 1 / 3)
+		local px = math.clamp(math.floor(uv.X * tex.size), 0, tex.size - 1)
+		local py = math.clamp(math.floor((1 - uv.Y) * tex.size), 0, tex.size - 1)
+		if buffer.readu8(tex.alpha, py * tex.size + px) > 0 then
+			if -tri.normal.Z >= Curve.FlatVisualClipMinDot then
+				activeInked += 1
+			elseif tri.normal.Z >= Curve.FlatVisualClipMinDot then
+				oppositeInked += 1
+			end
+		end
+	end
+	check(activeInked > 0 and oppositeInked == 0, 'side=2 (-Z) rim rune inks -Z triangles and leaves zero pixels on +Z triangles')
+	sideView:Destroy()
+end
+
 -- 验证局部脏矩形提交（按 64×64 分块，跨多部位 UV 岛不合并为整图拷贝）、驻留缓存与驱逐后重建
 local partial, maxWriteDim = false, 0
 for index = writes + 1, liveWriteEnd do

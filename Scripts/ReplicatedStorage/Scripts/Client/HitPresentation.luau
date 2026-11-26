@@ -3,6 +3,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local Rules = require(ReplicatedStorage.Scripts.Shared.HitFeedbackRules)
+local GameData = require(ReplicatedStorage.Scripts.Shared.GameData)
+local ModelTemplates = require(ReplicatedStorage.Scripts.Shared.ModelTemplates)
 local TweenService = game:GetService("TweenService")
 local Presentation = {}
 Presentation.__index = Presentation
@@ -10,11 +12,25 @@ type Pose = { model: Model, joints: {Motor6D}, started: number, direction: Vecto
 type JointOffset = { base: CFrame, applied: CFrame, offset: CFrame }
 type JointCache = {model: Model, joints: {Motor6D}}
 type Effect = { id: string, model: Folder, parts: {BasePart}, started: number, frame: CFrame, final: boolean, flashSeconds: number, active: boolean }
+type AuthoredPart = { part: BasePart, relative: CFrame, size: Vector3, transparency: number }
+type WeaponSlot = {
+	model: Model,
+	parts: { AuthoredPart },
+	active: boolean,
+	token: number,
+	driver: NumberValue?,
+	connection: RBXScriptConnection?,
+	tween: Tween?,
+}
 export type Presentation = typeof(setmetatable({} :: {
 	poses: {[string]: Pose}, cache: {[string]: JointCache}, offsets: {[Motor6D]: JointOffset}, pool: {Effect},
+	weaponPools: { [string]: { WeaponSlot } },
 	managed: ((string, Model) -> boolean)?,
 	camera: Camera?, cameraOffset: CFrame, cameraApplied: CFrame?, shakeStarted: number?, shakeFinal: boolean,
 }, Presentation))
+local WeaponPoolSize = 3
+local SweepStart = 0.45
+local SweepSeconds = 0.32
 local function CreatePart(parent: Folder, name: string, color: Color3): Part
 	local part = Instance.new("Part")
 	part.Name, part.Color, part.Material = name, color, Enum.Material.Neon
@@ -25,7 +41,7 @@ local function CreatePart(parent: Folder, name: string, color: Color3): Part
 	return part
 end
 function Presentation.new(): Presentation
-	return setmetatable({poses={},cache={},offsets={},pool={},camera=nil,cameraOffset=CFrame.identity,cameraApplied=nil,shakeStarted=nil,shakeFinal=false}, Presentation)
+	return setmetatable({poses={},cache={},offsets={},pool={},weaponPools={},camera=nil,cameraOffset=CFrame.identity,cameraApplied=nil,shakeStarted=nil,shakeFinal=false}, Presentation)
 end
 function Presentation.Restore(self: Presentation): ()
 	for joint, offset in self.offsets do
@@ -202,45 +218,144 @@ function Presentation.ResetCamera(self: Presentation): ()
 	self:RestoreCamera()
 	self.shakeStarted=nil
 end
-function Presentation.WeaponEffect(self: Presentation, shape: string, pose: CFrame, range: number, width: number?): ()
-	local effect = Instance.new("Folder")
-	effect.Name = "WeaponEffect"
-	local origin = pose * CFrame.new(0, -1.5, 0)
-	local function Add(frame: CFrame, size: Vector3, color: Color3, goal: CFrame, endSize: Vector3, duration: number): ()
-		local part = Instance.new("Part")
-		part.Name = "Energy"
-		part.Material, part.Color = Enum.Material.Neon, color
-		part.Anchored, part.CanCollide, part.CanQuery, part.CanTouch, part.CastShadow = true, false, false, false, false
-		part.CFrame, part.Size, part.Transparency = frame, size, 0.18
-		part.Parent = effect
-		TweenService:Create(part, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-			{CFrame = goal, Size = endSize, Transparency = 1}):Play()
+local function StopWeaponSlot(slot: WeaponSlot): ()
+	if slot.connection then
+		slot.connection:Disconnect()
+		slot.connection = nil
 	end
-	if shape == "Line" then
-		local lane = width or 5
-		local start = origin * CFrame.new(0, 1, -2)
-		local finish = origin * CFrame.new(0, 1, -range / 2)
-		Add(start, Vector3.new(lane * 0.6, 0.32, 3), Color3.fromRGB(113, 47, 192), finish, Vector3.new(lane, 0.14, range), 0.32)
-		Add(start, Vector3.new(0.22, 0.44, 3), Color3.fromRGB(211, 133, 255), finish, Vector3.new(0.12, 0.16, range), 0.28)
-	else
-		local cone, slam = shape == "Cone", shape == "Slam"
-		local segments = if cone then 8 else 16
-		local angle = if cone then math.rad(120) else 2 * math.pi
-		local color = if cone then Color3.fromRGB(237, 38, 67) elseif slam then Color3.fromRGB(253, 113, 53) else Color3.fromRGB(163, 61, 245)
-		for index = 1, segments do
-			local axis = origin * CFrame.Angles(0, (index - 0.5) * angle / segments - angle / 2, 0)
-			local thickness = if slam then 0.38 else 0.16
-			local span = 2 * math.sin(angle / segments / 2)
-			Add(axis * CFrame.new(0, 0, -range * 0.45), Vector3.new(range * 0.45 * span, thickness, 0.45), color,
-				axis * CFrame.new(0, 0, -range), Vector3.new(range * span, 0.08, 0.18), 0.30)
-			if slam then
-				Add(axis * CFrame.new(0, 0.3, -range * 0.85), Vector3.new(0.2, 0.25, 2.8), Color3.fromRGB(172, 72, 255),
-					axis * CFrame.new(0, 0.5, -3), Vector3.new(0.09, 0.1, 1.2), 0.39)
-			end
+	if slot.tween then
+		slot.tween:Cancel()
+		slot.tween = nil
+	end
+	if slot.driver then
+		slot.driver:Destroy()
+		slot.driver = nil
+	end
+end
+local function ApplyWeaponSlot(slot: WeaponSlot, scaleX: number, scaleY: number, scaleZ: number, amount: number): ()
+	local pivot = slot.model:GetPivot()
+	local fade = math.clamp((amount - SweepStart) / (1 - SweepStart), 0, 1)
+	for _, item in slot.parts do
+		local pos = Vector3.new(item.relative.Position.X * scaleX, item.relative.Position.Y * scaleY, item.relative.Position.Z * scaleZ) * amount
+		local size = Vector3.new(item.size.X * scaleX * amount, item.size.Y * scaleY * amount, item.size.Z * scaleZ * amount)
+		item.part.Size = Vector3.new(math.max(size.X, 0.05), math.max(size.Y, 0.05), math.max(size.Z, 0.05))
+		item.part.CFrame = pivot:ToWorldSpace(CFrame.new(pos) * item.relative.Rotation)
+		item.part.Transparency = item.transparency + (1 - item.transparency) * fade
+	end
+end
+local function ResetWeaponSlot(slot: WeaponSlot): ()
+	StopWeaponSlot(slot)
+	local pivot = slot.model:GetPivot()
+	for _, item in slot.parts do
+		item.part.Size = item.size
+		item.part.Transparency = item.transparency
+		item.part.CFrame = pivot:ToWorldSpace(item.relative)
+	end
+	slot.model.Parent = nil
+	slot.active = false
+end
+local function CreateWeaponSlot(template: Model): WeaponSlot
+	local clone = template:Clone()
+	local pivot = clone:GetPivot()
+	local parts: { AuthoredPart } = {}
+	for _, descendant in clone:GetDescendants() do
+		if descendant:IsA("BasePart") then
+			descendant.Anchored = true
+			descendant.CanCollide = false
+			descendant.CanQuery = false
+			descendant.CanTouch = false
+			descendant.CastShadow = false
+			table.insert(parts, {
+				part = descendant,
+				relative = pivot:ToObjectSpace(descendant.CFrame),
+				size = descendant.Size,
+				transparency = descendant.Transparency,
+			})
 		end
 	end
-	effect.Parent = workspace
-	game:GetService("Debris"):AddItem(effect, 0.4)
+	return { model = clone, parts = parts, active = false, token = 0, driver = nil, connection = nil, tween = nil }
+end
+local function EnsureWeaponPool(self: Presentation, modelName: string): { WeaponSlot }?
+	local template = ModelTemplates.FindEffect(modelName)
+	if not template then
+		return nil
+	end
+	local pool = self.weaponPools[modelName]
+	if not pool then
+		pool = {}
+		self.weaponPools[modelName] = pool
+	end
+	while #pool < WeaponPoolSize do
+		table.insert(pool, CreateWeaponSlot(template))
+	end
+	return pool
+end
+function Presentation.PrepareWeaponEffects(self: Presentation): ()
+	for _, weapon in GameData.GetAllWeapons() do
+		EnsureWeaponPool(self, weapon.model)
+	end
+end
+function Presentation.WeaponEffect(self: Presentation, modelName: string, pose: CFrame, range: number, width: number?): ()
+	local template = ModelTemplates.FindEffect(modelName)
+	if not template then
+		return
+	end
+	local designRange = template:GetAttribute("DesignRange")
+	if typeof(designRange) ~= "number" or designRange <= 0 or range <= 0 then
+		return
+	end
+	local pool = EnsureWeaponPool(self, modelName)
+	if not pool then
+		return
+	end
+	local scale = range / designRange
+	local scaleX, scaleY, scaleZ = scale, scale, scale
+	local designWidth = template:GetAttribute("DesignWidth")
+	if typeof(designWidth) == "number" and designWidth > 0 then
+		local lane = if width and width > 0 then width else designWidth
+		scaleX = scale * (lane / designWidth)
+	end
+	local slot: WeaponSlot? = nil
+	for _, candidate in pool do
+		if not candidate.active then
+			slot = candidate
+			break
+		end
+	end
+	local playing = slot or pool[1]
+	if not playing then
+		return
+	end
+	if playing.active then
+		ResetWeaponSlot(playing)
+	end
+	StopWeaponSlot(playing)
+	playing.active = true
+	playing.token += 1
+	local token = playing.token
+	playing.model:PivotTo(pose * CFrame.new(0, -1.5, 0))
+	playing.model.Parent = workspace
+	ApplyWeaponSlot(playing, scaleX, scaleY, scaleZ, SweepStart)
+	local driver = Instance.new("NumberValue")
+	driver.Name = "Sweep"
+	driver.Value = SweepStart
+	driver.Parent = playing.model
+	playing.driver = driver
+	playing.connection = driver.Changed:Connect(function(value: number)
+		if playing.token ~= token then
+			return
+		end
+		ApplyWeaponSlot(playing, scaleX, scaleY, scaleZ, value)
+	end)
+	local tween = TweenService:Create(driver, TweenInfo.new(SweepSeconds, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), { Value = 1 })
+	playing.tween = tween
+	tween.Completed:Connect(function(state: Enum.PlaybackState)
+		if playing.token ~= token or state ~= Enum.PlaybackState.Completed then
+			return
+		end
+		ResetWeaponSlot(playing)
+	end)
+	tween:Play()
 end
 function Presentation.Clear(self: Presentation): ()
 	self:Restore()
@@ -249,5 +364,12 @@ function Presentation.Clear(self: Presentation): ()
 	self:ResetCamera()
 	for _, effect in self.pool do effect.model:Destroy() end
 	table.clear(self.pool)
+	for _, slots in self.weaponPools do
+		for _, slot in slots do
+			StopWeaponSlot(slot)
+			slot.model:Destroy()
+		end
+	end
+	table.clear(self.weaponPools)
 end
 return Presentation

@@ -4,6 +4,15 @@ local PhysicsService = game:GetService("PhysicsService")
 local Config = require(game:GetService("ReplicatedStorage").Scripts.Shared.PhysicsConfig)
 local Ragdoll = {}
 local Group = Config.BodyGroup
+local function JointSettings(name: string): Config.Joint
+	local settings = Config.Joints.Shoulder
+	for key, candidate in Config.Joints do
+		if string.find(name, key, 1, true) then
+			return candidate
+		end
+	end
+	return settings
+end
 function Ragdoll.Init(): ()
 	if not PhysicsService:IsCollisionGroupRegistered(Group) then
 		PhysicsService:RegisterCollisionGroup(Group)
@@ -102,12 +111,11 @@ function Ragdoll.SetMode(model: Model, mode: string, owner: Player?): ()
 			if static then v.Transform = CFrame.identity end
 		elseif v:IsA("BallSocketConstraint") then
 			v.Enabled = loose
-			local settings = Config.Joints.Shoulder
-			for name, candidate in Config.Joints do
-				if string.find(v.Name, name, 1, true) then settings = candidate; break end
-			end
+			local settings = JointSettings(v.Name)
 			v.UpperAngle = settings.cone * (if mode == "Carried" then Config.CarrySwingScale else 1)
+			v.MaxFrictionTorque = settings.friction
 		elseif v:IsA("BasePart") then
+			(v :: any).CustomPhysicalProperties = nil
 			if static then
 				v.Anchored = true
 				local rest = v:GetAttribute("RestPose")
@@ -143,15 +151,43 @@ function Ragdoll.SetMode(model: Model, mode: string, owner: Player?): ()
 		end
 	end
 end
-function Ragdoll.LimitVelocity(model: Model): ()
+function Ragdoll.SetThrowPhysics(model: Model, inFlight: boolean): ()
+	local manual = Config.ManualThrow
+	local props = if inFlight
+		then PhysicalProperties.new(
+			manual.FlightDensity,
+			manual.FlightFriction,
+			manual.FlightElasticity,
+			manual.FlightFrictionWeight,
+			manual.FlightElasticityWeight
+		)
+		else PhysicalProperties.new(
+			manual.GroundDensity,
+			manual.GroundFriction,
+			manual.GroundElasticity,
+			manual.GroundFrictionWeight,
+			manual.GroundElasticityWeight
+		)
+	local frictionScale = if inFlight then manual.FlightFrictionScale else 1
+	for _, v in model:GetDescendants() do
+		if v:IsA("BallSocketConstraint") then
+			v.MaxFrictionTorque = JointSettings(v.Name).friction * frictionScale
+		elseif v:IsA("BasePart") and v.Name ~= "HumanoidRootPart" then
+			v.CustomPhysicalProperties = props
+		end
+	end
+end
+function Ragdoll.LimitVelocity(model: Model, maxLinear: number?, maxAngular: number?): ()
+	local linearLimit = maxLinear or Config.MaximumLinearSpeed
+	local angularLimit = maxAngular or Config.MaximumAngularSpeed
 	for _, part in model:GetChildren() do
 		if part:IsA("BasePart") and not part.Anchored then
 			local linear, angular = part.AssemblyLinearVelocity, part.AssemblyAngularVelocity
-			if linear.Magnitude > Config.MaximumLinearSpeed then
-				part.AssemblyLinearVelocity = linear.Unit * Config.MaximumLinearSpeed
+			if linear.Magnitude > linearLimit then
+				part.AssemblyLinearVelocity = linear.Unit * linearLimit
 			end
-			if angular.Magnitude > Config.MaximumAngularSpeed then
-				part.AssemblyAngularVelocity = angular.Unit * Config.MaximumAngularSpeed
+			if angular.Magnitude > angularLimit then
+				part.AssemblyAngularVelocity = angular.Unit * angularLimit
 			end
 		end
 	end

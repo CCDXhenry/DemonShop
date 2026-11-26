@@ -44,6 +44,23 @@ function Arc.Velocity(velocity: Vector3, gravity: number, time: number): Vector3
 	return velocity - Vector3.yAxis * gravity * time
 end
 
+function Arc.VisualFlight(progress: number, duration: number): (number, number)
+	local t = math.clamp(progress, 0, 1)
+	local phase = math.sin(math.pi * t) * math.clamp(duration / 0.24, 0, 1)
+	local roll = math.clamp((t - 0.10) / 0.66, 0, 1)
+	local angle = if duration >= 0.24 then 2 * math.pi * roll * roll * (3 - 2 * roll)
+		else math.rad(30) * phase * math.sin(2 * math.pi * t)
+	return phase, angle
+end
+
+Arc.VisualBounceSeconds = 0.25
+
+function Arc.VisualBounce(elapsed: number): number
+	local t = math.clamp(elapsed / Arc.VisualBounceSeconds, 0, 1)
+	if t == 1 then return 0 end
+	return math.sin(math.pi * t) * (1 - t) * 0.22
+end
+
 -- 圆柱轴向为局部 X。把轴向对准表面法线后，落点圈贴在真实命中面上。
 function Arc.RingCFrame(position: Vector3, normal: Vector3): CFrame
 	local axis = if normal.Magnitude > 0.001 then normal.Unit else Vector3.yAxis

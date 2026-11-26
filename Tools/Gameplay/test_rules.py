@@ -8,7 +8,7 @@ import openpyxl
 ROOT=Path(__file__).resolve().parents[2]
 
 def verify_data_tables_primary_key():
-    excel_files = sorted((ROOT / "ExcelData").glob("*.xlsx"))
+    excel_files = sorted(path for path in (ROOT / "ExcelData").glob("*.xlsx") if not path.name.startswith("~$"))
     assert excel_files, "ExcelData/*.xlsx must not be empty"
     for xlsx_path in excel_files:
         wb = openpyxl.load_workbook(xlsx_path, data_only=True)
@@ -61,6 +61,7 @@ def verify_data_tables_primary_key():
 verify_data_tables_primary_key()
 OUT=ROOT/".cache"/"ragdoll-rules"
 OUT.mkdir(parents=True,exist_ok=True)
+(OUT/"NumberExtension.luau").write_text((ROOT/"Scripts/ReplicatedStorage/Core/Scripts/Shared/NumberExtension.luau").read_text(encoding="utf-8"),encoding="utf-8")
 shared=ROOT/"Scripts/ReplicatedStorage/Scripts/Shared"
 server=ROOT/"Scripts/ServerStorage/Scripts"
 (OUT/"FoundationDateBoundary.luau").write_text((ROOT/"Tools/Gameplay/FoundationDateBoundary.luau").read_text(encoding="utf-8"),encoding="utf-8")
@@ -70,6 +71,8 @@ for data_name in ("WeaponData","CarryToolData","PersonalAbilityData","Automation
 for name in ("GameConfig","GameData","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","AutoRunePattern"):
     src_path=(shared/"GameConfig"/"init.luau") if name == "GameConfig" else (shared/(name+".luau"))
     text=src_path.read_text(encoding="utf-8")
+    text=text.replace('require(game:GetService("ReplicatedStorage").Core.Scripts.Shared.NumberExtension)', "require('./NumberExtension')")
+    text=text.replace("require(ReplicatedStorage.Core.Scripts.Shared.NumberExtension)", "require('./NumberExtension')")
     for dep in ("GameConfig","GameData","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","VisualRules","AutoRunePattern"):
         text=text.replace("require(script.Parent."+dep+")", "require('./"+dep+"')")
     if name == "GameData":
@@ -111,7 +114,7 @@ def run_hit_feedback_tests():
     source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
     start=source.index("function Manager.Attack(")
     end=source.index("function Manager.Paint(",start)
-    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,task,Net,NPC=B.workspace,B.task,B.Net,B.NPC\nlocal Config=require('./GameConfig')\nlocal PersonalRules=require('./PersonalUpgradeRules')\nlocal Vector3=require('@lune/roblox').Vector3\nlocal Manager={}\n"
+    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,task,Net,NPC=B.workspace,B.task,B.Net,B.NPC\nlocal Config=require('./GameConfig')\nlocal PersonalRules=require('./PersonalUpgradeRules')\nlocal NumberExtension=require('./NumberExtension')\nlocal Vector3=require('@lune/roblox').Vector3\nlocal Manager={}\n"
     (OUT/"AttackFeedbackServer.luau").write_text(prefix+source[start:end]+"\nreturn Manager\n",encoding="utf-8")
     text=(shared/"ProcessingNet.luau").read_text(encoding="utf-8")
     prefix="local Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal VisualRules=require('./VisualRules')\nlocal Curve=require('./CurvedSurface')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal requestEvent,notifyEvent={},{}\nlocal BodyPose=require('./PaintBodyPose')\n"
@@ -168,8 +171,7 @@ def write_model_templates(out_name, rs_expr):
 text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientPreloadManager.luau").read_text(encoding="utf-8")
 text=text.replace("instance:PivotTo(pose)", "B.PivotTo(instance, pose)", 1)
 write_model_templates("ClientPreloadModelTemplates.luau", "require('./ClientPreloadBoundary').ReplicatedStorage")
-(OUT/"ShopIconData.luau").write_text((shared/"ShopIconData.luau").read_text(encoding="utf-8"),encoding="utf-8")
-prefix="local B=require('./ClientPreloadBoundary')\nlocal ContentProvider,RunService,Players,ReplicatedStorage=B.ContentProvider,B.RunService,B.Players,B.ReplicatedStorage\nlocal workspace,Instance,Vector3,CFrame,Content=B.workspace,B.Instance,B.Vector3,B.CFrame,B.Content\nlocal task=require('@lune/task')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal ModelTemplates=require('./ClientPreloadModelTemplates')\nlocal ShopIconData=require('./ShopIconData')\n"
+prefix="local B=require('./ClientPreloadBoundary')\nlocal ContentProvider,RunService,Players,ReplicatedStorage=B.ContentProvider,B.RunService,B.Players,B.ReplicatedStorage\nlocal workspace,Instance,Vector3,CFrame,Content=B.workspace,B.Instance,B.Vector3,B.CFrame,B.Content\nlocal task=require('@lune/task')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal ModelTemplates=require('./ClientPreloadModelTemplates')\n"
 (OUT/"ClientPreloadManager.luau").write_text(prefix+text[text.index("local Manager = {}"):],encoding="utf-8")
 for name in ("ClientPreloadBoundary","test_client_preload"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -179,7 +181,7 @@ subprocess.run(["lune","run",str(OUT/"test_painting.luau")],cwd=ROOT,check=True)
 
 # Exercise the complete production request dispatcher with real painting rules.
 source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
-prefix="local CFrame=require('@lune/roblox').CFrame\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal Painting=require('./Painting')\nlocal PaintRotation=require('./PaintRotation')\nlocal Surface=require('./PaintSurface')\nlocal AutomationAgents={New=function() return nil end,SyncUnlocked=function() end,Step=function() return false end,Destroy=function() end}\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\nlocal Random={new=function() return {} end}\n"
+prefix="local CFrame=require('@lune/roblox').CFrame\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal Painting=require('./Painting')\nlocal PaintRotation=require('./PaintRotation')\nlocal Surface=require('./PaintSurface')\nlocal NumberExtension=require('./NumberExtension')\nlocal AutomationAgents={New=function() return nil end,SyncUnlocked=function() end,Step=function() return false end,Destroy=function() end}\nlocal B=require('./PaintRequestBoundary')\nlocal Net,workspace,Scene=B.Net,B.workspace,B.Scene\nlocal Random={new=function() return {} end}\n"
 (OUT/"PaintRequestManager.luau").write_text(prefix+source[source.index('type PlayerData ='):],encoding="utf-8")
 for name in ("PaintRequestBoundary","test_paint_requests"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -275,6 +277,7 @@ prefix=(
     "local player,workspace,os,UserInputService=B.player,B.workspace,B.os,B.UserInputService\n"
     "local Config=require('./GameConfig')\n"
     "local PersonalRules=require('./PersonalUpgradeRules')\n"
+    "local NumberExtension=require('./NumberExtension')\n"
     "local Physics=require('./PhysicsConfig')\n"
     "local Hints=require('./Hints')\n"
     "local Net=require('./VisualNet')\n"
@@ -319,7 +322,7 @@ for name in ("FoundationUIBoundary", "test_foundation_ui"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
 foundation_module("ProcessingTextTool", "Scripts/ReplicatedStorage/Scripts/Client/ProcessingTextTool.luau", "local Tool =", "local U=require('./FoundationUIBoundary')\nlocal GameTexts=require('./GameTexts')\nlocal TranslationTool,TextFitting=U.TranslationTool,U.TextFitting\n")
 for name in ("GameScreenGuiManager", "TargetGuiManager", "ScreenLayoutGuideFrameManager"):
-    foundation_module(name, "Scripts/ReplicatedStorage/Scripts/Client/UIManager/"+name+".luau", "local Manager =", "local R=require('@lune/roblox')\nlocal UDim2,Vector2,Enum=R.UDim2,R.Vector2,R.Enum\nlocal U=require('./FoundationUIBoundary')\nlocal Players,ReplicatedStorage,workspace,UserInputService,GuiService=U.Players,{UI=U.templates},U.workspace,U.UserInputService,U.GuiService\nlocal TweenService,TweenInfo=U.TweenService,U.TweenInfo\nlocal ProcessingText=require('./ProcessingTextTool')\nlocal Lifecycle=require('./LifecycleTool')\nlocal Config=require('./GameConfig')\nlocal PaintPointer=U.PaintPointer\n")
+    foundation_module(name, "Scripts/ReplicatedStorage/Scripts/Client/UIManager/"+name+".luau", "local Manager =", "local R=require('@lune/roblox')\nlocal UDim2,Vector2,Enum=R.UDim2,R.Vector2,R.Enum\nlocal U=require('./FoundationUIBoundary')\nlocal Players,ReplicatedStorage,workspace,UserInputService,GuiService=U.Players,{UI=U.templates},U.workspace,U.UserInputService,U.GuiService\nlocal TweenService,TweenInfo=U.TweenService,U.TweenInfo\nlocal ProcessingText=require('./ProcessingTextTool')\nlocal Lifecycle=require('./LifecycleTool')\nlocal NumberExtension=require('./NumberExtension')\nlocal Config=require('./GameConfig')\nlocal PaintPointer=U.PaintPointer\n")
 source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/UIManager/init.luau").read_text(encoding="utf-8")
 start=source.index("local ModalTransparency:")
 prefix="local U=require('./FoundationUIBoundary')\nlocal UIManager={}\nlocal LifecycleTool=require('./LifecycleTool')\nlocal scope=LifecycleTool.new()\nlocal initialized=false\nlocal buttonEffects={}\nlocal uiTemplatesFolder=U.templates\nlocal ClientMsg,TextFitting,GameSoundTool=U.ClientMsg,U.TextFitting,U.Sound\nlocal tweenService,workspace,Enum,TweenInfo=U.TweenService,U.workspace,U.Enum,U.TweenInfo\nlocal userInputService=U.UserInputService\nlocal guiService=U.GuiService\nlocal Vector2=require('@lune/roblox').Vector2\nlocal windowOrder={}\nlocal viewportScope=nil\nlocal ownedGui=nil\nlocal hudWrapper=nil\nlocal Players=U.Players\nlocal GameFrameWrapper=require('./GameFrameWrapper')\n"
@@ -441,6 +444,7 @@ pm_prefix = (
     "local AutoRunePattern=require('./AutoRunePattern')\n"
     "local AutomationAgents=require('./AutomationAgents')\n"
     "local PersonalRules=require('./PersonalUpgradeRules')\n"
+    "local NumberExtension=require('./NumberExtension')\n"
     "local PersonalMovement=require('./PersonalMovement')\n"
     "local ModelTemplates=require('./StationModelTemplates')\n"
     "local Lifecycle=require('./LifecycleTool')\n"
@@ -488,6 +492,7 @@ client_prefix = (
     "local Physics=require('./PhysicsConfig')\n"
     "local Hints=require('./Hints')\n"
     "local PersonalRules=require('./PersonalUpgradeRules')\n"
+    "local NumberExtension=require('./NumberExtension')\n"
     "local Net=B.Net\n"
     "local Sound=B.SoundMock\n"
     "local positions={Pool=Vector3.new(-20,2,0),Table=Vector3.new(0,2,0),Altar=Vector3.new(20,2,0),Shelf=Vector3.new(40,2,0),Sigil=Vector3.new(60,2,0)}\n"

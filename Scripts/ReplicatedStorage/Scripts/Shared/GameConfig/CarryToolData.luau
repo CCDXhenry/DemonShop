@@ -7,6 +7,7 @@ return {
 		["previewModel"] = "T0",
 		["cost"] = 0,
 		["capacity"] = 1,
+		["icon"] = "rbxassetid://112977678819344",
 	},
 	[2] = {
 		["id"] = 2,
@@ -16,6 +17,7 @@ return {
 		["previewModel"] = "",
 		["cost"] = 100,
 		["capacity"] = 3,
+		["icon"] = "rbxassetid://130237187526734",
 	},
 	[3] = {
 		["id"] = 3,
@@ -25,6 +27,7 @@ return {
 		["previewModel"] = "",
 		["cost"] = 450,
 		["capacity"] = 8,
+		["icon"] = "rbxassetid://114471731355685",
 	},
 	[4] = {
 		["id"] = 4,
@@ -34,6 +37,7 @@ return {
 		["previewModel"] = "",
 		["cost"] = 1800,
 		["capacity"] = 15,
+		["icon"] = "rbxassetid://86335983969214",
 	},
 	[5] = {
 		["id"] = 5,
@@ -43,5 +47,6 @@ return {
 		["previewModel"] = "",
 		["cost"] = 6000,
 		["capacity"] = 30,
+		["icon"] = "rbxassetid://111922676687685",
 	},
 }

@@ -12,8 +12,7 @@ return {
 		["angle"] = 0,
 		["width"] = 0,
 		["attackCooldown"] = 0.6,
-		["slashAnim"] = "rbxassetid://18297503195",
-		["slashSound"] = "rbxassetid://12222216",
+		["icon"] = "rbxassetid://93642619861339",
 	},
 	[2] = {
 		["id"] = 2,
@@ -28,8 +27,7 @@ return {
 		["angle"] = 0,
 		["width"] = 0,
 		["attackCooldown"] = 0.6,
-		["slashAnim"] = "rbxassetid://18297503195",
-		["slashSound"] = "rbxassetid://12222216",
+		["icon"] = "rbxassetid://113595717817132",
 	},
 	[3] = {
 		["id"] = 3,
@@ -44,8 +42,7 @@ return {
 		["angle"] = 120,
 		["width"] = 0,
 		["attackCooldown"] = 0.6,
-		["slashAnim"] = "rbxassetid://18297503195",
-		["slashSound"] = "rbxassetid://12222216",
+		["icon"] = "rbxassetid://80837130414364",
 	},
 	[4] = {
 		["id"] = 4,
@@ -60,8 +57,7 @@ return {
 		["angle"] = 0,
 		["width"] = 0,
 		["attackCooldown"] = 0.6,
-		["slashAnim"] = "rbxassetid://18297503195",
-		["slashSound"] = "rbxassetid://12222216",
+		["icon"] = "rbxassetid://80227630733152",
 	},
 	[5] = {
 		["id"] = 5,
@@ -76,8 +72,7 @@ return {
 		["angle"] = 0,
 		["width"] = 5,
 		["attackCooldown"] = 0.6,
-		["slashAnim"] = "rbxassetid://18297503195",
-		["slashSound"] = "rbxassetid://12222216",
+		["icon"] = "rbxassetid://87683785351923",
 	},
 	[6] = {
 		["id"] = 6,
@@ -92,7 +87,6 @@ return {
 		["angle"] = 0,
 		["width"] = 0,
 		["attackCooldown"] = 0.6,
-		["slashAnim"] = "rbxassetid://18297503195",
-		["slashSound"] = "rbxassetid://12222216",
+		["icon"] = "rbxassetid://83230009590338",
 	},
 }

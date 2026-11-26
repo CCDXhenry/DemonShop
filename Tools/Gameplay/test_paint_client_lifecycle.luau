@@ -33,7 +33,7 @@ local function client()
    Fly=function() end,
   },
   view=view,items={},synced=true,lastFrame=B.time,lastSync=B.time,lastHint=B.time,messageEnds=100,
-  localProgress=0,localArea=0,localTotalArea=0,paintFlipped=false,flipFlash=nil,
+  localProgress=0,localArea=0,localTotalArea=0,localFrontArea=0,localBackArea=0,localFrontTotalArea=0,localBackTotalArea=0,paintFlipped=false,flipFlash=nil,
   hiddenPlayerParts={},altarViews={},altarView={Clear=function() end},
   presentation={
    flipped=false,flipping=false,
@@ -519,6 +519,8 @@ do
 	-- ActivePaintTarget 在非旋转下按 PaintFlatTarget 同步 PaintPose 面积。
 	Config.PaintRotationEnabled = false
 	flatCov.localTotalArea = 100
+	flatCov.localFrontTotalArea, flatCov.localBackTotalArea = 0, 0
+	flatCov.localFrontArea, flatCov.localBackArea = 0, 0
 	flatCov.localArea = 0
 	flatCov.localProgress = 0
 	flatCov:OnNotice({ kind = 'PaintPose', id = 'body', session = 'session', progress = 0.5 })
@@ -527,6 +529,71 @@ do
 		'ActivePaintTarget uses PaintFlatTarget in non-rotation mode')
 	B.workspace.CurrentCamera = nil
 	flatModel:Destroy()
+end
+
+-- 躺平模式客户端预测：真实曲面模型按正反各自可达总面积独立推进 localFrontArea / localBackArea 并隔离侧面/背面。
+do
+	local Curve = require('./CurvedSurface')
+	local Data = require('./BodySurfaceData')
+	local Surface = require('./PaintSurface')
+	local realModel = R.Instance.new('Model')
+	local realLimb = R.Instance.new('Part')
+	realLimb.Name, realLimb.Size = 'LeftLowerArm', Data.Parts.LeftLowerArm.size
+	realLimb:SetAttribute('Paintable', true)
+	realLimb:SetAttribute('SurfaceVersion', Curve.Version)
+	realLimb.CFrame = C.identity
+	realLimb.Parent = realModel
+	local fTotal, bTotal = Surface.FlatSideTotals(realModel)
+	local flatClient = client()
+	flatClient.Paint = nil
+	flatClient.orientation = C.identity
+	flatClient.presentation.orientation = C.identity
+	flatClient.bodies.GetPaintModel = function() return realModel end
+	flatClient.presentation.model = realModel
+	flatClient.presentation.geometry = { radius = 2, halfExtents = R.Vector3.new(1, 1, 0.5) }
+	flatClient.items.body = { id = 'body', model = realModel, progress = 0 }
+	flatClient.localTotalArea = Surface.Total(realModel)
+	flatClient.localFrontTotalArea, flatClient.localBackTotalArea = fTotal, bTotal
+	local rimHit = Curve.Intersect(realLimb, R.Vector3.new(realLimb.Size.X * 0.25, 0, -4), R.Vector3.zAxis, 10)
+	assert(rimHit, 'client flat rim fixture')
+	B.workspace.CurrentCamera = {
+		CFrame = C.identity,
+		WorldToScreenPoint = function(_, p) return R.Vector3.new(p.X * 100, p.Y * 100, 10) end,
+		ViewportSize = R.Vector2.new(1920, 1080),
+	}
+	B.resolve = {
+		cast = function()
+			return { point = R.Vector2.new(20, 20), localPoint = Curve.Point(realLimb, rimHit), sample = table.clone(rimHit) }
+		end,
+	}
+	Config.PaintRotationEnabled = false
+	flatClient.drawing = true
+	flatClient.pointer = R.Vector2.new(20, 20)
+	flatClient:SamplePaint(B.time)
+	local limbGeo = Curve.Geometry(realLimb)
+	local leaked = false
+	for k in flatClient.localCovered do
+		local triIdx = tonumber(string.match(k, ':(%d+):%d+$'))
+		if triIdx and limbGeo.triangles[triIdx].normal.Z >= Curve.FlatCoverageMinDot then
+			leaked = true; break
+		end
+	end
+	check(not leaked and flatClient.localFrontArea > 0 and flatClient.localBackArea == 0,
+		'client flat prediction isolates front strokes into localFrontArea without staining back cells')
+	flatClient.localFrontArea = fTotal * Config.PaintFlatTarget
+	flatClient.pointer = R.Vector2.new(22, 20)
+	local centerHit = Curve.Intersect(realLimb, R.Vector3.new(0, 0, -4), R.Vector3.zAxis, 10)
+	assert(centerHit, 'client flat center fixture')
+	B.resolve = {
+		cast = function()
+			return { point = R.Vector2.new(22, 20), localPoint = Curve.Point(realLimb, centerHit), sample = table.clone(centerHit) }
+		end,
+	}
+	flatClient:SamplePaint(B.time)
+	check(flatClient.paintFlipped == true and flatClient.localProgress >= Config.PaintAutoFlipProgress,
+		'client flat prediction triggers auto-flip once localFrontArea reaches target')
+	B.workspace.CurrentCamera = nil
+	realModel:Destroy()
 end
 
 -- UpdateAltar 在 tossing 分支中不抹除活跃的 completeFlash 高光，过期后由 Update 清理。

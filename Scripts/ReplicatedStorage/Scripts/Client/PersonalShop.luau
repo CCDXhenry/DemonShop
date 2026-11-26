@@ -4,13 +4,13 @@ local Players = game:GetService("Players")
 local GuiService = game:GetService("GuiService")
 local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local NumberExtension = require(ReplicatedStorage.Core.Scripts.Shared.NumberExtension)
 local Shared = ReplicatedStorage.Scripts.Shared
 local GameData = require(Shared.GameData)
 local GameTexts = require(Shared.GameTexts)
 local Types = require(Shared.GameTypes)
 local Net = require(Shared.ProcessingNet)
 local Lifecycle = require(Shared.LifecycleTool)
-local ShopIconData = require(Shared.ShopIconData)
 local Rules = require(Shared.PersonalUpgradeRules)
 local UIManager = require(script.Parent.UIManager)
 local ModalImageHitTest = require(script.Parent.UIManager.ModalImageHitTest)
@@ -34,7 +34,7 @@ local WeaponShapes: {[string]: GameTexts.TextId} = {
 local function Bind(text: Text.Controller, parent: Instance, name: string, id: GameTexts.TextId, ...: number): ()
 	local label = parent:FindFirstChild(name) :: TextLabel
 	local args: {string} = {}
-	for i, value in {...} do args[i] = tostring(value) end
+	for i, value in {...} do args[i] = NumberExtension.FormatBigNumberAA(value) end
 	text:Bind(label, {textId = id, args = args})
 end
 
@@ -71,32 +71,32 @@ local function RefreshComparison(text: Text.Controller, card: ImageLabel, catego
 		primary.Position = UDim2.new(0, 8, if nextLevel then 0 else 0.25, 0)
 		if category == "weapon" then
 			local now = Rules.GetWeaponTier(current)
-			icon.Image = ShopIconData.weapon[current]
+			icon.Image = now.icon
 			text:BindSource(title, now.name_t)
 			text:Bind(primary, {
 				textId = "ShopCurrentWeapon",
-				args = { "", tostring(now.targets), tostring(now.damage) },
+				args = { "", NumberExtension.FormatBigNumberAA(now.targets), NumberExtension.FormatBigNumberAA(now.damage) },
 				argTextIds = { WeaponShapes[now.shape] },
 			})
 			if nextLevel then
 				local next = Rules.GetWeaponTier(nextLevel)
 				text:Bind(secondary, {
 					textId = "ShopNextWeapon",
-					args = { next.name_t, "", tostring(next.targets), tostring(next.damage) },
+					args = { next.name_t, "", NumberExtension.FormatBigNumberAA(next.targets), NumberExtension.FormatBigNumberAA(next.damage) },
 					argSources = { next.name_t },
 					argTextIds = { [2] = WeaponShapes[next.shape] },
 				})
 			end
 		else
 			local now = Rules.GetCarryTier(current)
-			icon.Image = ShopIconData.carryTool[current]
+			icon.Image = now.icon
 			text:BindSource(title, now.name_t)
 			Bind(text, compare, "PrimaryText", "ShopCurrentCarry", now.capacity)
 			if nextLevel then
 				local next = Rules.GetCarryTier(nextLevel)
 				text:Bind(secondary, {
 					textId = "ShopNextCarry",
-					args = { next.name_t, tostring(next.capacity) },
+					args = { next.name_t, NumberExtension.FormatBigNumberAA(next.capacity) },
 					argSources = { next.name_t },
 				})
 			end

@@ -2,6 +2,7 @@
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local NumberExtension = require(ReplicatedStorage.Core.Scripts.Shared.NumberExtension)
 local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 local Lifecycle = require(script.Parent.Parent.Parent.Shared.LifecycleTool)
@@ -140,7 +141,7 @@ end
 function Manager.SetProgress(self: Manager, progress: number): ()
 	local label = self.labels.ProgressText
 	if label then
-		label.Text = string.format("%d%%", math.floor(progress * 100))
+		label.Text = NumberExtension.FormatBigNumberAA(math.floor(progress * 100)) .. "%"
 	end
 	local fill = self.fill
 	if fill then

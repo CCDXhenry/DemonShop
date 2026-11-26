@@ -20,6 +20,11 @@ def module(name, path, start, prefix, replacements=()):
 
 roblox = "local R=require('@lune/roblox')\nlocal Vector3,CFrame,Instance,Color3=R.Vector3,R.CFrame,R.Instance,R.Color3"
 module("PhysicsConfig", SHARED, "export type Joint", roblox)
+module("ThrowArc", SHARED, "local Config =", roblox + "\nlocal Physics=require('./PhysicsConfig')")
+module("ManualThrowPresentation", CLIENT, "local Visual =", roblox + """
+local Arc=require('./ThrowArc')
+local workspace=require('./Boundary').world
+""")
 module("JointAdapter", CLIENT, "local Adapter =", "local Physics=require('./PhysicsConfig')")
 module("PresentationTuning", CLIENT, "local Tuning =", "local Physics=require('./PhysicsConfig')\nlocal RunService=require('./Boundary').run")
 for name,marker,dependencies in (
@@ -43,9 +48,11 @@ local Impact=require('./ImpactReaction')
 local Mixer=require('./PoseMixer')
 local Contact=require('./SoftContact')
 local Fall=require('./LocalRagdoll')
+local ManualThrow=require('./ManualThrowPresentation')
+local Sound={Play=function() end}
 local Physics=require('./PhysicsConfig')
 local Input={TouchEnabled=false}
-local Players={LocalPlayer=nil,GetPlayers=function() return {} end}
+local Players={LocalPlayer=nil,GetPlayers=function() return {} end,GetPlayerByUserId=function() return nil end}
 local Vector3,CFrame=require('@lune/roblox').Vector3,require('@lune/roblox').CFrame
 local GameConfig={StunHits=3,HitPredictionLifetime=2}
 """, [
@@ -97,6 +104,7 @@ local workspace={GetServerTimeNow=function() return B.now end}
 local Vector2=R.Vector2
 local Random={new=function() return {} end}
 local Config=require('./PhysicsConfig')
+local ThrowArc=require('./ThrowArc')
 local NPC={StopMotion=function() end}
 local Scene=require('./AltarScene')
 local function GetPivot(model)
@@ -108,7 +116,7 @@ local function PivotTo(model, frame)
         if part:IsA("BasePart") then part.CFrame=frame*from:ToObjectSpace(part.CFrame) end
     end
 end
-local Ragdoll={SetMode=function(model,mode,owner)
+local Ragdoll={SetThrowPhysics=function() end,LimitVelocity=function() end,SetMode=function(model,mode,owner)
     model:SetAttribute("PhysicsMode",mode)
     if mode == "Loose" then
         B.altarOwner=owner

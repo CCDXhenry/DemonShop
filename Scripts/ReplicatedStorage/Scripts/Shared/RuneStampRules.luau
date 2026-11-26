@@ -77,7 +77,8 @@ local function ProbeFitsPart(
 	maxReachSq: number,
 	limX: number,
 	limY: number,
-	limZ: number
+	limZ: number,
+	flatSide: number?
 ): boolean
 	if math.abs(probe.X) > limX or math.abs(probe.Y) > limY or math.abs(probe.Z) > limZ then
 		return false
@@ -92,6 +93,9 @@ local function ProbeFitsPart(
 		return false
 	end
 	if triangle.normal:Dot(normal) < NormalDotThreshold then
+		return false
+	end
+	if flatSide ~= nil and Curve.FlatSideDot(triangle.normal, flatSide) < Curve.FlatVisualClipMinDot then
 		return false
 	end
 	local surfacePoint = Curve.Point(part, projected)
@@ -117,13 +121,14 @@ local function CheckProbeList(
 	limY: number,
 	limZ: number,
 	probes: { { number } },
-	model: Model?
+	model: Model?,
+	flatSide: number?
 ): boolean
 	local margin = maxDepth + 0.08
 	local neighbors = if model then Curve.Neighbors[part.Name] else nil
 	for _, offset in ipairs(probes) do
 		local probe = center + glyphRight * (offset[1] * half) + glyphDown * (offset[2] * half)
-		if ProbeFitsPart(part, geometry, probe, center, normal, maxDepth, maxReachSq, limX, limY, limZ) then
+		if ProbeFitsPart(part, geometry, probe, center, normal, maxDepth, maxReachSq, limX, limY, limZ, flatSide) then
 			continue
 		end
 		local matchedNeighbor = false
@@ -143,7 +148,8 @@ local function CheckProbeList(
 						maxReachSq,
 						nHalf.X + margin,
 						nHalf.Y + margin,
-						nHalf.Z + margin
+						nHalf.Z + margin,
+						flatSide
 					) then
 						matchedNeighbor = true
 						break
@@ -166,7 +172,8 @@ local function ProbesFitCurved(
 	glyphRight: Vector3,
 	glyphDown: Vector3,
 	half: number,
-	model: Model?
+	model: Model?,
+	flatSide: number?
 ): boolean
 	local maxDepth = half * PlaneDepthFactor
 	local maxReach = half * TangentReachFactor
@@ -174,7 +181,7 @@ local function ProbesFitCurved(
 	local halfSize = part.Size * 0.5
 	local margin = maxDepth + 0.08
 	local limX, limY, limZ = halfSize.X + margin, halfSize.Y + margin, halfSize.Z + margin
-	if not CheckProbeList(part, geometry, center, normal, glyphRight, glyphDown, half, maxDepth, maxReachSq, limX, limY, limZ, CardinalProbes, model) then
+	if not CheckProbeList(part, geometry, center, normal, glyphRight, glyphDown, half, maxDepth, maxReachSq, limX, limY, limZ, CardinalProbes, model, flatSide) then
 		return false
 	end
 	local edgeMargin = half * 1.45
@@ -184,11 +191,11 @@ local function ProbesFitCurved(
 	if not nearEdge then
 		return true
 	end
-	return CheckProbeList(part, geometry, center, normal, glyphRight, glyphDown, half, maxDepth, maxReachSq, limX, limY, limZ, DiagonalProbes, model)
+	return CheckProbeList(part, geometry, center, normal, glyphRight, glyphDown, half, maxDepth, maxReachSq, limX, limY, limZ, DiagonalProbes, model, flatSide)
 end
 
 -- 曲面部位边缘适配：允许等比缩至 Config.RuneMinScale，仍放不下完整字形时返回 nil 跳过；跨直连关节时可落到邻接部件表面。
-function Rules.FitCurvedScale(part: BasePart, center: Vector3, normal: Vector3, angle: number, model: Model?): number?
+function Rules.FitCurvedScale(part: BasePart, center: Vector3, normal: Vector3, angle: number, model: Model?, flatSide: number?): number?
 	local geometry = Curve.Geometry(part)
 	local glyphRight, glyphDown = Rules.Axes(normal, angle)
 	local baseHalf = Config.RuneStampSize * 0.5
@@ -196,7 +203,7 @@ function Rules.FitCurvedScale(part: BasePart, center: Vector3, normal: Vector3, 
 		if scale < Config.RuneMinScale then
 			break
 		end
-		if ProbesFitCurved(part, geometry, center, normal, glyphRight, glyphDown, baseHalf * scale, model) then
+		if ProbesFitCurved(part, geometry, center, normal, glyphRight, glyphDown, baseHalf * scale, model, flatSide) then
 			return scale
 		end
 	end

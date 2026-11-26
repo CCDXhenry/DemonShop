@@ -85,12 +85,12 @@ do
 	Rules.ApplyPadVisual(pad, 'Unlocked', nil)
 	check(pad.OuterRim.LocalTransparencyModifier == 1 and pad.TriggerZone.CanTouch == false and pad.GuiAnchor.PadGui.Enabled == false, 'Unlocked hides pad & disables touch/gui')
 end
-check(Rules.FormatCost(250) == '250' and Rules.FormatCost(2500) == '2,500' and Rules.FormatCost(1000000) == '1,000,000', 'FormatCost formats commas')
+check(Rules.FormatCost(250) == '250' and Rules.FormatCost(2500) == '2.5K' and Rules.FormatCost(1000000) == '1M', 'FormatCost formats AA suffixes')
 check(Rules.DescribeTitle(F.FastChute) == 'FAST DROP CHUTE' and Rules.DescribeDesc(F.AutoRune) == 'AUTO-PULLS BODIES AND ENGRAVES RUNES', 'DescribeTitle/Desc return source text from GameData')
 local lockedReq = Rules.DescribePrereq(F.AutoRune, 'Locked')
 check(lockedReq.textId == 'PadPrereqRequires' and lockedReq.argSources and lockedReq.argSources[1] == 'FAST DROP CHUTE', 'DescribePrereq binds nested argSources')
 check(Rules.DescribePrereq(F.FastChute, 'Insufficient').textId == 'PadPrereqNone' and Rules.DescribePrereq(F.AutoRune, 'Ready').textId == 'PadPrereqUnlocked', 'DescribePrereq handles none & cleared')
-check(Rules.DescribePrice(F.AutoClerk).textId == 'PadPrice' and Rules.DescribePrice(F.AutoClerk).args[1] == '9,000', 'DescribePrice formats PadPrice description')
+check(Rules.DescribePrice(F.AutoClerk).textId == 'PadPrice' and Rules.DescribePrice(F.AutoClerk).args[1] == '9K', 'DescribePrice formats PadPrice description')
 
 -- 工具函数：构造测试白膜与重置场景
 local function makeTestBody(manager, stage)

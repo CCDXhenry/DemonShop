@@ -174,10 +174,14 @@ do
 	check(flatItem.paintFlipped == true and flatSession.orientation == Rotation.FlipOrientation,
 		'flat mode automatically flips body at 50% progress')
 
-	flatItem.totalArea = flatItem.area / Config.PaintFlatTarget
-	local doneFlat = Painting.Apply(flatSession, flatItem, { sequence = 3, samples = {} }, pose, origin, .3)
+	flatItem.totalArea = (flatItem.area * 2) / Config.PaintFlatTarget
+	local doneFlat = Painting.Apply(flatSession, flatItem, {
+		sequence = 3,
+		orientation = Rotation.FlipOrientation,
+		samples = { { part = 'UpperTorso', face = 2, u = .5, v = .5 } },
+	}, pose, origin, .3)
 	check(doneFlat and doneFlat.complete and flatItem.progress == 1,
-		'flat mode completes when area reaches Config.PaintFlatTarget')
+		'flat mode completes when both front and back reach Config.PaintFlatTarget')
 
 	flatItem.totalArea = flatItem.area / (Config.PaintTarget * 0.5)
 	Config.PaintRotationEnabled = true
@@ -199,6 +203,65 @@ do
 	Painting.Apply(flipSession, flipItem, { sequence = 2, orientation = Rotation.FlipOrientation, samples = {} }, pose, origin, .2)
 	check(flipItem.paintFlipped == true and flipSession.orientation == Rotation.FlipOrientation,
 		'flat mode accepts client flip prediction within tolerance near 50%')
+
+	-- 真实曲面部件在躺平模式下正反面各自独立计分：正面画满至 50% 翻面且不偷吃背面覆盖；背面再画 60% 即完成。
+	local Data = require('./BodySurfaceData')
+	local flatMesh = Roblox.Instance.new('Model')
+	local flatTorso = Roblox.Instance.new('Part')
+	flatTorso.Name, flatTorso.Size, flatTorso.CFrame = 'UpperTorso', Roblox.Vector3.one, C.identity
+	flatTorso.Parent = flatMesh
+	local flatLimb = Roblox.Instance.new('Part')
+	flatLimb.Name, flatLimb.Size = 'LeftLowerArm', Data.Parts.LeftLowerArm.size
+	flatLimb:SetAttribute('SurfaceVersion', Curve.Version)
+	flatLimb:SetAttribute('Paintable', true)
+	flatLimb.CFrame = C.identity
+	flatLimb.Parent = flatMesh
+	local fTotal, bTotal = Surface.FlatSideTotals(flatMesh)
+	local curvedFlatSession = { token = 'curved-flat', sequence = 0, last = 0, orientation = C.identity }
+	local curvedFlatItem = {
+		model = flatMesh,
+		covered = {},
+		area = 0,
+		frontArea = 0,
+		backArea = 0,
+		totalArea = Surface.Total(flatMesh),
+		frontTotalArea = fTotal,
+		backTotalArea = bTotal,
+		paintSeconds = 0,
+		progress = 0,
+		strokes = {},
+		strokePoints = 0,
+		poseBody = { LeftLowerArm = C.identity },
+	}
+	-- 在曲面肢体边缘多次刷正面采样：不应污染任何背面单元，且进度停在 50% 并自动翻面。
+	local rimFront = Curve.Intersect(flatLimb, Roblox.Vector3.new(flatLimb.Size.X * 0.25, 0, -4), Roblox.Vector3.zAxis, 10)
+	local centerFront = Curve.Intersect(flatLimb, Roblox.Vector3.new(0, 0, -4), Roblox.Vector3.zAxis, 10)
+	assert(rimFront and centerFront, 'curved flat front fixtures')
+	curvedFlatItem.frontArea = fTotal * Config.PaintFlatTarget * 0.99
+	Painting.Apply(curvedFlatSession, curvedFlatItem, { sequence = 1, samples = { rimFront, centerFront } }, pose, origin, .1)
+	local gLimb = Curve.Geometry(flatLimb)
+	local anyBackStained = false
+	for k in curvedFlatItem.covered do
+		local triIdx = tonumber(string.match(k, ':(%d+):%d+$'))
+		if triIdx and gLimb.triangles[triIdx].normal.Z >= Curve.FlatCoverageMinDot then
+			anyBackStained = true; break
+		end
+	end
+	check(not anyBackStained, 'front flat-mode painting never stains back-facing coverage cells')
+	check(curvedFlatItem.backArea == 0 and curvedFlatItem.paintFlipped == true and math.abs(curvedFlatItem.progress - 0.5) < 1e-6,
+		'front completion caps cleanly at 50% with zero backArea and triggers flip')
+	-- 翻面后仅涂满背面可达面积的 60% 即完成 100%。
+	local backHit = Curve.FirstHit(Curve.BodyMesh(flatMesh), origin, Roblox.Vector3.zAxis, 20)
+	assert(backHit, 'curved flat back fixture')
+	curvedFlatItem.backArea = bTotal * Config.PaintFlatTarget * 0.99
+	local finishCurved = Painting.Apply(curvedFlatSession, curvedFlatItem, {
+		sequence = 2,
+		orientation = Rotation.FlipOrientation,
+		samples = { backHit },
+	}, pose, origin, .2)
+	check(finishCurved and finishCurved.complete and curvedFlatItem.progress == 1,
+		'back side completes independently at PaintFlatTarget * backTotalArea')
+	flatMesh:Destroy()
 end
 local sourceInk=Curve.CopyInk(nil)
 Curve.MarkInk(sourceInk,.2,.2)

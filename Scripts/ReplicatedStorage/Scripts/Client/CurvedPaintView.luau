@@ -39,6 +39,7 @@ type Stamp = {
 	vx: number, vy: number, vz: number,
 	depthLimit: number,
 	glyph: number,
+	side: number?,
 }
 type Tile = { mapping: Mapping, x: number, y: number, stamps: { Stamp } }
 type DirtyBox = { minX: number, minY: number, maxX: number, maxY: number }
@@ -495,6 +496,12 @@ local function RasterizeStampOnPart(
 		if m.nx * stamp.nx + m.ny * stamp.ny + m.nz * stamp.nz < NormalDotThreshold then
 			continue
 		end
+		if stamp.side ~= nil then
+			local sideDot = if stamp.side == 1 then m.nz else -m.nz
+			if sideDot < Curve.FlatVisualClipMinDot then
+				continue
+			end
+		end
 		local pcX = m.ax + m.gxX * (cx - m.ox) + m.gxY * (cy - m.oy) + m.gxZ * (cz - m.oz)
 		local pcY = m.ay + m.gyX * (cx - m.ox) + m.gyY * (cy - m.oy) + m.gyZ * (cz - m.oz)
 		local extentX = m.gxMag * boundRadius + 1
@@ -561,6 +568,7 @@ local function Prepare(texture: Texture, tiles: { [number]: Tile }, segment: Typ
 		vx = vAxis.X, vy = vAxis.Y, vz = vAxis.Z,
 		depthLimit = math.min(half * PlaneDepthFactor, minDim * 0.42),
 		glyph = segment.glyph,
+		side = segment.side,
 	}
 
 	RasterizeStampOnPart(texture, tiles, body, stamp, boundRadius)
@@ -595,6 +603,7 @@ local function Prepare(texture: Texture, tiles: { [number]: Tile }, segment: Typ
 			vx = vAxis.X, vy = vAxis.Y, vz = vAxis.Z,
 			depthLimit = math.min(half * PlaneDepthFactor, nMinDim * 0.42),
 			glyph = segment.glyph,
+			side = segment.side,
 		}
 		RasterizeStampOnPart(texture, tiles, neighborBody, neighborStamp, boundRadius)
 	end

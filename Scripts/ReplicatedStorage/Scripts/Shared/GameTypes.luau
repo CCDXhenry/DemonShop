@@ -9,7 +9,7 @@ export type PlayerConfigInfo = { gameVersion: string }
 export type BodyPose = { [string]: CFrame }
 export type Sample = { part: string, face: number, u: number, v: number, breakBefore: boolean?, packedInk: boolean?, slice: boolean?, triangle: number?, surfaceVersion: number?, orientation: CFrame? }
 export type Stroke = { key: string, samples: { Sample } }
-export type VisualSegment = { key: string, version: number, gesture: number, part: string, face: number, u: number, v: number, glyph: number, angle: number, scale: number, triangle: number?, surfaceVersion: number? }
+export type VisualSegment = { key: string, version: number, gesture: number, part: string, face: number, u: number, v: number, glyph: number, angle: number, scale: number, triangle: number?, surfaceVersion: number?, side: number? }
 export type VisualState = { segments: { [string]: VisualSegment }, count: number, revision: number }
 export type Request = { action: string, category: string?, expectedNextLevel: number?, facilityId: number?, sprint: boolean?, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, orientation: CFrame?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose?, direction: Vector3? }
 export type GroundFall = {target: CFrame, started: number, velocity: Vector3}
@@ -20,11 +20,15 @@ export type PoolToss = {
 	owner: number,
 	collision: boolean?,
 	kind: ("Pool" | "Manual")?,
-	origin: Vector3?,
 	velocity: Vector3?,
 	duration: number?,
 	chuteDropFrom: Vector3?,
-	wallStop: boolean?,
+	releaseRotation: CFrame?,
+	contact: Vector3?,
+	spin: Vector3?,
+	groundedAt: number?,
+	canEnterChute: boolean?,
+	poolStableSince: number?,
 }
 export type AltarToss = {
 	from: CFrame,
@@ -62,7 +66,11 @@ export type Item = {
 	strokePoints: number,
 	visualState: VisualState?,
 	area: number,
+	frontArea: number?,
+	backArea: number?,
 	totalArea: number,
+	frontTotalArea: number?,
+	backTotalArea: number?,
 	exteriorMeasured: boolean?,
 	progress: number,
 	paintSeconds: number,

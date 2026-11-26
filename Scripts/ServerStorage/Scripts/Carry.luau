@@ -334,67 +334,115 @@ function Carry.TossIntoPool(item: Types.Item, restoreTool: boolean?): ()
 		AnchorPool(item)
 	end
 end
-function Carry.BeginManualToss(item: Types.Item, origin: Vector3, velocity: Vector3, duration: number, target: CFrame, thrower: Player?, restoreTool: boolean?, chuteDropFrom: Vector3?, wallStop: boolean?): boolean
-	-- 飞行由抛掷客户端按共享抛物线驱动。没有抛掷者时直接放到落点，由调用方判定入池。
-	local character = thrower and thrower.Character
-	local rotation = item.model:GetPivot().Rotation
+local function BodyTorso(model: Model): BasePart?
+	local torso = model:FindFirstChild("UpperTorso")
+	if torso and torso:IsA("BasePart") then
+		return torso
+	end
+	return model.PrimaryPart
+end
+local function SafeManualRelease(model: Model, character: Model?, forward: Vector3): CFrame
+	local torso = BodyTorso(model)
+	local current = if torso then torso.CFrame else model:GetPivot()
+	if not character then
+		return current
+	end
+	local anchor = character:FindFirstChild("UpperTorso") or character:FindFirstChild("HumanoidRootPart")
+	if not anchor or not anchor:IsA("BasePart") then
+		return current
+	end
+	local cast = RaycastParams.new()
+	cast.FilterType = Enum.RaycastFilterType.Include
+	cast.FilterDescendantsInstances = { Scene.District, workspace.Terrain }
+	cast.RespectCanCollide = true
+	local origin = anchor.Position
+	local delta = current.Position - origin
+	if delta.Magnitude > 0.05 then
+		local hit = workspace:Raycast(origin, delta, cast)
+		if hit then
+			local safePoint = hit.Position - delta.Unit * math.min(0.85, delta.Magnitude * 0.5)
+			model:PivotTo(model:GetPivot() + (safePoint - current.Position))
+			return if torso then torso.CFrame else model:GetPivot()
+		end
+	end
+	local overlap = OverlapParams.new()
+	overlap.FilterType = Enum.RaycastFilterType.Include
+	overlap.FilterDescendantsInstances = cast.FilterDescendantsInstances
+	overlap.RespectCanCollide = true
+	overlap.MaxParts = 1
+	if torso and #workspace:GetPartsInPart(torso, overlap) > 0 then
+		local fallback = origin + ThrowArc.Horizontal(forward, anchor.CFrame.LookVector) * 0.85 + Vector3.yAxis * 0.5
+		if workspace:Raycast(origin, fallback - origin, cast) then
+			fallback = origin + Vector3.yAxis * 0.5
+		end
+		model:PivotTo(model:GetPivot() + (fallback - torso.Position))
+		return torso.CFrame
+	end
+	return current
+end
+function Carry.BeginManualToss(item: Types.Item, _from: CFrame, velocity: Vector3, duration: number, target: CFrame, thrower: Player, restoreTool: boolean, _chuteDropFrom: Vector3?, _contact: Vector3?, canEnterChute: boolean?): ()
+	local character = thrower.Character
 	Carry.Detach(item, restoreTool)
 	NPC.StopMotion(item)
+	local releasePose = SafeManualRelease(item.model, character, velocity)
+	Ragdoll.SetMode(item.model, "Loose", thrower)
+	Ragdoll.SetThrowPhysics(item.model, true)
+	if character then
+		ReleaseContacts(item, character)
+	end
+	local manual = Config.ManualThrow
+	local flat = ThrowArc.Horizontal(velocity, Vector3.zAxis)
+	-- 右手系下 Look×Up 为右方，绕左向轴（Up×Look）正角速度使上半身向前滚翻。
+	local pitchAxis = Vector3.yAxis:Cross(flat)
+	local pitchSpeed = random:NextNumber(manual.PitchSpinMin, manual.PitchSpinMax)
+	local sideLimit = manual.SideSpinMax
+	local sideSpin = Vector3.new(
+		random:NextNumber(-sideLimit, sideLimit),
+		random:NextNumber(-sideLimit, sideLimit),
+		random:NextNumber(-sideLimit, sideLimit)
+	)
+	local spin = pitchAxis * pitchSpeed + sideSpin
+	for _, part in item.model:GetDescendants() do
+		if part:IsA("BasePart") and not part.Anchored then
+			part.AssemblyLinearVelocity = velocity
+			part.AssemblyAngularVelocity = spin
+		end
+	end
 	item.location = "Thrown"
 	item.streetSlot = false
 	item.version += 1
-	item.model:SetAttribute("MotionState", "PoolToss")
-	if not thrower then
-		item.model:PivotTo(target)
-		return true
-	end
-	Ragdoll.SetMode(item.model, "Loose", thrower)
-	SetFlightCollision(item.model, false)
-	for _, part in item.model:GetDescendants() do
-		if part:IsA("BasePart") and not part.Anchored then
-			part.AssemblyLinearVelocity = Vector3.zero
-			part.AssemblyAngularVelocity = Vector3.zero
-		end
-	end
-	if character then ReleaseContacts(item, character) end
+	item.motionState = "ManualToss"
+	item.model:SetAttribute("MotionState", "ManualToss")
 	item.poolToss = {
 		kind = "Manual",
-		from = CFrame.new(origin) * rotation,
+		from = releasePose,
 		target = target,
 		started = workspace:GetServerTimeNow(),
 		owner = thrower.UserId,
-		origin = origin,
 		velocity = velocity,
 		duration = duration,
-		chuteDropFrom = chuteDropFrom,
-		wallStop = wallStop,
+		spin = spin,
+		canEnterChute = canEnterChute == true,
 	}
-	item.motionState = "PoolToss"
-	return false
 end
 function Carry.FinishPool(item: Types.Item): ()
 	AnchorPool(item)
 end
 function Carry.FinishGround(item: Types.Item): ()
+	item.fall = nil
 	item.poolToss = nil
+	Ragdoll.SetThrowPhysics(item.model, false)
+	SetOwner(item.model, nil)
 	item.location = "Ground"
 	item.motionState = "Down"
+	item.model:SetAttribute("PhysicsMode", "Loose")
 	item.model:SetAttribute("MotionState", "Down")
 	item.version += 1
 end
-local function FlightLimit(toss: Types.PoolToss): number
-	if toss.duration and (toss.duration > 0 or toss.kind == "Manual") then
-		return toss.duration
-	end
-	return Config.PoolTossSeconds
-end
-local function NearLanding(item: Types.Item, toss: Types.PoolToss, bed: BasePart): boolean
+local function NearLanding(item: Types.Item, bed: BasePart): boolean
 	local torso = item.model:FindFirstChild("UpperTorso")
 	if not torso or not torso:IsA("BasePart") then
 		return false
-	end
-	if toss.kind == "Manual" then
-		return torso.Position.Y <= toss.target.Position.Y + Config.ManualThrow.LandingClearanceStuds
 	end
 	return bed.CFrame:PointToObjectSpace(torso.Position).Y <= bed.Size.Y * 0.5 + 3
 end
@@ -404,7 +452,7 @@ local function AdvanceToss(item: Types.Item, now: number, bed: BasePart, contain
 		item.poolToss = nil
 		return false
 	end
-	local flight = FlightLimit(toss)
+	local flight = Config.PoolTossSeconds
 	local flightDone = now >= toss.started + flight
 	local player = Players:GetPlayerByUserId(toss.owner)
 	if not player then
@@ -424,7 +472,7 @@ local function AdvanceToss(item: Types.Item, now: number, bed: BasePart, contain
 		item.motionState = settledMotion
 		item.model:SetAttribute("MotionState", settledMotion)
 	end
-	local nearFloor = NearLanding(item, toss, bed)
+	local nearFloor = NearLanding(item, bed)
 	local asleep = nearFloor
 	if asleep then
 		for _, part in item.model:GetDescendants() do
@@ -449,18 +497,97 @@ end
 function Carry.AdvancePoolToss(item: Types.Item, now: number): boolean
 	return AdvanceToss(item, now, Scene.PoolFloor, Scene.PoolContains, AnchorPool, "Pool")
 end
+local function TouchesInstance(model: Model, target: Instance?): boolean
+	if not target then
+		return false
+	end
+	local params = OverlapParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { target }
+	params.MaxParts = 1
+	for _, part in model:GetChildren() do
+		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and #workspace:GetPartsInPart(part, params) > 0 then
+			return true
+		end
+	end
+	return false
+end
+local function InsidePoolBasin(position: Vector3): boolean
+	if not Scene.PoolContainsStrict(position) then
+		return false
+	end
+	local floor = Scene.PoolFloor
+	if not floor then
+		return true
+	end
+	local manual = Config.ManualThrow
+	local localPos = floor.CFrame:PointToObjectSpace(position)
+	local half = floor.Size * 0.5
+	local inset = math.min(manual.PoolCaptureInset, half.X * 0.5, half.Z * 0.5)
+	return math.abs(localPos.X) <= half.X - inset
+		and math.abs(localPos.Z) <= half.Z - inset
+		and localPos.Y >= -half.Y
+		and localPos.Y <= half.Y + manual.PoolCaptureHeight
+end
 function Carry.AdvanceManualToss(item: Types.Item, now: number, onSettled: (Types.Item) -> ()): boolean
 	local toss = item.poolToss
-	local dropFrom = toss and toss.chuteDropFrom
-	if toss and dropFrom and item.model.Parent then
-		local endTime = toss.started + FlightLimit(toss) + ThrowArc.DropDuration(dropFrom, toss.target.Position, workspace.Gravity)
-		if now < endTime and Players:GetPlayerByUserId(toss.owner) then return false end
-		-- 井内全程无碰撞。服务端收口，避免客户端掉线或最后一帧未复制导致漏入队。
-		item.model:PivotTo(toss.target)
+	if not toss or toss.kind ~= "Manual" then return false end
+	if not item.model.Parent then
+		item.poolToss = nil
+		return false
+	end
+	local manual = Config.ManualThrow
+	Ragdoll.LimitVelocity(item.model, manual.MaxFlightLinearSpeed, manual.MaxFlightAngularSpeed)
+	local torso = BodyTorso(item.model)
+	if not torso then
 		onSettled(item)
 		return true
 	end
-	return AdvanceToss(item, now, Scene.PoolFloor, Scene.PoolContainsStrict, AnchorPool, "Thrown", onSettled)
+	local elapsed = math.max(0, now - toss.started)
+	local pos = torso.Position
+	-- 快速通道井口或挡板：命中立即削去水平速度并导入井口。
+	if toss.canEnterChute then
+		local inChute = Scene.ChuteContains(pos) or TouchesInstance(item.model, Scene.ChuteBaffles)
+		if inChute then
+			for _, part in item.model:GetDescendants() do
+				if part:IsA("BasePart") and not part.Anchored then
+					local v = part.AssemblyLinearVelocity
+					part.AssemblyLinearVelocity = Vector3.new(0, math.min(v.Y, 0), 0)
+				end
+			end
+			onSettled(item)
+			return true
+		end
+	end
+	-- 严格存放池：仅在真正落入池底盆内并减速稳定后才收纳锚定。
+	if item.stage ~= "Painted" and InsidePoolBasin(pos) and torso.AssemblyLinearVelocity.Magnitude <= manual.PoolSettleSpeed then
+		toss.poolStableSince = toss.poolStableSince or now
+		if now - (toss.poolStableSince :: number) >= manual.PoolStableSeconds then
+			onSettled(item)
+			return true
+		end
+	else
+		toss.poolStableSince = nil
+	end
+	-- 普通地面：检测首次触地或减速后经过短延迟转为 Ground 可拾取活布娃娃。
+	if elapsed >= manual.MinGroundCheckSeconds then
+		local cast = RaycastParams.new()
+		cast.FilterType = Enum.RaycastFilterType.Include
+		cast.FilterDescendantsInstances = { Scene.District, workspace.Terrain }
+		cast.RespectCanCollide = true
+		local hit = workspace:Raycast(pos, -Vector3.yAxis * manual.GroundProbeStuds, cast)
+		if (hit and hit.Normal.Y > 0.5) or torso.AssemblyLinearVelocity.Magnitude <= manual.GroundSlowSpeed then
+			toss.groundedAt = toss.groundedAt or now
+		end
+	end
+	if (toss.groundedAt and now - toss.groundedAt >= manual.GroundPickupDelaySeconds)
+		or elapsed >= manual.MaxFlightSeconds
+		or pos.Y < -35
+	then
+		onSettled(item)
+		return true
+	end
+	return false
 end
 local function AltarRestOffset(part: BasePart, model: Model, pivot: CFrame): CFrame
 	if part == model.PrimaryPart then return CFrame.identity end

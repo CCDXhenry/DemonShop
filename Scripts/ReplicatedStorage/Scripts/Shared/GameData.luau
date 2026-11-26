@@ -23,6 +23,9 @@ export type WeaponConfig = {
 	attackCooldown: number,
 	slashAnim: string,
 	slashSound: string,
+	slashAnimation: Animation?,
+	slashSoundTemplate: Sound?,
+	icon: string,
 }
 
 export type CarryToolConfig = {
@@ -33,6 +36,7 @@ export type CarryToolConfig = {
 	previewModel: string,
 	cost: number,
 	capacity: number,
+	icon: string,
 }
 
 export type MoveTierConfig = {
@@ -123,10 +127,51 @@ local function AsString(row: { [string]: unknown }, key: string, context: string
 	return value
 end
 
+local function AsAssetId(row: { [string]: unknown }, key: string, context: string): string
+	local value = AsString(row, key, context)
+	assert(string.sub(value, 1, 13) == "rbxassetid://", context .. "." .. key .. " must be an asset id")
+	return value
+end
+
 local function AsBoolean(row: { [string]: unknown }, key: string, context: string): boolean
 	local value = row[key]
 	assert(typeof(value) == "boolean", context .. "." .. key .. " must be a boolean")
 	return value
+end
+
+-- 离线测试没有 DataModel；缺模板或资产 ID 时回退到 GameConfig。
+local function ReadWeaponPresentation(modelName: string): (string, string, Animation?, Sound?)
+	local animId = Config.WeaponSlashAnimation
+	local soundId = Config.WeaponSlashSound
+	local ok, foundAnim, foundSound = pcall(function(): (Animation?, Sound?)
+		local replicated = game:GetService("ReplicatedStorage")
+		local models = replicated:FindFirstChild("Models")
+		local weapons = if models then models:FindFirstChild("Weapons") else nil
+		local tool = if weapons then weapons:FindFirstChild(modelName) else nil
+		if not tool then
+			return nil, nil
+		end
+		local animation = tool:FindFirstChild("Slash")
+		local sound = tool:FindFirstChild("SlashSound")
+		return if animation and animation:IsA("Animation") then animation else nil,
+			if sound and sound:IsA("Sound") then sound else nil
+	end)
+	if not ok then
+		return animId, soundId, nil, nil
+	end
+	local slashAnimation = if typeof(foundAnim) == "Instance" and (foundAnim :: Instance):IsA("Animation") then foundAnim :: Animation else nil
+	local slashSoundTemplate = if typeof(foundSound) == "Instance" and (foundSound :: Instance):IsA("Sound") then foundSound :: Sound else nil
+	if slashAnimation and slashAnimation.AnimationId ~= "" then
+		animId = slashAnimation.AnimationId
+	else
+		slashAnimation = nil
+	end
+	if slashSoundTemplate and slashSoundTemplate.SoundId ~= "" then
+		soundId = slashSoundTemplate.SoundId
+	else
+		slashSoundTemplate = nil
+	end
+	return animId, soundId, slashAnimation, slashSoundTemplate
 end
 
 -- 武器表索引
@@ -137,13 +182,13 @@ for index, row in rawWeapons do
 	local context = "WeaponData[" .. tostring(index) .. "]"
 	local id = AsPositiveInt(row, "id", context)
 	local rawCooldown = AsNumber(row, "attackCooldown", context)
-	local rawAnim = AsString(row, "slashAnim", context)
-	local rawSound = AsString(row, "slashSound", context)
+	local modelName = AsString(row, "model", context)
+	local slashAnim, slashSound, slashAnimation, slashSoundTemplate = ReadWeaponPresentation(modelName)
 	local item: WeaponConfig = {
 		id = id,
 		level = AsPositiveInt(row, "level", context),
 		name_t = AsString(row, "name_t", context),
-		model = AsString(row, "model", context),
+		model = modelName,
 		cost = AsNumber(row, "cost", context),
 		damage = AsNumber(row, "damage", context),
 		targets = AsNumber(row, "targets", context),
@@ -152,8 +197,11 @@ for index, row in rawWeapons do
 		angle = AsNumber(row, "angle", context),
 		width = AsNumber(row, "width", context),
 		attackCooldown = if rawCooldown > 0 then rawCooldown else Config.AttackCooldown,
-		slashAnim = if rawAnim ~= "" then rawAnim else Config.WeaponSlashAnimation,
-		slashSound = if rawSound ~= "" then rawSound else Config.WeaponSlashSound,
+		slashAnim = slashAnim,
+		slashSound = slashSound,
+		slashAnimation = slashAnimation,
+		slashSoundTemplate = slashSoundTemplate,
+		icon = AsAssetId(row, "icon", context),
 	}
 	assert(weaponsById[item.id] == nil, context .. ".id duplicate")
 	assert(item.model ~= "" and weaponLevelByModel[item.model] == nil, context .. ".model duplicate or empty")
@@ -187,6 +235,7 @@ for index, row in rawCarryTools do
 		previewModel = AsString(row, "previewModel", context),
 		cost = AsNumber(row, "cost", context),
 		capacity = AsNumber(row, "capacity", context),
+		icon = AsAssetId(row, "icon", context),
 	}
 	assert(carryToolsById[item.id] == nil, context .. ".id duplicate")
 	local frozen = table.freeze(item)
@@ -400,6 +449,10 @@ end
 
 function GameData.GetCarryToolById(id: number): CarryToolConfig?
 	return carryToolsById[id]
+end
+
+function GameData.GetAllCarryTools(): { CarryToolConfig }
+	return carryToolsByLevel
 end
 
 function GameData.GetPersonalAbilityById(id: number): PersonalAbilityConfig?

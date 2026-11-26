@@ -3,6 +3,7 @@ local R = require('@lune/roblox')
 local CFrame, Vector3 = R.CFrame, R.Vector3
 local B = require('./StationPotionBoundary')
 local Config = require('./GameConfig')
+local NumberExtension = require('./NumberExtension')
 local GameData = require('./GameData')
 local F = GameData.FacilityId
 local Scene = require('./StationScene')
@@ -442,9 +443,9 @@ do
 	local awardedCount1, awardedCount2 = 0, 0
 	for _, entry in B.notices do
 		if entry.notice.kind == 'Message' and entry.notice.textId == 'CoinsAwarded' and entry.notice.textArgs then
-			if entry.player == pActive1 and entry.notice.textArgs[1] == tostring(4 * Config.PotionReward) then
+			if entry.player == pActive1 and entry.notice.textArgs[1] == NumberExtension.FormatBigNumberAA(4 * Config.PotionReward) then
 				awardedCount1 += 1
-			elseif entry.player == pActive2 and entry.notice.textArgs[1] == tostring(8 * Config.PotionReward) then
+			elseif entry.player == pActive2 and entry.notice.textArgs[1] == NumberExtension.FormatBigNumberAA(8 * Config.PotionReward) then
 				awardedCount2 += 1
 			end
 		end

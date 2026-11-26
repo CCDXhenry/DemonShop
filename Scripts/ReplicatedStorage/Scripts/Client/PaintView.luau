@@ -349,7 +349,7 @@ function View.Apply(self: View, id: string, segments: { Types.VisualSegment }): 
 	end
 end
 
-function View.DrawLocal(self: View, id: string, session: string, gesture: number, samples: { Types.Sample }): ()
+function View.DrawLocal(self: View, id: string, session: string, gesture: number, samples: { Types.Sample }, flatSide: number?): ()
 	local model = self.models[id]
 	if not model then
 		return
@@ -381,12 +381,15 @@ function View.DrawLocal(self: View, id: string, session: string, gesture: number
 			if not triangle or not triangle.allowed then
 				return false
 			end
+			if flatSide ~= nil and Curve.FlatSideDot(triangle.normal, flatSide) < Curve.FlatVisualCenterMinDot then
+				return false
+			end
 			local center = Curve.Point(part, sample)
 			-- 部件级 3D 空间去重：旋转切片及连续滑动避开已有符文，防止重复调用 FitCurvedScale 与塞爆光栅化队列；主动首笔点击始终放行。
 			if (sample.slice or tip ~= nil) and HasNearbyCurvedStamp(self, id, sample.part, center, dedupeDist, dedupeDist) then
 				return false
 			end
-			local scale = RuneRules.FitCurvedScale(part, center, triangle.normal, angle, model)
+			local scale = RuneRules.FitCurvedScale(part, center, triangle.normal, angle, model, flatSide)
 			if not scale then
 				return false
 			end
@@ -407,6 +410,7 @@ function View.DrawLocal(self: View, id: string, session: string, gesture: number
 				scale = scale,
 				triangle = triIndex,
 				surfaceVersion = Curve.Version,
+				side = flatSide,
 			}
 			table.insert(batch, segment)
 			changed[key] = segment
@@ -502,6 +506,9 @@ function View.DrawLocal(self: View, id: string, session: string, gesture: number
 	local batch: { Types.VisualSegment } = {}
 
 	local function EmitFlat(part: BasePart, face: number, u: number, v: number, dimensions: Vector2, angle: number): boolean
+		if flatSide ~= nil and face ~= (if flatSide == 1 then 2 else 1) then
+			return false
+		end
 		if count >= Config.PaintLocalSegmentBudget then
 			self.budgetReached = true
 			return false
@@ -523,6 +530,7 @@ function View.DrawLocal(self: View, id: string, session: string, gesture: number
 			glyph = NextGlyph(self, id),
 			angle = angle,
 			scale = scale,
+			side = flatSide,
 		}
 		table.insert(batch, segment)
 		changed[key] = segment

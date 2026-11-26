@@ -1,5 +1,6 @@
 -- 玩家引导纯规则：根据携带物、共享工位与占用状态提供具体下一步
 --!strict
+local NumberExtension = require(game:GetService("ReplicatedStorage").Core.Scripts.Shared.NumberExtension)
 local Types = require(script.Parent.GameTypes)
 local Config = require(script.Parent.GameConfig)
 local GameData = require(script.Parent.GameData)
@@ -40,7 +41,7 @@ end
 function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?, potions: Potions?, stack: { Types.ItemView }?): GameTexts.Description
 	local load = ReadCarry(held, stack)
 	if load.body then return Describe("ThrowAim") end
-	if potions and (potions.equipped or potions.stored > 0) then return Describe("TakePotion", { tostring(potions.reward or Config.PotionReward) }) end
+	if potions and (potions.equipped or potions.stored > 0) then return Describe("TakePotion", { NumberExtension.FormatBigNumberAA(potions.reward or Config.PotionReward) }) end
 	if snapshot then
 		if snapshot.shelf > 0 then return Describe("PotionReady") end
 		if (snapshot.autoShelfCount or 0) > 0 then return Describe("CollectAutoPotion") end
@@ -78,7 +79,7 @@ function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.Ite
 		if load.body then return Describe("HandsFullHint") end
 		return if snapshot and snapshot.shelf > 0 then Describe("CollectPotion") else Describe("NoPotion")
 	elseif target == "Sigil" then
-		if potions and (potions.equipped or potions.stored > 0) then return Describe("OfferPotion", { tostring(potions.reward or Config.PotionReward) }) end
+		if potions and (potions.equipped or potions.stored > 0) then return Describe("OfferPotion", { NumberExtension.FormatBigNumberAA(potions.reward or Config.PotionReward) }) end
 		return Describe("BringPotion")
 	elseif target == "Chute" then
 		if not (snapshot and snapshot.unlockedFacilities and snapshot.unlockedFacilities[GameData.FacilityId.FastChute]) then return Describe("ChuteLocked") end

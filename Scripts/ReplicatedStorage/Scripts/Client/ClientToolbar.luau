@@ -2,13 +2,13 @@
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local NumberExtension = require(ReplicatedStorage.Core.Scripts.Shared.NumberExtension)
 local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
 local Shared = ReplicatedStorage:WaitForChild("Scripts"):WaitForChild("Shared")
 local Lifecycle = require(Shared:WaitForChild("LifecycleTool"))
 local Config = require(Shared:WaitForChild("GameConfig"))
 local GameData = require(Shared:WaitForChild("GameData"))
-local ShopIconData = require(Shared:WaitForChild("ShopIconData"))
 local ProcessingTextTool = require(script.Parent.ProcessingTextTool)
 local UIManager = require(script.Parent.UIManager)
 local Toolbar = {}
@@ -65,7 +65,7 @@ local function ApplyToolName(texts: ProcessingTextTool.Controller, button: Image
 	local nameLabel = button:FindFirstChild("ToolNameText")
 	if nameLabel and nameLabel:IsA("TextLabel") then
 		if tool.Name == "Potion" then
-			texts:Bind(nameLabel, { textId = "ToolbarPotion", args = { tostring(StackCount(tool)) } })
+			texts:Bind(nameLabel, { textId = "ToolbarPotion", args = { NumberExtension.FormatBigNumberAA(StackCount(tool)) } })
 		else
 			texts:BindSource(nameLabel, WeaponSource(tool))
 		end
@@ -140,7 +140,7 @@ end
 local function SetToolIcon(button: ImageButton, tool: Tool): ()
 	local icon = button:WaitForChild("IconImage") :: ImageLabel
 	local level = PersonalRules.WeaponLevel(tool.Name)
-	icon.Image = if tool.Name == "Potion" then ShopIconData.potion elseif level then ShopIconData.weapon[level] else ""
+	icon.Image = if tool.Name == "Potion" then Config.PotionIcon elseif level then GameData.GetWeaponByLevel(level).icon else ""
 end
 
 local function SetEquipped(button: ImageButton, tool: Tool): ()

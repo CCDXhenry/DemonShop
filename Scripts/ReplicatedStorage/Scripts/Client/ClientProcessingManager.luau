@@ -3,6 +3,7 @@
 local Players = game:GetService("Players")
 local GuiService = game:GetService("GuiService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local NumberExtension = require(ReplicatedStorage.Core.Scripts.Shared.NumberExtension)
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Scripts"):WaitForChild("Shared")
@@ -43,11 +44,14 @@ local TouchJumpController = require(script.Parent.TouchJumpController)
 local Client = {}
 Client.__index = Client
 local player = Players.LocalPlayer
-local function PlayWeaponSlashSound(soundId: string, position: Vector3): ()
+local function PlayWeaponSlashSound(tier: GameData.WeaponConfig, position: Vector3): ()
 	if not Sound then return end
-	if Sound.PlaySoundId then
-		Sound.PlaySoundId(soundId, position, "AttackSwing")
-	else
+	local template = tier.slashSoundTemplate
+	if template and Sound.PlayLocal then
+		Sound.PlayLocal(template, position)
+		return
+	end
+	if Sound.Play then
 		Sound.Play("AttackSwing", position)
 	end
 end
@@ -103,6 +107,10 @@ export type Client = typeof(setmetatable(
 		localProgress: number,
 		localArea: number,
 		localTotalArea: number,
+		localFrontArea: number,
+		localBackArea: number,
+		localFrontTotalArea: number,
+		localBackTotalArea: number,
 		visualGesture: number,
 		orientation: CFrame,
 		sentOrientation: CFrame,
@@ -196,8 +204,45 @@ local function ActivePaintTarget(): number
 	local flatTarget: number? = (Config :: any).PaintFlatTarget
 	return if Config.PaintRotationEnabled then Config.PaintTarget else (flatTarget or Config.PaintTarget)
 end
+local function SyncLocalProgressFromServer(self: Client, progress: number, flipped: boolean): ()
+	local clamped = math.clamp(progress, 0, 1)
+	if not Config.PaintRotationEnabled and (self.localFrontTotalArea or 0) > 0 and (self.localBackTotalArea or 0) > 0 then
+		local ratio = ActivePaintTarget()
+		local frontTarget = math.max(self.localFrontTotalArea * ratio, 0.001)
+		local backTarget = math.max(self.localBackTotalArea * ratio, 0.001)
+		local flipAt = math.clamp(Config.PaintAutoFlipProgress, 0.05, 0.95)
+		if clamped >= 1 then
+			self.localProgress = 1
+			self.localFrontArea = math.max(self.localFrontArea or 0, frontTarget)
+			self.localBackArea = math.max(self.localBackArea or 0, backTarget)
+		else
+			if clamped > (self.localProgress or 0) then
+				self.localProgress = clamped
+			end
+			if flipped or clamped >= flipAt then
+				self.localFrontArea = math.max(self.localFrontArea or 0, frontTarget)
+				local backRatio = math.clamp((clamped - flipAt) / (1 - flipAt), 0, 1)
+				self.localBackArea = math.max(self.localBackArea or 0, backRatio * backTarget)
+			else
+				local frontRatio = math.clamp(clamped / flipAt, 0, 1)
+				self.localFrontArea = math.max(self.localFrontArea or 0, frontRatio * frontTarget)
+			end
+		end
+		self.localArea = (self.localFrontArea or 0) + (self.localBackArea or 0)
+		return
+	end
+	local targetArea = math.max((self.localTotalArea or 0) * ActivePaintTarget(), 0.001)
+	if clamped >= 1 then
+		self.localProgress = 1
+		self.localArea = math.max(self.localArea or 0, targetArea)
+	elseif clamped > (self.localProgress or 0) then
+		self.localProgress = clamped
+		self.localArea = math.max(self.localArea or 0, clamped * targetArea)
+	end
+end
 function Client.new(): Client
 	local tableView, hitView, paint = Presentation.new(), HitPresentation.new(), PaintView.new()
+	hitView:PrepareWeaponEffects()
 	local bodies = WhiteBodies.new(tableView, hitView, function(id, model)
 		if model then paint:Bind(id,model) else paint:Detach(id) end
 	end)
@@ -244,6 +289,10 @@ function Client.new(): Client
 			localProgress = 0,
 			localArea = 0,
 			localTotalArea = 0,
+			localFrontArea = 0,
+			localBackArea = 0,
+			localFrontTotalArea = 0,
+			localBackTotalArea = 0,
 			visualGesture = 0,
 			orientation = CFrame.identity,
 			sentOrientation = CFrame.identity,
@@ -425,6 +474,11 @@ function Client.TriggerAutoFlip(self: Client, animate: boolean): ()
 	self.orientation = Rotation.FlipOrientation
 	self.brushFrame = nil
 	self.visualGesture += 1
+	self.localProgress = math.max(self.localProgress or 0, Config.PaintAutoFlipProgress)
+	if (self.localFrontTotalArea or 0) > 0 then
+		self.localFrontArea = math.max(self.localFrontArea or 0, self.localFrontTotalArea * ActivePaintTarget())
+		self.localArea = self.localFrontArea + (self.localBackArea or 0)
+	end
 	self.presentation:SetFlipped(true, animate)
 	if animate then
 		self:Text("NoticeText", { textId = "PaintFlipped" })
@@ -461,6 +515,7 @@ function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	table.clear(self.paintSamples)
 	if self.localCovered then table.clear(self.localCovered) end
 	self.localProgress, self.localArea, self.localTotalArea = 0, 0, 0
+	self.localFrontArea, self.localBackArea, self.localFrontTotalArea, self.localBackTotalArea = 0, 0, 0, 0
 	self.pendingCoverage = nil
 	self.touch = nil
 	self.rotationAnchor = nil
@@ -506,19 +561,24 @@ function Client.EnterView(self: Client, id: string, session: string, frames: Typ
 	local initialProgress = if item then math.clamp(item.progress, 0, 1) else 0
 	local paintModel = self.bodies:GetPaintModel(id)
 	local totalArea = 0
+	local frontTotal, backTotal = 0, 0
 	if paintModel and typeof(paintModel) == "Instance" then
 		totalArea = Surface.Total(paintModel)
 		if paintModel:GetAttribute("SurfaceVersion") == Curve.Version then
 			totalArea = math.max(0.001, totalArea - Curve.ExcludeInterior(paintModel, self.localCovered :: { [string]: boolean }))
 		end
+		frontTotal, backTotal = Surface.FlatSideTotals(paintModel, self.localCovered :: { [string]: boolean })
 	end
 	self.localTotalArea = totalArea
-	self.localProgress = initialProgress
-	self.localArea = initialProgress * math.max(totalArea * ActivePaintTarget(), 0.001)
+	self.localFrontTotalArea, self.localBackTotalArea = frontTotal, backTotal
+	self.localFrontArea, self.localBackArea = 0, 0
+	self.localProgress = 0
+	self.localArea = 0
+	local flipped = not Config.PaintRotationEnabled and (initialFlipped == true or (item ~= nil and item.paintFlipped == true))
+	SyncLocalProgressFromServer(self, initialProgress, flipped)
 	if self.view and self.view.Warmup then
 		self.view:Warmup(id)
 	end
-	local flipped = not Config.PaintRotationEnabled and (initialFlipped == true or (item ~= nil and item.paintFlipped == true))
 	local initialOrientation = if Config.PaintRotationEnabled then CFrame.identity else Rotation.FlatOrientation(flipped)
 	self.paintFlipped = flipped
 	self.orientation, self.sentOrientation = initialOrientation, initialOrientation
@@ -639,7 +699,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		local age = workspace:GetServerTimeNow() - notice.started
 		if age >= 0 and age < 0.4 then
 			local weapon = PersonalRules.GetWeaponTier(notice.weaponLevel)
-			self.hitView:WeaponEffect(weapon.shape, notice.attackPose, weapon.range, weapon.width)
+			self.hitView:WeaponEffect(weapon.model, notice.attackPose, weapon.range, weapon.width)
 		end
 		return
 	end
@@ -773,8 +833,11 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 				elseif item.location == "Chute" then
 					Sound.Play("PoolDeposit", positions.Chute or positions.Pool)
 				elseif item.location == "Ground" then
-					local model = item.model
-					Sound.Play("BodyDrop", if model then model:GetPivot().Position else nil)
+					local started = if previous.toss then previous.toss.started else nil
+					if not self.bodies:HasManualImpactPlayed(id, started) then
+						local model = item.model
+						Sound.Play("BodyDrop", if model then model:GetPivot().Position else nil)
+					end
 				end
 			end
 		end
@@ -802,10 +865,11 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			local otherChar = otherPlayer and otherPlayer.Character
 			local otherRoot = otherChar and otherChar:FindFirstChild("HumanoidRootPart")
 			if otherRoot and otherRoot:IsA("BasePart") then
-				local slashSound = if notice.weaponLevel
-					then PersonalRules.GetWeaponTier(notice.weaponLevel).slashSound
-					else Config.WeaponSlashSound
-				PlayWeaponSlashSound(slashSound, otherRoot.Position)
+				if notice.weaponLevel then
+					PlayWeaponSlashSound(PersonalRules.GetWeaponTier(notice.weaponLevel), otherRoot.Position)
+				elseif Sound.Play then
+					Sound.Play("AttackSwing", otherRoot.Position)
+				end
 			end
 		end
 	elseif notice.kind == "SyncComplete" then
@@ -824,14 +888,8 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 				FlashCompletion(self, notice.id, SnapshotBatch(self.items))
 			end
 			if isOperator then
-				local targetArea = math.max((self.localTotalArea or 0) * ActivePaintTarget(), 0.001)
-				if item.progress >= 1 then
-					self.localProgress = 1
-					self.localArea = math.max(self.localArea or 0, targetArea)
-				elseif item.progress > (self.localProgress or 0) then
-					self.localProgress = item.progress
-					self.localArea = math.max(self.localArea or 0, item.progress * targetArea)
-				end
+				local flippedNow = self.paintFlipped or notice.flipped == true
+				SyncLocalProgressFromServer(self, item.progress, flippedNow)
 				if not Config.PaintRotationEnabled and not self.paintFlipped
 					and (notice.flipped == true or item.progress >= Config.PaintAutoFlipProgress) then
 					self:TriggerAutoFlip(true)
@@ -950,7 +1008,7 @@ function Client.Attack(self: Client, inputTime: number?): ()
 	end
 	self.lastAttack = now
 	self.characterView:Swing(player.UserId, now, tier.slashAnim)
-	PlayWeaponSlashSound(tier.slashSound, root.Position)
+	PlayWeaponSlashSound(tier, root.Position)
 	if tier.shape ~= "Single" then
 		self.attackTarget = nil
 		self.attackSequence += 1
@@ -1067,7 +1125,8 @@ local function FilterNewCoverageSamples(
 	basePose: CFrame?,
 	geometry: Rotation.Geometry?,
 	displayedOrientation: CFrame?,
-	cameraOrigin: Vector3?
+	cameraOrigin: Vector3?,
+	flatSide: number?
 ): ({ Types.Sample }, number)
 	if typeof(model) ~= "Instance" then
 		return samples, 0
@@ -1118,7 +1177,7 @@ local function FilterNewCoverageSamples(
 			ink = table.clone(sample)
 			ink.u, ink.v = Curve.InkCenter(sample.u, sample.v)
 		end
-		local _, added = Surface.Stamp(part, ink, covered)
+		local _, added = Surface.Stamp(part, ink, covered, flatSide)
 		local sampleDistance: number? = nil
 		if previous and not previous.packedInk and not sample.packedInk and previous.part == sample.part and previous.face == sample.face then
 			if curved then
@@ -1130,7 +1189,7 @@ local function FilterNewCoverageSamples(
 					local steps = math.ceil(distance / (Config.BrushRadius * 0.5))
 					for index = 1, steps - 1 do
 						local intermediate = Curve.ProjectLocal(part, start:Lerp(finish, index / steps))
-						local _, segArea = Surface.Stamp(part, intermediate, covered)
+						local _, segArea = Surface.Stamp(part, intermediate, covered, flatSide)
 						added += segArea
 					end
 				end
@@ -1147,7 +1206,7 @@ local function FilterNewCoverageSamples(
 							face = sample.face,
 							u = previous.u + (sample.u - previous.u) * alpha,
 							v = previous.v + (sample.v - previous.v) * alpha,
-						}, covered)
+						}, covered, flatSide)
 						added += segArea
 					end
 				end
@@ -1202,10 +1261,11 @@ function Client.SamplePaint(self: Client, now: number): Vector2?
 	local samples, frame = PaintBrush.SamplePath(previous, pointer, display.orientation, geometry.radius, resolver, camera.ViewportSize, rotationAxis)
 	self.brushFrame = frame
 	if #samples > 0 then
-		self.view:DrawLocal(id,session,self.visualGesture,samples)
+		local flatSide: number? = if Config.PaintRotationEnabled then nil else Curve.FlatSide(model, self.paintFlipped)
+		self.view:DrawLocal(id,session,self.visualGesture,samples,flatSide)
 		local cameraFrame = camera.CFrame
 		local cameraOrigin: Vector3? = if typeof(cameraFrame) == "CFrame" then cameraFrame.Position else nil
-		local queued, addedArea = FilterNewCoverageSamples(self, model, samples, basePose, geometry, display.orientation, cameraOrigin)
+		local queued, addedArea = FilterNewCoverageSamples(self, model, samples, basePose, geometry, display.orientation, cameraOrigin, flatSide)
 		if addedArea > 0 then
 			if (self.localTotalArea or 0) <= 0 and typeof(model) == "Instance" then
 				local total = Surface.Total(model)
@@ -1213,12 +1273,25 @@ function Client.SamplePaint(self: Client, now: number): Vector2?
 					total = math.max(0.001, total - Curve.ExcludeInterior(model, self.localCovered :: { [string]: boolean }))
 				end
 				self.localTotalArea = total
+				local frontTotal, backTotal = Surface.FlatSideTotals(model, self.localCovered :: { [string]: boolean })
+				self.localFrontTotalArea, self.localBackTotalArea = frontTotal, backTotal
 				local item = self.items[id]
 				local baseProgress = if item then math.clamp(item.progress, 0, 1) else 0
-				self.localProgress = math.max(self.localProgress or 0, baseProgress)
-				self.localArea = math.max(self.localArea or 0, self.localProgress * math.max(total * ActivePaintTarget(), 0.001))
+				SyncLocalProgressFromServer(self, baseProgress, self.paintFlipped)
 			end
-			if (self.localTotalArea or 0) > 0 then
+			if not Config.PaintRotationEnabled and (self.localFrontTotalArea or 0) > 0 and (self.localBackTotalArea or 0) > 0 then
+				if self.paintFlipped then
+					self.localBackArea = (self.localBackArea or 0) + addedArea
+				else
+					self.localFrontArea = (self.localFrontArea or 0) + addedArea
+				end
+				self.localArea = (self.localFrontArea or 0) + (self.localBackArea or 0)
+				local predicted = math.min(
+					Surface.FlatProgress(self.localFrontArea or 0, self.localBackArea or 0, self.localFrontTotalArea, self.localBackTotalArea, self.paintFlipped),
+					0.99
+				)
+				self.localProgress = math.max(self.localProgress or 0, predicted)
+			elseif (self.localTotalArea or 0) > 0 then
 				self.localArea = (self.localArea or 0) + addedArea
 				local targetArea = math.max(self.localTotalArea * ActivePaintTarget(), 0.001)
 				local predicted = math.min(self.localArea / targetArea, 0.99)
@@ -1393,7 +1466,7 @@ function Client.Update(self: Client, dt: number): ()
 		return
 	end
 	self.lastHint = now
-	self:Text("CoinsText", {textId = "Coins", args = {tostring(player:GetAttribute("Coins") or 0)}})
+	self:Text("CoinsText", {textId = "Coins", args = {NumberExtension.FormatBigNumberAA(player:GetAttribute("Coins") or 0)}})
 	if self.UpdateAutomationViews then
 		self:UpdateAutomationViews(snapshot)
 	end

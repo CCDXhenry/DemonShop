@@ -10,6 +10,7 @@ local RuneRules=require('./RuneStampRules')
 local count=0
 local function check(value,message) assert(value,message);count+=1 end
 local allArea=0
+local allFrontArea, allBackArea = 0, 0
 for name,data in Data.Parts do
  local part=Roblox.Instance.new('Part')
  part.Name,part.Size=name,data.size
@@ -19,6 +20,10 @@ for name,data in Data.Parts do
  check(#geometry.triangles==#data.triangles and #geometry.triangles>0,'triangle count '..name)
  check(geometry.total>0,'positive area '..name)
  allArea+=geometry.total
+ local fTotal, bTotal = Curve.FlatSideTotals(part)
+ check(fTotal > 0 and bTotal > 0 and fTotal + bTotal < geometry.total, 'flat front/back totals positive and exclude sidewalls '..name)
+ allFrontArea += fTotal
+ allBackArea += bTotal
  for _,fraction in {.1,.33,.53,.77} do
   local index=math.ceil(#geometry.triangles*fraction)
   local sample={part=name,face=1,u=.2,v=.35,triangle=index,surfaceVersion=Curve.Version}
@@ -49,6 +54,46 @@ for name,data in Data.Parts do
  part:Destroy()
 end
 check(allArea>20 and allArea<60,'body area scale')
+check(allFrontArea > 10 and allBackArea > 10 and allFrontArea + allBackArea < allArea,'flat side totals across full body stay strictly below 3D total')
+
+do
+	local limb = Roblox.Instance.new('Part')
+	limb.Name, limb.Size = 'LeftLowerArm', Data.Parts.LeftLowerArm.size
+	limb:SetAttribute('SurfaceVersion', Curve.Version)
+	limb:SetAttribute('Paintable', true)
+	local g = Curve.Geometry(limb)
+	local rim = Curve.ProjectLocal(limb, Vector3.new(limb.Size.X * 0.48, 0, -limb.Size.Z * 0.1))
+	local negZCov, posZCov = {}, {}
+	Curve.Stamp(limb, rim, negZCov, Config.BrushRadius, 2)
+	local negZBleed = false
+	for k in negZCov do
+		local triIdx = tonumber(string.match(k, ':(%d+):%d+$'))
+		if triIdx and g.triangles[triIdx].normal.Z >= Curve.FlatCoverageMinDot then
+			negZBleed = true; break
+		end
+	end
+	check(not negZBleed and next(negZCov) ~= nil, 'flatSide=2 (-Z) stamp never covers +Z cells')
+	local backRim = Curve.ProjectLocal(limb, Vector3.new(limb.Size.X * 0.48, 0, limb.Size.Z * 0.1))
+	Curve.Stamp(limb, backRim, posZCov, Config.BrushRadius, 1)
+	local posZBleed = false
+	for k in posZCov do
+		local triIdx = tonumber(string.match(k, ':(%d+):%d+$'))
+		if triIdx and -g.triangles[triIdx].normal.Z >= Curve.FlatCoverageMinDot then
+			posZBleed = true; break
+		end
+	end
+	check(not posZBleed and next(posZCov) ~= nil, 'flatSide=1 (+Z) stamp never covers -Z cells')
+	limb:Destroy()
+
+	local restModel = Roblox.Instance.new('Model')
+	local restTorso = Roblox.Instance.new('Part')
+	restTorso.Name = 'UpperTorso'
+	restTorso.Parent = restModel
+	check(Curve.FlatSide(restModel, false) == 2 and Curve.FlatSide(restModel, true) == 1, 'FlatSide defaults to -Z front without RestPose')
+	restTorso:SetAttribute('RestPose', Roblox.CFrame.Angles(0, math.pi, 0))
+	check(Curve.FlatSide(restModel, false) == 1 and Curve.FlatSide(restModel, true) == 2, 'FlatSide maps 180-deg RestPose front to +Z (side=1) and back to -Z (side=2)')
+	restModel:Destroy()
+end
 local body=Roblox.Instance.new('Model')
 local function bodyPart(name,size,z)
  local p=Roblox.Instance.new('Part')
@@ -80,6 +125,14 @@ local minScaled = table.clone(segment); minScaled.scale = 0.38
 check(Rules.Validate(minScaled),'accept rune stamp at RuneMinScale = 0.38')
 local tooSmall = table.clone(segment); tooSmall.scale = 0.37
 check(not Rules.Validate(tooSmall),'reject rune stamp below RuneMinScale = 0.38')
+for _, validSide in { 1, 2 } do
+	local seg = table.clone(segment); seg.side = validSide
+	check(Rules.Validate(seg), 'accept VisualSegment side=' .. tostring(validSide))
+end
+for _, badSide in { 0, 3, 1.5, 'front' } do
+	local seg = table.clone(segment); seg.side = badSide
+	check(not Rules.Validate(seg), 'reject invalid VisualSegment side=' .. tostring(badSide))
+end
 
 local sampleTorso = Roblox.Instance.new('Part')
 sampleTorso.Name, sampleTorso.Size = 'UpperTorso', Data.Parts.UpperTorso.size
