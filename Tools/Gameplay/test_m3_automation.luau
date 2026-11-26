@@ -343,6 +343,8 @@ do
 	thrownLocked.model.UpperTorso.Position = Vector3.new(-58.8, 1.5, -28.5)
 	manager:SettleThrown(thrownLocked)
 	check(thrownLocked.location == 'Ground' and manager:ChuteCount() == 0, 'thrown into chute before A00 settles to Ground')
+	manager.items[thrownLocked.id] = nil
+	thrownLocked.model:Destroy()
 
 	-- 解锁 A00
 	root1.CFrame = CFrame.new(padA00Pos)
@@ -366,26 +368,40 @@ do
 	local verBeforeChute = manager.stationVersions.ChutePickup
 	manager:OnRequest(p1, { action = 'Interact', target = 'Chute', version = manager.stationVersions.Chute })
 	check(manager:ChuteCount() == 8 + 1 - 1 and #manager:Carried(p1) == 1 and manager:Carried(p1)[1] == paintedKept, 'A00 batch deposits 8 unfinished bodies (7 new + rawPre) and keeps painted body')
-	check(#manager.chuteVisible == 6 and manager.chuteOverflowCount == 2, 'chuteQueue caps rendered world bodies at 6 and stores overflow')
+	check(#manager.chuteVisible == 8 and manager.chuteOverflowCount == 0, 'chuteQueue renders all deposited bodies without cap or virtual overflow')
 	for _, id in manager.chuteVisible do
-		check(manager.items[id].model:GetAttribute('PhysicsMode') == 'Loose', 'each visible body enters physical chute storage')
+		local item = manager.items[id]
+		local primary = item.model.PrimaryPart
+		local torso = item.model:FindFirstChild('UpperTorso')
+		if primary and torso and torso:IsA('BasePart') then
+			torso.CFrame = primary.CFrame
+			torso.Position = primary.Position
+		end
+		check(item.model:GetAttribute('PhysicsMode') == 'Loose', 'each visible body enters physical chute storage')
 	end
 	check(manager:PoolCount() == 0 and manager:ShelfCount() == 0 and manager.stationVersions.ChutePickup > verBeforeChute, 'manual pool/shelf untouched by chute deposit')
 
-	-- 斜抛落入井筒与落地缓冲垫均转入 chuteQueue；已画符斜抛落地
+	-- 井口半空不截停，落入 FastChuteLanding 才进入队列；已涂符仍落 Ground；未涂符 Ground 落入垫内自动吸纳
 	local thrownOpening = makeTestBody(manager, 'Unpainted')
 	thrownOpening.location = 'Thrown'
-	thrownOpening.model.UpperTorso.CFrame = CFrame.new(-58.8, 15.0, -28.5)
-	thrownOpening.model.UpperTorso.Position = Vector3.new(-58.8, 15.0, -28.5)
+	thrownOpening.model.UpperTorso.CFrame = CFrame.new(-58.8, 20.0, -28.5)
+	thrownOpening.model.UpperTorso.Position = Vector3.new(-58.8, 20.0, -28.5)
 	manager:SettleThrown(thrownOpening)
-	check(manager:ChuteCount() == 9 and #manager.chuteVisible == 6 and manager.chuteOverflowCount == 3, 'thrown into shaft opening enters chuteQueue overflow cleanly')
+	check(thrownOpening.location == 'Ground' and manager:ChuteCount() == 8, 'mid-air shaft opening does not intercept throw into chute')
+
+	-- 模拟该 Ground 白膜继续自由下落并停在 FastChuteLanding 垫内，Update 自动吸纳进队列
+	thrownOpening.model.UpperTorso.CFrame = CFrame.new(-58.8, 2.0, -28.5)
+	thrownOpening.model.UpperTorso.Position = Vector3.new(-58.8, 2.0, -28.5)
+	B.now += 0.2
+	manager:Update()
+	check(thrownOpening.location == 'Chute' and manager:ChuteCount() == 9 and #manager.chuteVisible == 9, 'unpainted Ground body resting on FastChuteLanding is absorbed into chuteVisible')
 
 	local thrownLanding = makeTestBody(manager, 'Unpainted')
 	thrownLanding.location = 'Thrown'
 	thrownLanding.model.UpperTorso.CFrame = CFrame.new(-58.8, 2.0, -28.5)
 	thrownLanding.model.UpperTorso.Position = Vector3.new(-58.8, 2.0, -28.5)
 	manager:SettleThrown(thrownLanding)
-	check(manager:ChuteCount() == 10 and #manager.chuteVisible == 6 and manager.chuteOverflowCount == 4, 'thrown onto FastChuteLanding enters chuteQueue')
+	check(manager:ChuteCount() == 10 and #manager.chuteVisible == 10 and manager.chuteOverflowCount == 0 and thrownLanding.model:GetAttribute('PhysicsMode') == 'Loose', 'thrown onto FastChuteLanding enters live chuteVisible without overflow')
 
 	local thrownPainted = makeTestBody(manager, 'Painted')
 	thrownPainted.location = 'Thrown'
@@ -394,19 +410,24 @@ do
 	manager:SettleThrown(thrownPainted)
 	check(thrownPainted.location == 'Ground' and manager:ChuteCount() == 10, 'painted throw into chute lands on Ground')
 
-	-- 地下 ChutePickup 断点手取 1 具：计数减 1，溢出处补位维持 6 实体
+	-- 地下 ChutePickup 断点手取 1 具：计数减 1，其余实体维持原地；滚出边界则退回 Ground 可拾取
 	local nextInChute = manager.items[manager.chuteVisible[2]]
 	local nextChutePose, nextChuteVersion = nextInChute.model.WorldPivot, nextInChute.version
 	root2.CFrame = CFrame.new(Scene.ChutePickup.Position)
 	root2.Position = Scene.ChutePickup.Position
 	manager:OnRequest(p2, { action = 'Interact', target = 'ChutePickup', version = manager.stationVersions.ChutePickup })
-	check(manager:ChuteCount() == 9 and #manager.chuteVisible == 6 and manager.chuteOverflowCount == 3 and #manager:Carried(p2) == 1, 'ChutePickup takes 1 and replenishes 6th visible body from overflow')
+	check(manager:ChuteCount() == 9 and #manager.chuteVisible == 9 and manager.chuteOverflowCount == 0 and #manager:Carried(p2) == 1, 'ChutePickup takes 1 without overflow cap')
 	check(nextInChute == manager:PeekChuteItem() and nextInChute.model.WorldPivot == nextChutePose and nextInChute.version == nextChuteVersion, 'ChutePickup keeps the next body in place without repacking the pile')
-	nextInChute.model.PrimaryPart.Position = Vector3.new(-100, -41, -90)
-	B.now = (nextInChute.chuteRecoverAt or B.now) + 0.1
+
+	local escapedBody = manager.items[manager.chuteVisible[#manager.chuteVisible]]
+	escapedBody.model.UpperTorso.Position = Vector3.new(-100, 2, -90)
+	B.now += 0.2
 	manager:Update()
-	check(Scene.ChutePileContains(nextInChute.model.PrimaryPart.Position) and manager:PeekChuteItem() == nextInChute
-		and manager:ChuteCount() == 9, 'escaped body recovers without losing its queue position or changing inventory')
+	check(escapedBody.location == 'Ground' and manager:ChuteCount() == 8, 'body knocked outside FastChuteLanding reverts to pickable Ground')
+	escapedBody.model.UpperTorso.Position = Vector3.new(-58.8, 2.0, -28.5)
+	B.now += 0.2
+	manager:Update()
+	check(escapedBody.location == 'Chute' and manager:ChuteCount() == 9, 'body returned onto FastChuteLanding re-enters chuteVisible')
 
 	-- 5. A03 自动符文台 (2.0s/具) -> autoPaintedQueue (无限+6实体)
 	B.now = 200

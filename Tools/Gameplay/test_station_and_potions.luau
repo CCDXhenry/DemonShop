@@ -641,7 +641,7 @@ do
 	movePlayer(p1Root, stationPositions.Pool + Vector3.new(0, 0, 4))
 	sendM1(p1, {action = 'Interact', target = 'Pool', version = m1.stationVersions.Pool})
 	check(#m1:Carried(p1) == 0 and m1.players[p1].carryOverflowCount == 0 and m1:PoolCount() == 14, 'one pool request deposits the full remaining load')
-	check(p1:GetAttribute('CarryBodyCount') == 0 and #m1.pool == 8, 'HUD count resets and only eight bodies remain visible in the pool')
+	check(p1:GetAttribute('CarryBodyCount') == 0 and #m1.pool == 14 and m1.poolOverflowCount == 0, 'HUD count resets and all 14 bodies materialize in the pool')
 	for _, item in m1.items do item.model:Destroy() end
 	table.clear(m1.items)
 	table.clear(m1.pool)
@@ -664,25 +664,26 @@ do
 	m1.players[p1].levels.carryTool = 1
 	m1:Changed()
 
-	-- 7a. 存放池逻辑无限 + 8 实体限流 + 斜抛入池超限回收 + 取用后自动补位
+	-- 7a. 存放池不限制实体显示数量、全程 Loose 活布娃娃堆叠、边界双向归属、且不阻塞街道刷怪
 	movePlayer(p1Root, stationPositions.Pool + Vector3.new(0, 0, 4))
-	local overflowedModels = {}
+	local poolBodies = {}
 	for i = 1, 10 do
 		local b = makeWorldBody('m1-pool-' .. tostring(i), 'Unpainted', 'Carried')
 		b.holder = p1
 		sendM1(p1, { action = 'Interact', target = 'Pool', version = m1.stationVersions.Pool })
-		if i > Config.PoolVisibleLimit then
-			table.insert(overflowedModels, b)
+		table.insert(poolBodies, b)
+		if b.model.UpperTorso then
+			b.model.UpperTorso.Position = stationPositions.Pool
+			b.model.UpperTorso.CFrame = CFrame.new(stationPositions.Pool)
 		end
 	end
-	check(#m1.pool == Config.PoolVisibleLimit, 'pool caps visible entities at PoolVisibleLimit (8)')
-	check(m1.poolOverflowCount == 2, 'pool stores overflow beyond 8 in poolOverflowCount')
+	check(#m1.pool == 10 and m1.poolOverflowCount == 0, 'pool renders all 10 deposited entities without visible cap')
 	check(m1:PoolCount() == 10 and m1:Snapshot().pool == 10, 'Snapshot reports total logical pool count (10)')
-	for _, ob in overflowedModels do
-		check(ob.model.Parent == nil and m1.items[ob.id] == nil, 'overflow pool body model is destroyed and removed from items')
+	for _, pb in poolBodies do
+		check(pb.model.Parent ~= nil and m1.items[pb.id] == pb, 'pool body model remains in workspace and m1.items')
 	end
 
-	-- 斜抛入池第 11 具：同样直接接收并转入虚拟计数
+	-- 斜抛入池第 11 具：同样保持 Loose 活布娃娃实体存入池中，不销毁、不锚定
 	local thrownBody = makeWorldBody('m1-thrown-11', 'Unpainted', 'Thrown')
 	B.PivotTo(thrownBody.model, CFrame.new(stationPositions.Pool))
 	local thrownTorso = thrownBody.model:FindFirstChild('UpperTorso')
@@ -692,23 +693,38 @@ do
 	end
 	thrownBody.poolToss = { kind = 'Manual', from = CFrame.identity, target = CFrame.new(stationPositions.Pool), started = B.now, owner = p1.UserId }
 	m1:SettleThrown(thrownBody)
-	check(#m1.pool == Config.PoolVisibleLimit and m1.poolOverflowCount == 3 and m1:PoolCount() == 11, 'SettleThrown accepts overflow throw without PoolFull block')
-	check(thrownBody.model.Parent == nil and m1.items[thrownBody.id] == nil, 'SettleThrown destroys overflow model')
+	check(#m1.pool == 11 and m1.poolOverflowCount == 0 and m1:PoolCount() == 11, 'SettleThrown keeps 11th body in pool without overflow destroy')
+	check(thrownBody.model.Parent ~= nil and m1.items[thrownBody.id] == thrownBody and thrownBody.model:GetAttribute('PhysicsMode') == 'Loose', 'SettleThrown keeps body as live Loose ragdoll')
 
-	-- 取出 1 具后自动从 poolOverflowCount 补生 1 具实体维持 8 具可见
+	-- 取出 1 具
 	sendM1(p1, { action = 'Interact', target = 'Pool', version = m1.stationVersions.Pool })
-	check(m1:PoolCount() == 10 and #m1.pool == Config.PoolVisibleLimit and m1.poolOverflowCount == 2, 'taking from pool replenishes visible pool back to 8')
+	check(m1:PoolCount() == 10 and #m1.pool == 10 and m1.poolOverflowCount == 0, 'taking from pool decrements pool list directly')
 	local carriedFromPool = m1:Carried(p1)[1]
 	check(carriedFromPool ~= nil, 'player carries body taken from pool')
 
-	-- 另一名玩家从工作台取料，池再次自动补位维持 8 具
+	-- 另一名玩家从工作台取料
 	movePlayer(p2Root, stationPositions.Table + Vector3.new(0, 0, 3))
 	sendM1(p2, { action = 'Interact', target = 'Table', version = m1.stationVersions.Table })
-	check(m1:PoolCount() == 9 and #m1.pool == Config.PoolVisibleLimit and m1.poolOverflowCount == 1, 'Table fetch replenishes visible pool back to 8')
+	check(m1:PoolCount() == 9 and #m1.pool == 9 and m1.poolOverflowCount == 0, 'Table fetch takes directly from pool list')
 	m1:EndPaint(p2)
 
-	-- 虚拟计数不占用 MaximumBodies(32) 刷怪配额
-	m1.poolOverflowCount = 40
+	-- 滚出池外自动退回 Ground，未涂符 Ground 落入池内自动吸纳
+	local knockedOut = m1.items[m1.pool[#m1.pool]]
+	knockedOut.model.UpperTorso.Position = stationPositions.Pool + Vector3.new(30, 0, 0)
+	m1.nextUpdate = 0
+	m1:Update()
+	check(knockedOut.location == 'Ground' and m1:PoolCount() == 8, 'pool body knocked outside reverts to pickable Ground')
+	knockedOut.model.UpperTorso.Position = stationPositions.Pool
+	m1.nextUpdate = 0
+	m1:Update()
+	check(knockedOut.location == 'Pool' and m1:PoolCount() == 9, 'unpainted Ground body settled inside pool is absorbed into pool')
+
+	-- 池内大量实体白膜（>= 40 具）不占用 MaximumBodies(32) 街道刷怪配额
+	for i = 1, 35 do
+		local extra = makeWorldBody('m1-pool-extra-' .. tostring(i), 'Unpainted', 'Pool')
+		extra.model.UpperTorso.Position = stationPositions.Pool
+		table.insert(m1.pool, extra.id)
+	end
 	local spawnCalls = 0
 	local prevSpawn = B.NPC.Spawn
 	B.NPC.Spawn = function()
@@ -719,7 +735,7 @@ do
 	m1.nextSpawn = 0
 	m1:Update()
 	B.NPC.Spawn = prevSpawn
-	check(spawnCalls == 1, 'virtual poolOverflowCount=40 does not block street NPC spawn under MaximumBodies=32')
+	check(spawnCalls == 1, '44 real Pool bodies do not block street NPC spawn under MaximumBodies=32')
 
 	-- 7b. 手动药水架逻辑无限 + 6 实体渲染 + 祭坛不阻塞
 	for i = 1, 8 do

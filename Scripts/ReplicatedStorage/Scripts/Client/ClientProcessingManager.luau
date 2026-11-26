@@ -172,7 +172,6 @@ local function OptionalPart(root: Instance?, ...: string): BasePart?
 	return if current and current:IsA("BasePart") then current else nil
 end
 local autoLine = district:FindFirstChild("AutomationLine")
-local fastChuteOpening = OptionalPart(autoLine, "FastChuteOpening")
 local chutePrompt = OptionalPart(autoLine, "ChutePromptAnchor")
 local chuteDropZone = OptionalPart(autoLine, "FastChuteLanding", "DropZone")
 local chutePickup = OptionalPart(autoLine, "FastChuteLanding", "ChutePickupAnchor")
@@ -1866,29 +1865,22 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 				end
 				return true
 			end,
-			CanStore = function(position: Vector3, normal: Vector3?, hitBaffle: boolean?): boolean
+			CanStore = function(position: Vector3, _normal: Vector3?, _hitBaffle: boolean?): boolean
 				local top = self:Carried()[1]
 				local snapshot = self.snapshot
 				if not top or top.stage == "Painted" or not snapshot then
 					return false
 				end
-				local inPool = ThrowArc.InsidePoolStrict(poolFloor.CFrame, poolFloor.Size, position, Physics.PoolWallHeight)
-				local inChute = if fastChuteOpening and chuteDropZone
-					then ThrowArc.InsideChute(fastChuteOpening.CFrame, fastChuteOpening.Size, chuteDropZone.CFrame, chuteDropZone.Size, position, Physics.ChuteWallHeight)
+				local inPool = ThrowArc.InsidePoolStrict(poolFloor.CFrame, poolFloor.Size, position, Physics.PoolStackHeight)
+				local inChute = if chuteDropZone
+					then ThrowArc.InsideChuteLanding(chuteDropZone.CFrame, chuteDropZone.Size, position, Physics.ChuteStackHeight)
 					else false
 				local unlockedA00 = snapshot.unlockedFacilities ~= nil and snapshot.unlockedFacilities[GameData.FacilityId.FastChute] == true
-				if unlockedA00 and fastChuteOpening and (hitBaffle or (normal and ThrowArc.IsChuteWall(fastChuteOpening.CFrame, fastChuteOpening.Size, position, normal))) then
-					return true
-				end
 				local kind = ThrowArc.CanStoreThrow(unlockedA00, inPool, inChute, false, snapshot.pool, nil)
 				return kind == "Pool" or kind == "Chute"
 			end,
 			ChuteBaffles = function(): Instance?
-				local top = self:Carried()[1]
-				local facilities = self.snapshot and self.snapshot.unlockedFacilities
-				return if autoLine and facilities and facilities[GameData.FacilityId.FastChute] and top and top.stage ~= "Painted"
-					then autoLine:FindFirstChild("ChuteThrowBaffles")
-					else nil
+				return nil
 			end,
 			Ignored = function(): { Instance }
 				local list: { Instance } = {}

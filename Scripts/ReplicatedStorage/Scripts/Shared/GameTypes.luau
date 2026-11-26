@@ -29,6 +29,7 @@ export type PoolToss = {
 	groundedAt: number?,
 	canEnterChute: boolean?,
 	poolStableSince: number?,
+	chuteStableSince: number?,
 }
 export type AltarToss = {
 	from: CFrame,

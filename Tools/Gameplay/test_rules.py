@@ -171,7 +171,7 @@ def write_model_templates(out_name, rs_expr):
 text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientPreloadManager.luau").read_text(encoding="utf-8")
 text=text.replace("instance:PivotTo(pose)", "B.PivotTo(instance, pose)", 1)
 write_model_templates("ClientPreloadModelTemplates.luau", "require('./ClientPreloadBoundary').ReplicatedStorage")
-prefix="local B=require('./ClientPreloadBoundary')\nlocal ContentProvider,RunService,Players,ReplicatedStorage=B.ContentProvider,B.RunService,B.Players,B.ReplicatedStorage\nlocal workspace,Instance,Vector3,CFrame,Content=B.workspace,B.Instance,B.Vector3,B.CFrame,B.Content\nlocal task=require('@lune/task')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal ModelTemplates=require('./ClientPreloadModelTemplates')\n"
+prefix="local B=require('./ClientPreloadBoundary')\nlocal ContentProvider,RunService,Players,ReplicatedStorage=B.ContentProvider,B.RunService,B.Players,B.ReplicatedStorage\nlocal workspace,Instance,Vector3,CFrame,Content,UDim2=B.workspace,B.Instance,B.Vector3,B.CFrame,B.Content,B.UDim2\nlocal task=require('@lune/task')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal ModelTemplates=require('./ClientPreloadModelTemplates')\n"
 (OUT/"ClientPreloadManager.luau").write_text(prefix+text[text.index("local Manager = {}"):],encoding="utf-8")
 for name in ("ClientPreloadBoundary","test_client_preload"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")

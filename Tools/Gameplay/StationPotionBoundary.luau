@@ -138,6 +138,11 @@ function B.PivotTo(model, pose)
 		primary.CFrame = pose
 		primary.Position = pose.Position
 	end
+	local torso = model:FindFirstChild('UpperTorso')
+	if torso and torso:IsA('BasePart') then
+		torso.CFrame = pose
+		torso.Position = pose.Position
+	end
 end
 
 local function makePart(parent, name, pos, size)
@@ -733,13 +738,39 @@ B.Carry = {
 	TossIntoPool = function(item)
 		item.holder = nil
 		item.location = 'Pool'
+		item.model:SetAttribute('PhysicsMode', 'Loose')
+		item.model:SetAttribute('MotionState', 'Pool')
 	end,
 	FinishPool = function(item)
+		item.fall = nil
 		item.poolToss = nil
+		item.location = 'Pool'
+		item.stage = 'Unpainted'
+		item.streetSlot = false
+		item.motionState = 'Pool'
+		item.model:SetAttribute('PhysicsMode', 'Loose')
+		item.model:SetAttribute('MotionState', 'Pool')
+		item.version += 1
+	end,
+	FinishChute = function(item)
+		item.fall = nil
+		item.poolToss = nil
+		item.location = 'Chute'
+		item.stage = 'Unpainted'
+		item.streetSlot = false
+		item.motionState = 'ChutePile'
+		item.model:SetAttribute('PhysicsMode', 'Loose')
+		item.model:SetAttribute('MotionState', 'ChutePile')
+		item.version += 1
 	end,
 	FinishGround = function(item)
+		item.fall = nil
 		item.poolToss = nil
 		item.location = 'Ground'
+		item.motionState = 'Down'
+		item.model:SetAttribute('PhysicsMode', 'Loose')
+		item.model:SetAttribute('MotionState', 'Down')
+		item.version += 1
 	end,
 	BeginManualToss = function(item, from, velocity, duration, target, thrower, _, dropFrom, contact, canEnterChute)
 		item.holder = nil

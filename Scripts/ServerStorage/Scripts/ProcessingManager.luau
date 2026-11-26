@@ -319,7 +319,7 @@ function Manager.SpawnPoolBody(self: Manager): Types.Item?
 	return item
 end
 function Manager.ReplenishPoolVisible(self: Manager): ()
-	while #self.pool < Config.PoolVisibleLimit and self.poolOverflowCount > 0 do
+	while self.poolOverflowCount > 0 do
 		local item = self:SpawnPoolBody()
 		if not item then
 			break
@@ -365,7 +365,7 @@ function Manager.ReplenishChuteVisible(self: Manager): ()
 			table.remove(self.chuteVisible, index)
 		end
 	end
-	while #self.chuteVisible < Config.AutoQueueVisibleLimit and self.chuteOverflowCount > 0 do
+	while self.chuteOverflowCount > 0 do
 		local item = self:SpawnChuteBody()
 		if not item then
 			break
@@ -439,20 +439,12 @@ function Manager.PeekChuteItem(self: Manager): Types.Item?
 	return if id then self.items[id] else nil
 end
 function Manager.PushChuteItem(self: Manager, item: Types.Item, restoreTool: boolean?, landing: CFrame?): ()
-	if #self.chuteVisible < Config.AutoQueueVisibleLimit then
-		self:ReleaseChuteBody(item, Scene.ChuteDropPose(random, landing), restoreTool)
-		item.location = "Chute"
-		item.stage = "Unpainted"
-		item.streetSlot = false
-		item.version += 1
-		table.insert(self.chuteVisible, item.id)
-	else
-		Carry.Detach(item, restoreTool)
-		NPC.StopMotion(item)
-		self.items[item.id] = nil
-		item.model:Destroy()
-		self.chuteOverflowCount += 1
-	end
+	self:ReleaseChuteBody(item, Scene.ChuteDropPose(random, landing), restoreTool)
+	item.location = "Chute"
+	item.stage = "Unpainted"
+	item.streetSlot = false
+	item.version += 1
+	table.insert(self.chuteVisible, item.id)
 end
 function Manager.PeekAutoPaintedItem(self: Manager): Types.Item?
 	while #self.autoPaintedVisible > 0 and self.items[self.autoPaintedVisible[1]] == nil do
@@ -1111,16 +1103,10 @@ end
 local function ReturnBatchBody(self: Manager, body: Types.Item): ()
 	body.paintSlot = nil
 	body.visualState = nil
-	if #self.pool < Config.PoolVisibleLimit then
-		body.location, body.stage = "Pool", "Unpainted"
-		body.version += 1
-		table.insert(self.pool, body.id)
-		Carry.RecoverPool(body)
-	else
-		self.items[body.id] = nil
-		body.model:Destroy()
-		self.poolOverflowCount += 1
-	end
+	body.location, body.stage = "Pool", "Unpainted"
+	body.version += 1
+	table.insert(self.pool, body.id)
+	Carry.RecoverPool(body)
 end
 
 local function TakePoolBody(self: Manager, freshOnly: boolean): Types.Item?
@@ -1321,20 +1307,19 @@ function Manager.Pool(self: Manager, player: Player): boolean
 		if record then record.carryOverflowCount = 0 end
 		for index, item in deposit do
 			local restore = index == #deposit and not keep
-			if #self.pool < Config.PoolVisibleLimit then
-				item.location = "Pool"
-				item.version += 1
-				table.insert(self.pool, item.id)
-				Carry.TossIntoPool(item, restore)
+			item.location = "Pool"
+			item.version += 1
+			table.insert(self.pool, item.id)
+			Carry.TossIntoPool(item, restore)
+		end
+		for _ = 1, overflow do
+			local spawned = self:SpawnPoolBody()
+			if spawned then
+				table.insert(self.pool, spawned.id)
 			else
-				Carry.Detach(item, restore)
-				NPC.StopMotion(item)
-				self.items[item.id] = nil
-				item.model:Destroy()
 				self.poolOverflowCount += 1
 			end
 		end
-		self.poolOverflowCount += overflow
 		self:ReplenishPoolVisible()
 		if keep then self:Restack(player) end
 		return true
@@ -1647,7 +1632,14 @@ function Manager.Chute(self: Manager, player: Player): boolean
 		self:PushChuteItem(item, index == #deposit and not willHaveRemaining)
 	end
 	if record then record.carryOverflowCount = 0 end
-	self.chuteOverflowCount += overflow
+	for _ = 1, overflow do
+		local spawned = self:SpawnChuteBody()
+		if spawned then
+			table.insert(self.chuteVisible, spawned.id)
+		else
+			self.chuteOverflowCount += 1
+		end
+	end
 	self:ReplenishChuteVisible()
 	if willHaveRemaining then
 		self:Restack(player)
@@ -1957,31 +1949,8 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 	end
 	local torso = item.model:FindFirstChild("UpperTorso")
 	local position = if torso and torso:IsA("BasePart") then torso.Position else item.model:GetPivot().Position
-	local canEnterChute = item.stage ~= "Painted" and self:IsFacilityUnlocked(GameData.FacilityId.FastChute)
-	local inChute = Scene.ChuteContains(position)
-	if canEnterChute and not inChute and Scene.ChuteBaffles then
-		local params = OverlapParams.new()
-		params.FilterType = Enum.RaycastFilterType.Include
-		params.FilterDescendantsInstances = { Scene.ChuteBaffles }
-		params.MaxParts = 1
-		for _, part in item.model:GetChildren() do
-			if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" and #workspace:GetPartsInPart(part, params) > 0 then
-				inChute = true
-				break
-			end
-		end
-	end
-	local inPool = Scene.PoolContainsStrict(position)
-	if inPool and Scene.PoolFloor then
-		local floor = Scene.PoolFloor
-		local manual = Physics.ManualThrow
-		local localPos = floor.CFrame:PointToObjectSpace(position)
-		local half = floor.Size * 0.5
-		local inset = math.min(manual.PoolCaptureInset, half.X * 0.5, half.Z * 0.5)
-		inPool = math.abs(localPos.X) <= half.X - inset
-			and math.abs(localPos.Z) <= half.Z - inset
-			and localPos.Y <= half.Y + manual.PoolCaptureHeight
-	end
+	local inChute = Scene.ChuteLandingContains(position)
+	local inPool = Scene.PoolBasinContains(position)
 	local kind = ThrowArc.CanStoreThrow(
 		self:IsFacilityUnlocked(GameData.FacilityId.FastChute),
 		inPool,
@@ -1991,60 +1960,23 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 		nil
 	)
 	if kind == "Pool" then
-		if #self.pool < Config.PoolVisibleLimit then
-			item.location = "Pool"
-			table.insert(self.pool, item.id)
-			Carry.FinishPool(item)
-		else
-			Carry.Detach(item, false)
-			NPC.StopMotion(item)
-			self.items[item.id] = nil
-			item.model:Destroy()
-			self.poolOverflowCount += 1
-		end
+		table.insert(self.pool, item.id)
+		Carry.FinishPool(item)
 		return
 	elseif kind == "Chute" then
-		local primary = item.model.PrimaryPart
-		local rotation = if primary then primary.CFrame.Rotation else CFrame.identity
-		self:PushChuteItem(item, false, CFrame.new(position) * rotation)
+		table.insert(self.chuteVisible, item.id)
+		Carry.FinishChute(item)
 		self:StepAutomation(workspace:GetServerTimeNow())
 		return
 	end
 	Carry.FinishGround(item)
 end
-function Manager.SweepThrow(origin: Vector3, velocity: Vector3, ignored: { Instance }, canEnterChute: boolean, model: Model, rotation: CFrame): (number, Vector3, Vector3?)
+function Manager.SweepThrow(origin: Vector3, velocity: Vector3, ignored: { Instance }, _canEnterChute: boolean, model: Model, rotation: CFrame): (number, Vector3, Vector3?)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = ignored
 	params.RespectCanCollide = true
-	local baffleParams: RaycastParams? = nil
-	local baffles = Scene.ChuteBaffles
-	if canEnterChute and baffles then
-		local paramsForBaffles = RaycastParams.new()
-		paramsForBaffles.FilterType = Enum.RaycastFilterType.Include
-		paramsForBaffles.FilterDescendantsInstances = { baffles }
-		baffleParams = paramsForBaffles
-	end
 	local throwConfig = Physics.ManualThrow
-	local function CastChute(frame: CFrame, size: Vector3, delta: Vector3): RaycastResult?
-		local solid = workspace:Blockcast(frame, size, delta, params)
-		local baffle = if baffleParams then workspace:Blockcast(frame, size, delta, baffleParams) else nil
-		return ThrowArc.FirstHit(solid, baffle)
-	end
-	local opening, dropZone = Scene.FastChuteOpening, Scene.ChuteDropZone
-	if canEnterChute and opening and dropZone then
-		local duration, landing, surface, normal, hit = ThrowArc.Sweep(origin, velocity, workspace.Gravity,
-			throwConfig.PreviewStepSeconds, throwConfig.PreviewDurationSeconds, throwConfig.SweepSize, CastChute)
-		local chuteWall = surface ~= nil and normal ~= nil
-			and ((hit ~= nil and baffles ~= nil and hit:IsDescendantOf(baffles)) or ThrowArc.IsChuteWall(opening.CFrame, opening.Size, surface, normal))
-		if chuteWall or Scene.ChuteContains(landing) then
-			local floorY = dropZone.Position.Y + throwConfig.SweepSize.Y * 0.5
-			local dropFrom = if landing.Y > dropZone.Position.Y + Physics.ChuteWallHeight
-				then ThrowArc.ChuteDropStart(opening.CFrame, opening.Size, landing)
-				else landing
-			return duration, Vector3.new(dropFrom.X, floorY, dropFrom.Z), dropFrom
-		end
-	end
 	local offset, bounds = Ground.ThrowBounds(model)
 	local box = rotation * CFrame.new(offset)
 	local function CastBody(frame: CFrame, size: Vector3, delta: Vector3): RaycastResult?
@@ -2378,8 +2310,6 @@ function Manager.ReleasePlayer(self: Manager, player: Player): ()
 			local body = CreateStationBody(self, "Ground", "Unpainted", CFrame.new(position))
 			if body then
 				Carry.Drop(body, position, false)
-			else
-				self.poolOverflowCount += 1
 			end
 		end
 		record.carryOverflowCount = 0
@@ -2522,6 +2452,12 @@ function Manager.RemovePlayer(self: Manager, player: Player): ()
 	self.players[player] = nil
 	self.removing[player] = nil
 end
+local function PartSpeed(part: BasePart): number
+	local ok, velocity = pcall(function(): Vector3
+		return part.AssemblyLinearVelocity
+	end)
+	return if ok and typeof(velocity) == "Vector3" then velocity.Magnitude else 0
+end
 function Manager.Update(self: Manager): ()
 	if self.closing then
 		return
@@ -2585,31 +2521,61 @@ function Manager.Update(self: Manager): ()
 		if item.streetSlot then
 			count += 1
 		end
-		if item.kind == "Body" and item.model.Parent ~= nil and not IsAutomationLocation(item.location) then
+		if item.kind == "Body" and item.model.Parent ~= nil and item.location ~= "Pool" and not IsAutomationLocation(item.location) then
 			bodies += 1
 		end
 		if item.kind == "Body" then
 			NPC.Update(item, now)
-			if item.location == "Pool" and item.poolToss == nil then
+			if (item.location == "Pool" or item.location == "Chute") and item.poolToss == nil then
 				Ragdoll.LimitVelocity(item.model)
 			elseif item.hits >= Config.StunHits and not item.fall then
 				Ragdoll.LimitVelocity(item.model)
 			end
 		end
 		local primary = if item.location == "Toolbar" or item.model.Parent == nil then nil else item.model.PrimaryPart
-		if item.kind == "Body" and item.location == "Pool" and item.poolToss == nil then
-			local torso = item.model:FindFirstChild("UpperTorso")
-			local outside = torso ~= nil and torso:IsA("BasePart") and not Scene.PoolContains(torso.Position)
-			local fallen = primary ~= nil and primary.Position.Y < -40
-			if (outside or fallen) and now >= (item.poolRecoverAt or 0) then
-				item.poolRecoverAt = now + Physics.PoolRecoverSeconds
-				Carry.RecoverPool(item)
+		local torso = if primary then (item.model:FindFirstChild("UpperTorso") :: BasePart?) or primary else nil
+		local bodyPos = if torso and torso:IsA("BasePart") then torso.Position elseif primary then primary.Position else nil
+		if item.kind == "Body" and item.location == "Pool" and item.poolToss == nil and bodyPos then
+			if not Scene.PoolContains(bodyPos) then
+				local idx = table.find(self.pool, item.id)
+				if idx then table.remove(self.pool, idx) end
+				if bodyPos.Y < -40 then
+					Carry.Drop(item, Vector3.new(0, -100, 0), false)
+				else
+					Carry.FinishGround(item)
+				end
 				changed = true
 			end
-		elseif item.location == "Chute" and primary and not Scene.ChutePileContains(primary.Position) then
-			if now >= (item.chuteRecoverAt or 0) then
-				self:ReleaseChuteBody(item, Scene.ChuteDropPose(random), false)
+		elseif item.kind == "Body" and item.location == "Chute" and item.poolToss == nil and bodyPos then
+			if not Scene.ChutePileContains(bodyPos) then
+				local idx = table.find(self.chuteVisible, item.id)
+				if idx then table.remove(self.chuteVisible, idx) end
+				if bodyPos.Y < -40 then
+					Carry.Drop(item, Vector3.new(0, -100, 0), false)
+				else
+					Carry.FinishGround(item)
+				end
 				changed = true
+			end
+		elseif item.kind == "Body" and item.location == "Ground" and item.stage ~= "Painted"
+			and item.holder == nil and item.poolToss == nil
+			and (item.fall == nil or now >= item.fall.started + Physics.Presentation.Fall.PhysicsSeconds)
+			and torso and torso:IsA("BasePart") and bodyPos
+		then
+			if PartSpeed(torso) <= Physics.ManualThrow.PoolSettleSpeed then
+				if Scene.PoolBasinContains(bodyPos) then
+					if not table.find(self.pool, item.id) then
+						table.insert(self.pool, item.id)
+					end
+					Carry.FinishPool(item)
+					changed = true
+				elseif self:IsFacilityUnlocked(GameData.FacilityId.FastChute) and Scene.ChuteLandingContains(bodyPos) then
+					if not table.find(self.chuteVisible, item.id) then
+						table.insert(self.chuteVisible, item.id)
+					end
+					Carry.FinishChute(item)
+					changed = true
+				end
 			end
 		elseif item.location ~= "Altar" and not IsAutomationLocation(item.location) and primary and primary.Position.Y < -40 then
 			carrier = item.holder

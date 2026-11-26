@@ -1,4 +1,4 @@
--- 客户端资源预加载与离屏预渲染：下载动画、模型、界面和声音，并在使用前编译着色器
+-- 客户端资源预加载与离屏预渲染：下载动画、模型、界面、图片和声音，并在使用前编译着色器
 --!strict
 local ContentProvider = game:GetService("ContentProvider")
 local RunService = game:GetService("RunService")
@@ -19,6 +19,9 @@ local LogPrefix = "[ClientPreloadManager]"
 local LayoutGuideName = "ScreenLayoutGuideFrame"
 local SlashSoundName = "WeaponSlash"
 local EffectAnchorName = "PreloadEffectAnchor"
+local ImageWarmupName = "PreloadImageWarmup"
+local ImageAssetPrefix = "rbxassetid://"
+local ImageWarmupDisplayOrder = -100
 local WarmupPosition = Vector3.new(0, 5000, 0)
 local WarmupFrameCount = 2
 local WarmupAnimationFade = 0
@@ -35,6 +38,7 @@ local heldAnimations: { Animation } = {}
 local heldSlashSounds: { Sound } = {}
 local ownedAnimations: { Animation } = {}
 local ownedSounds: { Sound } = {}
+local imageWarmup: ScreenGui? = nil
 
 local function IsCurrent(token: number): boolean
 	return token == generation
@@ -267,6 +271,69 @@ local function CollectUserInterface(assets: { Instance })
 	end
 end
 
+local function IsImageUri(uri: string): boolean
+	return string.sub(uri, 1, #ImageAssetPrefix) == ImageAssetPrefix
+end
+
+local function AddImageUri(uris: { string }, seen: { [string]: boolean }, uri: string?)
+	if uri == nil or not IsImageUri(uri) or seen[uri] then
+		return
+	end
+	seen[uri] = true
+	table.insert(uris, uri)
+end
+
+local function AddNodeImages(uris: { string }, seen: { [string]: boolean }, node: Instance)
+	if node:IsA("ImageLabel") or node:IsA("ImageButton") then
+		AddImageUri(uris, seen, node.Image)
+	end
+	for _, value in node:GetAttributes() do
+		if typeof(value) == "string" then
+			AddImageUri(uris, seen, value)
+		end
+	end
+end
+
+local function CollectImages(uris: { string })
+	local seen: { [string]: boolean } = {}
+	for _, weapon in GameData.GetAllWeapons() do
+		AddImageUri(uris, seen, weapon.icon)
+	end
+	for _, carryTool in GameData.GetAllCarryTools() do
+		AddImageUri(uris, seen, carryTool.icon)
+	end
+	AddImageUri(uris, seen, Config.PotionIcon)
+	local folder = ReplicatedStorage:FindFirstChild("UI")
+	if folder == nil then
+		return
+	end
+	for _, child in folder:GetChildren() do
+		if child.Name ~= LayoutGuideName then
+			AddNodeImages(uris, seen, child)
+			for _, descendant in child:GetDescendants() do
+				AddNodeImages(uris, seen, descendant)
+			end
+		end
+	end
+end
+
+local function CreateWarmupImage(uri: string): ImageLabel
+	local image = Instance.new("ImageLabel")
+	image.BackgroundTransparency = 1
+	image.BorderSizePixel = 0
+	image.Size = UDim2.fromOffset(1, 1)
+	image.Image = uri
+	return image
+end
+
+local function ReleaseImageWarmup()
+	local screen = imageWarmup
+	imageWarmup = nil
+	if screen ~= nil then
+		screen:Destroy()
+	end
+end
+
 local function CollectSounds(assets: { Instance })
 	local folder = ReplicatedStorage:FindFirstChild("Sounds")
 	if folder == nil then
@@ -418,6 +485,50 @@ function Manager.WarmupEffects(effectTemplates: { Instance }, options: WarmupOpt
 	task.spawn(FinishEffectWarmup, frames, roots)
 end
 
+-- 把图片画进 PlayerGui 预渲染，并保留到取消或下一次调用。
+function Manager.WarmupImages(uris: { string }, options: WarmupOptions?)
+	local token = generation
+	if #uris == 0 then
+		ReleaseImageWarmup()
+		return
+	end
+	local playerGui = Players.LocalPlayer:FindFirstChild("PlayerGui")
+	if playerGui == nil then
+		warn(string.format("%s missing PlayerGui", LogPrefix))
+		return
+	end
+	local screen = Instance.new("ScreenGui")
+	screen.Name = ImageWarmupName
+	screen.ResetOnSpawn = false
+	screen.DisplayOrder = ImageWarmupDisplayOrder
+	local seen: { [string]: boolean } = {}
+	for _, uri in uris do
+		if not seen[uri] and IsImageUri(uri) then
+			seen[uri] = true
+			local image = CreateWarmupImage(uri)
+			image.Parent = screen
+		end
+	end
+	if not IsCurrent(token) then
+		screen:Destroy()
+		return
+	end
+	ReleaseImageWarmup()
+	if #screen:GetChildren() == 0 then
+		screen:Destroy()
+		return
+	end
+	screen.Parent = playerGui
+	imageWarmup = screen
+	WaitFrames(ResolveFrames(options))
+	if imageWarmup ~= screen or not IsCurrent(token) then
+		if imageWarmup == screen then
+			imageWarmup = nil
+		end
+		screen:Destroy()
+	end
+end
+
 -- 后台收集本局资源并预渲染克隆。取消后在途任务不再继续挂载。
 function Manager.PrepareGame()
 	local token = generation
@@ -438,33 +549,17 @@ function Manager.PrepareGame()
 	for _, slashSound in slashSounds do
 		table.insert(assets, slashSound)
 	end
+	local imageUris: { string } = {}
+	CollectImages(imageUris)
+	local preloadImages: { Instance } = {}
+	for _, uri in imageUris do
+		local image = CreateWarmupImage(uri)
+		table.insert(preloadImages, image)
+		table.insert(assets, image)
+	end
 	if not IsCurrent(token) then
+		DestroyRoots(preloadImages)
 		return
-	end
-	local shopIcons: { Decal } = {}
-	local seenImages: {[string]: boolean} = {}
-	local function AddShopImage(uri: string): ()
-		if seenImages[uri] then return end
-		seenImages[uri] = true
-		local decal = Instance.new("Decal")
-		decal.ColorMapContent = Content.fromUri(uri)
-		table.insert(shopIcons, decal)
-		table.insert(assets, decal)
-	end
-	for _, weapon in GameData.GetAllWeapons() do
-		AddShopImage(weapon.icon)
-	end
-	for _, carryTool in GameData.GetAllCarryTools() do
-		AddShopImage(carryTool.icon)
-	end
-	AddShopImage(Config.PotionIcon)
-	local ui = ReplicatedStorage:FindFirstChild("UI")
-	local shop = if ui then ui:FindFirstChild("PersonalShopFrame") else nil
-	if shop then
-		for _, node in shop:GetDescendants() do
-			local uri = node:GetAttribute("AvailableImage") :: string?
-			if uri then AddShopImage(uri) end
-		end
 	end
 	local effectTemplates: { Instance } = {}
 	for _, weapon in GameData.GetAllWeapons() do
@@ -475,12 +570,11 @@ function Manager.PrepareGame()
 	end
 	Manager.WarmupEffects(effectTemplates)
 	Manager.PreloadAsync(assets)
-	for _, decal in shopIcons do
-		decal:Destroy()
-	end
+	DestroyRoots(preloadImages)
 	if not IsCurrent(token) then
 		return
 	end
+	Manager.WarmupImages(imageUris)
 	WarmupTemplates(templates, token)
 	BindCharacterWarmup(token)
 end
@@ -491,6 +585,7 @@ function Manager.Cancel()
 		characterConnection:Disconnect()
 		characterConnection = nil
 	end
+	ReleaseImageWarmup()
 	ReleaseAssets(ownedAnimations, ownedSounds)
 	table.clear(ownedAnimations)
 	table.clear(ownedSounds)

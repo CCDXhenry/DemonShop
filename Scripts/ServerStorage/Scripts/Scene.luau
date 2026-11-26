@@ -197,7 +197,7 @@ function Scene.PoolDropTarget(random: Random): CFrame
 end
 function Scene.PoolContainsStrict(position: Vector3): boolean
 	local floor = Scene.PoolFloor
-	return ThrowArc.InsidePoolStrict(floor.CFrame, floor.Size, position, Physics.PoolWallHeight)
+	return ThrowArc.InsidePoolStrict(floor.CFrame, floor.Size, position, Physics.PoolStackHeight)
 end
 function Scene.PoolContains(position: Vector3): boolean
 	local floor = Scene.PoolFloor
@@ -207,7 +207,21 @@ function Scene.PoolContains(position: Vector3): boolean
 	return math.abs(localPosition.X) <= half.X + pad
 		and math.abs(localPosition.Z) <= half.Z + pad
 		and localPosition.Y >= -2
-		and localPosition.Y <= half.Y + Physics.PoolWallHeight + 2
+		and localPosition.Y <= half.Y + Physics.PoolStackHeight + 2
+end
+function Scene.PoolBasinContains(position: Vector3): boolean
+	if not Scene.PoolContainsStrict(position) then
+		return false
+	end
+	local floor = Scene.PoolFloor
+	local manual = Physics.ManualThrow
+	local localPos = floor.CFrame:PointToObjectSpace(position)
+	local half = floor.Size * 0.5
+	local inset = math.min(manual.PoolCaptureInset, half.X * 0.5, half.Z * 0.5)
+	return math.abs(localPos.X) <= half.X - inset
+		and math.abs(localPos.Z) <= half.Z - inset
+		and localPos.Y >= -half.Y
+		and localPos.Y <= half.Y + Physics.PoolStackHeight
 end
 function Scene.ShelfPose(quality: number, slot: number): CFrame
 	local point = potionPoints[math.clamp(quality, 1, #potionPoints)]
@@ -224,7 +238,18 @@ function Scene.ChuteContains(position: Vector3): boolean
 		Scene.ChuteDropZone.CFrame,
 		Scene.ChuteDropZone.Size,
 		position,
-		Physics.ChuteWallHeight
+		Physics.ChuteStackHeight
+	)
+end
+function Scene.ChuteLandingContains(position: Vector3): boolean
+	if not Scene.ChuteDropZone then
+		return false
+	end
+	return ThrowArc.InsideChuteLanding(
+		Scene.ChuteDropZone.CFrame,
+		Scene.ChuteDropZone.Size,
+		position,
+		Physics.ChuteStackHeight
 	)
 end
 function Scene.ChuteDropPose(random: Random, landing: CFrame?): CFrame
@@ -250,9 +275,15 @@ function Scene.ChuteDropPose(random: Random, landing: CFrame?): CFrame
 end
 function Scene.ChutePileContains(position: Vector3): boolean
 	local zone = Scene.ChuteDropZone
-	if not zone then return position.Y >= ChuteFallbackLanding.Y - ChuteFallTolerance end
+	if not zone then
+		return position.Y >= ChuteFallbackLanding.Y - ChuteFallTolerance
+			and position.Y <= ChuteFallbackLanding.Y + Physics.ChuteStackHeight
+	end
 	local offset = zone.CFrame:PointToObjectSpace(position)
-	return math.abs(offset.X) <= zone.Size.X * 0.5 and math.abs(offset.Z) <= zone.Size.Z * 0.5 and offset.Y >= -ChuteFallTolerance
+	return math.abs(offset.X) <= zone.Size.X * 0.5 + 0.45
+		and math.abs(offset.Z) <= zone.Size.Z * 0.5 + 0.45
+		and offset.Y >= -ChuteFallTolerance
+		and offset.Y <= zone.Size.Y * 0.5 + Physics.ChuteStackHeight
 end
 function Scene.AutoOutputPose(slot: number): CFrame
 	local index = math.max(0, slot - 1)

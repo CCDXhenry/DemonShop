@@ -209,6 +209,16 @@ function Arc.DropPosition(from: Vector3, target: Vector3, gravity: number, elaps
 	return Vector3.new(from.X, math.max(target.Y, from.Y - gravity * math.max(0, elapsed) ^ 2 / 2), from.Z)
 end
 
+-- 判定落点是否位于地下 FastChuteLanding 缓冲垫及堆叠高度范围内。
+function Arc.InsideChuteLanding(landing: CFrame, landingSize: Vector3, position: Vector3, stackHeight: number?): boolean
+	local landLocal = landing:PointToObjectSpace(position)
+	local landHalf = landingSize * 0.5
+	return math.abs(landLocal.X) <= landHalf.X + 0.45
+		and math.abs(landLocal.Z) <= landHalf.Z + 0.45
+		and landLocal.Y >= -landHalf.Y - 0.5
+		and landLocal.Y <= landHalf.Y + (stackHeight or Physics.ChuteStackHeight)
+end
+
 -- 判定落点是否位于 NewShop_Noodles 井口竖井或地下 FastChuteLanding 缓冲垫内。
 function Arc.InsideChute(opening: CFrame, openingSize: Vector3, landing: CFrame, landingSize: Vector3, position: Vector3, wallHeight: number?): boolean
 	local openLocal = opening:PointToObjectSpace(position)
@@ -222,12 +232,7 @@ function Arc.InsideChute(opening: CFrame, openingSize: Vector3, landing: CFrame,
 	then
 		return true
 	end
-	local landLocal = landing:PointToObjectSpace(position)
-	local landHalf = landingSize * 0.5
-	return math.abs(landLocal.X) <= landHalf.X + 0.45
-		and math.abs(landLocal.Z) <= landHalf.Z + 0.45
-		and landLocal.Y >= -landHalf.Y - 0.5
-		and landLocal.Y <= landHalf.Y + (wallHeight or Physics.ChuteWallHeight)
+	return Arc.InsideChuteLanding(landing, landingSize, position, wallHeight)
 end
 
 -- 统一斜抛落点分类：Pool（手动池） / Chute（A00 快速通道） / Ground。

@@ -8,29 +8,56 @@ local Boundary = {
 	Vector3 = Roblox.Vector3,
 	CFrame = Roblox.CFrame,
 	Content = Roblox.Content,
+	UDim2 = Roblox.UDim2,
 	imageUris = {},
+	renderedImages = {},
+	sampleImage = "rbxassetid://9001",
+	sampleAttributeImage = "rbxassetid://9002",
+	sampleButtonImage = "rbxassetid://9003",
+	guideImage = "rbxassetid://9004",
 }
 local ContentProvider = {}
 function ContentProvider:PreloadAsync(targets, _onAssetFetched)
 	Boundary.callCount += 1
 	Boundary.targets = {}
+	Boundary.imageUris = {}
 	for _, target in targets do
-		if typeof(target) == "Instance" and target:IsA("Decal") then
-			table.insert(Boundary.imageUris, target.ColorMapContent.Uri)
+		if typeof(target) == "Instance" and target:IsA("ImageLabel") then
+			table.insert(Boundary.imageUris, target.Image)
 		else
 			table.insert(Boundary.targets, target)
 		end
 	end
 end
+local playerGui = Instance.new("Folder")
+playerGui.Name = "PlayerGui"
+Boundary.playerGui = playerGui
 local Heartbeat = {}
-function Heartbeat:Wait() end
+function Heartbeat:Wait()
+	local gui = playerGui:FindFirstChild("PreloadImageWarmup")
+	if gui == nil then
+		return
+	end
+	for _, child in gui:GetChildren() do
+		if child:IsA("ImageLabel") and child.Image ~= "" then
+			Boundary.renderedImages[child.Image] = true
+		end
+	end
+end
 Boundary.ContentProvider = ContentProvider
 Boundary.RunService = { Heartbeat = Heartbeat }
 local characterAdded = {}
 function characterAdded:Connect(_callback)
 	return { Disconnect = function() end }
 end
-Boundary.Players = { LocalPlayer = { Character = nil, CharacterAdded = characterAdded } }
+local localPlayer = { Character = nil, CharacterAdded = characterAdded }
+function localPlayer:FindFirstChild(name)
+	if name == "PlayerGui" then
+		return playerGui
+	end
+	return nil
+end
+Boundary.Players = { LocalPlayer = localPlayer }
 local replicatedStorage = Instance.new("Folder")
 local models = Instance.new("Folder")
 models.Name = "Models"
@@ -57,7 +84,20 @@ guide.Name = "ScreenLayoutGuideFrame"
 guide.Parent = ui
 local screen = Instance.new("ScreenGui")
 screen.Name = "GameScreenGui"
+screen:SetAttribute("SampleImage", Boundary.sampleAttributeImage)
 screen.Parent = ui
+local sampleIcon = Instance.new("ImageLabel")
+sampleIcon.Name = "SampleIcon"
+sampleIcon.Image = Boundary.sampleImage
+sampleIcon.Parent = screen
+local sampleButton = Instance.new("ImageButton")
+sampleButton.Name = "SampleButton"
+sampleButton.Image = Boundary.sampleButtonImage
+sampleButton.Parent = screen
+local guideIcon = Instance.new("ImageLabel")
+guideIcon.Name = "GuideIcon"
+guideIcon.Image = Boundary.guideImage
+guideIcon.Parent = guide
 local sounds = Instance.new("Folder")
 sounds.Name = "Sounds"
 sounds.Parent = replicatedStorage

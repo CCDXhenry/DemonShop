@@ -58,14 +58,38 @@ for _, weapon in GameData.GetAllWeapons() do
 	Check(seenSounds[weapon.slashSound] == true, "weapon slashSound preloaded: " .. weapon.id)
 end
 Check(not sawString, "preload list contains instances")
-Check(#Boundary.imageUris == 12, "shop and potion icon decals are submitted")
-Check(table.find(Boundary.imageUris, Config.PotionIcon) ~= nil, "potion icon is preloaded")
+local seenImages = {}
+for _, uri in Boundary.imageUris do
+	assert(not seenImages[uri], "duplicate image preloaded: " .. uri)
+	seenImages[uri] = true
+	assertions += 1
+end
+Check(seenImages[Config.PotionIcon] == true, "potion icon is preloaded")
 for _, weapon in GameData.GetAllWeapons() do
-	Check(table.find(Boundary.imageUris, weapon.icon) ~= nil, "shop icon submitted: " .. weapon.icon)
+	Check(seenImages[weapon.icon] == true, "shop icon submitted: " .. weapon.icon)
+	Check(Boundary.renderedImages[weapon.icon] == true, "shop icon rendered: " .. weapon.icon)
 end
 for _, carryTool in GameData.GetAllCarryTools() do
-	Check(table.find(Boundary.imageUris, carryTool.icon) ~= nil, "shop icon submitted: " .. carryTool.icon)
+	Check(seenImages[carryTool.icon] == true, "shop icon submitted: " .. carryTool.icon)
+	Check(Boundary.renderedImages[carryTool.icon] == true, "shop icon rendered: " .. carryTool.icon)
 end
+Check(seenImages[Boundary.sampleImage] == true, "ui image is preloaded")
+Check(seenImages[Boundary.sampleAttributeImage] == true, "ui attribute image is preloaded")
+Check(seenImages[Boundary.sampleButtonImage] == true, "ui button image is preloaded")
+Check(seenImages[Boundary.guideImage] ~= true, "layout guide image is excluded")
+local warmup = Boundary.playerGui:FindFirstChild("PreloadImageWarmup")
+Check(warmup ~= nil, "image warmup stays mounted")
+for _, uri in Boundary.imageUris do
+	local mounted = false
+	for _, child in warmup:GetChildren() do
+		if child:IsA("ImageLabel") and child.Image == uri then
+			mounted = true
+		end
+	end
+	Check(mounted, "image stays rendered: " .. uri)
+end
+Manager.Cancel()
+Check(Boundary.playerGui:FindFirstChild("PreloadImageWarmup") == nil, "cancel releases image warmup")
 Check(sawSlash and sawCarry and sawIdle and sawWalk, "configured animations are Animation instances")
 Check(sawModel, "archivable model template is preloaded")
 Check(not sawHidden, "non-archivable model is excluded")
