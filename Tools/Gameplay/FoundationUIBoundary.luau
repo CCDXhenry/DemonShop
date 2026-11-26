@@ -78,6 +78,9 @@ U.gui=U.Node('GameScreenGui','ScreenGui');U.gui.IgnoreGuiInset=true;U.gui.Screen
 U.modal=U.Node('ModalButton','ImageButton');U.modal.Visible=false;U.modal.Parent=U.gui
 U.canvas=U.Node('WindowCanvas','Frame');U.canvas.Parent=U.gui
 U.scale=U.Node('UIScale','UIScale');U.scale.Scale=1;U.scale.Parent=U.canvas
+U.overlay=U.Node('OverlayCanvas','Frame');U.overlay.Parent=U.gui
+U.overlayScale=U.Node('UIScale','UIScale');U.overlayScale.Scale=1;U.overlayScale.Parent=U.overlay
+U.coins=U.Node('CoinsText','TextLabel');U.coins.Parent=U.overlay
 U.templates=U.Node('UI','Folder')
 U.template=U.Node('TestWindow','Frame');U.template.Parent=U.templates
 local label=U.Node('Label','TextLabel');label.Parent=U.template
@@ -115,7 +118,7 @@ U.playerGui=U.Node('PlayerGui','PlayerGui');U.playerGui.Parent=U.Players.LocalPl
 local root=U.Node('CenterFrame','Frame');root.Parent=U.gui
 local brush=U.Node('PaintBrushCursorImage','ImageLabel');brush.Visible=false;brush.Parent=root
 local scale=U.Node('UIScale','UIScale');scale.Parent=root
-for _,name in {'CoinsText','CarryText','StockText','HintText','NoticeText','ProgressText'} do
+for _,name in {'CarryText','StockText','HintText','NoticeText','ProgressText'} do
  local node=U.Node(name,'TextLabel');node.Parent=root
 end
 for _,name in {'ExitPaintButton','ResetViewButton'} do

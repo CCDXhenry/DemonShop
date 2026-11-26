@@ -168,7 +168,8 @@ def write_model_templates(out_name, rs_expr):
 text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientPreloadManager.luau").read_text(encoding="utf-8")
 text=text.replace("instance:PivotTo(pose)", "B.PivotTo(instance, pose)", 1)
 write_model_templates("ClientPreloadModelTemplates.luau", "require('./ClientPreloadBoundary').ReplicatedStorage")
-prefix="local B=require('./ClientPreloadBoundary')\nlocal ContentProvider,RunService,Players,ReplicatedStorage=B.ContentProvider,B.RunService,B.Players,B.ReplicatedStorage\nlocal workspace,Instance,Vector3,CFrame=B.workspace,B.Instance,B.Vector3,B.CFrame\nlocal task=require('@lune/task')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal ModelTemplates=require('./ClientPreloadModelTemplates')\n"
+(OUT/"ShopIconData.luau").write_text((shared/"ShopIconData.luau").read_text(encoding="utf-8"),encoding="utf-8")
+prefix="local B=require('./ClientPreloadBoundary')\nlocal ContentProvider,RunService,Players,ReplicatedStorage=B.ContentProvider,B.RunService,B.Players,B.ReplicatedStorage\nlocal workspace,Instance,Vector3,CFrame,Content=B.workspace,B.Instance,B.Vector3,B.CFrame,B.Content\nlocal task=require('@lune/task')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal ModelTemplates=require('./ClientPreloadModelTemplates')\nlocal ShopIconData=require('./ShopIconData')\n"
 (OUT/"ClientPreloadManager.luau").write_text(prefix+text[text.index("local Manager = {}"):],encoding="utf-8")
 for name in ("ClientPreloadBoundary","test_client_preload"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -218,7 +219,7 @@ for name in ("PaintFaceGuiManager", "PaintCellFrameManager"):
 (OUT/"PaintUIBoundary.luau").write_text("local F=require('./PaintFaceGuiManager')\nlocal C=require('./PaintCellFrameManager')\nreturn {GetPaintFaceGuiManager=function() return F.new() end,GetPaintCellFrameManager=function() return C.new() end}\n",encoding="utf-8")
 text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/PaintView.luau").read_text(encoding="utf-8")
 start=text.index('local View =')
-text="local Roblox=require('@lune/roblox')\nlocal Vector2,UDim2=Roblox.Vector2,Roblox.UDim2\nlocal Boundary=require('./StrokeViewBoundary')\nlocal Players,ReplicatedStorage=Boundary.Players,Boundary.ReplicatedStorage\nlocal Config=require('./GameConfig')\nlocal Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal Curve=require('./CurvedSurface')\nlocal RuneRules=require('./RuneStampRules')\nlocal CurvedView={}\nlocal UIManager=require('./PaintUIBoundary')\n"+text[start:]
+text="local Roblox=require('@lune/roblox')\nlocal Vector2,Vector3,UDim2=Roblox.Vector2,Roblox.Vector3,Roblox.UDim2\nlocal Boundary=require('./StrokeViewBoundary')\nlocal Players,ReplicatedStorage=Boundary.Players,Boundary.ReplicatedStorage\nlocal Config=require('./GameConfig')\nlocal Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal Curve=require('./CurvedSurface')\nlocal RuneRules=require('./RuneStampRules')\nlocal CurvedView={}\nlocal UIManager=require('./PaintUIBoundary')\n"+text[start:]
 (OUT/"PaintView.luau").write_text(text,encoding="utf-8")
 for name in ("StrokeViewBoundary","test_stroke_view"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
@@ -414,7 +415,10 @@ pm_body = pm_src[pm_src.index("type PlayerData ="):]
 pm_body = re.sub(r"\b([A-Za-z_]\w*):WaitForChild\(", r"B.WaitForChild(\1, ", pm_body)
 pm_body = re.sub(r"\b([A-Za-z_]\w*):EquipTool\(", r"B.EquipTool(\1, ", pm_body)
 pm_body = re.sub(r"\b([A-Za-z_]\w*):UnequipTools\(\)", r"B.UnequipTools(\1)", pm_body)
-pm_body = re.sub(r"\b([A-Za-z_]\w*)\.(CharacterRemoving|CharacterAdded|Died|Unequipped):Connect\(", r'B.Signal(\1, "\2"):Connect(', pm_body)
+pm_body = re.sub(r"\b([A-Za-z_]\w*)\.(CharacterRemoving|CharacterAdded|Died|Unequipped|Touched):Connect\(", r'B.Signal(\1, "\2"):Connect(', pm_body)
+pm_body = pm_body.replace("self.runtime.Parent = workspace", "self.runtime.Parent = B.district")
+# Lune instances lack Destroying. Keep scope ownership for runtime teardown.
+pm_body = pm_body.replace("self.scope:Own(self.runtime)", "self.scope.instances[self.runtime] = true")
 pm_body = pm_body.replace("slash:Stop()", "B.StopSound(slash)")
 pm_body = pm_body.replace("model:PivotTo(", "B.PivotTo(model, ")
 pm_body = re.sub(r"([A-Za-z_][\w.]*):GetPivot\(\)", r"\1.WorldPivot", pm_body)

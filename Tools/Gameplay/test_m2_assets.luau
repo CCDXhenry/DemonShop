@@ -16,6 +16,26 @@ local items = models:FindFirstChild("Items")
 check(characters ~= nil and characters:IsA("Folder"), "Models.Characters folder exists in GameModels.rbxm")
 check(items ~= nil and items:IsA("Folder"), "Models.Items folder exists in GameModels.rbxm")
 check(characters:FindFirstChild("WhiteR15") ~= nil, "WhiteR15 preserved under Characters in GameModels.rbxm")
+local people = characters:FindFirstChild("WhiteR15-People")
+check(people ~= nil and people:IsA("Model"), "WhiteR15-People template is archived")
+check(people.PrimaryPart == people:FindFirstChild("HumanoidRootPart"), "WhiteR15-People has a rig root")
+check(people:GetAttribute("SurfaceVersion") == 3, "WhiteR15-People uses its own paint geometry")
+check(type(people:GetAttribute("PaintBaseTexture")) == "string", "WhiteR15-People has a base paint atlas")
+local peopleParts, peopleJoints = 0, 0
+for _, part in people:GetChildren() do
+	if part:IsA("MeshPart") then
+		peopleParts += 1
+		check(part.Material == R.Enum.Material.Plastic, part.Name .. " retains the People material")
+		check(part:GetAttribute("Paintable") == true and part:GetAttribute("SurfaceVersion") == 3, part.Name .. " is paintable")
+	end
+end
+for _, joint in people:GetDescendants() do
+	if joint:IsA("Motor6D") then
+		peopleJoints += 1
+		check(joint.Part0.Parent == people and joint.Part1.Parent == people, joint.Name .. " connects the People rig")
+	end
+end
+check(peopleParts == 15 and peopleJoints == 15, "WhiteR15-People has a complete R15 mesh rig")
 check(items:FindFirstChild("Potion") ~= nil, "Potion preserved under Items in GameModels.rbxm")
 check(models:FindFirstChild("Club") == nil, "Retired Club removed from GameModels.rbxm")
 check(models:FindFirstChild("UnlockPad") == nil, "Edit-only UnlockPad removed from GameModels.rbxm")

@@ -110,7 +110,7 @@ local function visibleArm(x)
 	assert(hit and hit.part==arm.Name,'packedInk fixture requires visible arm hit')
 	return hit
 end
-local leftPacked,rightPacked=visibleArm(-.1),visibleArm(.1)
+local leftPacked,rightPacked=visibleArm(-.14),visibleArm(.14)
 leftPacked.packedInk,rightPacked.packedInk=true,true
 item.area,item.covered,item.strokePoints=0,{},0
 local packedResult=Painting.Apply(session,item,{sequence=11,orientation=C.identity,samples={leftPacked,rightPacked}},pose,origin,1.1)
@@ -125,7 +125,7 @@ local sameCells=true
 for k in item.covered do if not expectedCovered[k] then sameCells=false;break end end
 for k in expectedCovered do if not item.covered[k] then sameCells=false;break end end
 check(packedResult and math.abs(item.area-expectedArea)<1e-6 and sameCells,'packedInk stamps only quantized InkCenter cells without segment interpolation')
-local leftPlain,rightPlain=visibleArm(-.1),visibleArm(.1)
+local leftPlain,rightPlain=visibleArm(-.14),visibleArm(.14)
 item.area,item.covered,item.strokePoints=0,{},0
 Painting.Apply(session,item,{sequence=12,orientation=C.identity,samples={leftPlain,rightPlain}},pose,origin,1.2)
 check(item.area>expectedArea,'non-packed adjacent curved samples still interpolate across the gap')

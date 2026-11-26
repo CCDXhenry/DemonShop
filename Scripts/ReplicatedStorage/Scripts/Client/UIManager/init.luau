@@ -50,6 +50,7 @@ export type WindowConfig = {
 	isModal: boolean,
 	modalTransparency: number?,
 	modalContentRegions: {string}?,
+	containsModalPoint: ((Frame, ScreenGui, Vector2) -> boolean)?,
 	openAnimation: string?,
 	newWindow: (frame: Frame, windowId: string, uiActions: UIActions, ...any) -> WindowBase,
 }
@@ -102,17 +103,36 @@ local function CheckModalButtonVisible(): ()
 	end
 end
 
-local function InsideModalContent(window: Frame, regions: {string}?, gui: ScreenGui, input: InputObject?): boolean
-	if not regions or not input then return false end
+-- AbsolutePosition and touch Position use GUI coordinates; mouse location includes the top-bar inset.
+function UIManager.GetModalPointerPosition(input: InputObject): Vector2?
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		return userInputService:GetMouseLocation() - guiService:GetGuiInset()
+	elseif input.UserInputType == Enum.UserInputType.Touch then
+		return Vector2.new(input.Position.X, input.Position.Y)
+	end
+	return nil
+end
+
+local function InsideModalContent(window: Frame, config: WindowConfig, gui: ScreenGui, input: InputObject?): boolean
+	if not input then return false end
+	local contains = config.containsModalPoint
+	if contains then
+		local point = UIManager.GetModalPointerPosition(input)
+		return point == nil or contains(window, gui, point)
+	end
 	local point = if input.UserInputType == Enum.UserInputType.MouseButton1
 		then userInputService:GetMouseLocation()
 		else Vector2.new(input.Position.X, input.Position.Y)
 	if not gui.IgnoreGuiInset then point -= guiService:GetGuiInset() end
+	local regions = config.modalContentRegions
+	if not regions then return false end
 	for _, name in regions do
 		local region = window:FindFirstChild(name, true)
 		if region and region:IsA("GuiObject") and region.Visible then
 			local topLeft = region.AbsolutePosition
-			local bottomRight = topLeft + region.AbsoluteSize
+			local size = region.AbsoluteSize
+			local visibleHeight = region:GetAttribute("ModalContentHeight") :: number? or 1
+			local bottomRight = topLeft + Vector2.new(size.X, size.Y * visibleHeight)
 			if point.X >= topLeft.X and point.X < bottomRight.X and point.Y >= topLeft.Y and point.Y < bottomRight.Y then
 				return true
 			end
@@ -254,11 +274,14 @@ function UIManager.Init(gameScreenGuiNew: ScreenGui): ()
 	modalButton = gameScreenGuiNew:WaitForChild("ModalButton") :: ImageButton
 	local canvas = gameScreenGuiNew:WaitForChild("WindowCanvas") :: Frame
 	local scale = canvas:WaitForChild("UIScale") :: UIScale
+	local overlay = gameScreenGuiNew:WaitForChild("OverlayCanvas") :: Frame
+	local overlayScale = overlay:WaitForChild("UIScale") :: UIScale
 	local cameraScope = LifecycleTool.new()
 	local function Resize(): ()
 		local camera = workspace.CurrentCamera
 		if camera then
 			scale.Scale = math.min(camera.ViewportSize.X / 1920, camera.ViewportSize.Y / 1080)
+			overlayScale.Scale = scale.Scale
 		end
 	end
 	local function BindCamera(): ()
@@ -283,7 +306,7 @@ function UIManager.Init(gameScreenGuiNew: ScreenGui): ()
 			local id = windowOrder[index]
 			local config = WindowConfigs[id]
 			if config.isModal then
-				if not InsideModalContent(addedWindows[id].frame, config.modalContentRegions, gameScreenGuiNew, input) then
+				if not InsideModalContent(addedWindows[id].frame, config, gameScreenGuiNew, input) then
 					UIManager.CloseWindow(id)
 				end
 				break

@@ -1,9 +1,11 @@
--- 在 Studio Edit 构建 M5 商店、触控冲刺与耐力 HUD 模板
+-- 在 Studio Edit 构建 恶魔商店、触控冲刺与耐力 HUD 模板
 --!strict
 local RunService = game:GetService("RunService")
 local storage = game:GetService("ReplicatedStorage")
 local ui = storage:WaitForChild("UI")
-local models = storage:WaitForChild("Models")
+local shopAssetJson, _, hitMaskJson = ...
+local hitMasks = game:GetService("HttpService"):JSONDecode(hitMaskJson)
+local assets: {[string]: string} = game:GetService("HttpService"):JSONDecode(assert(shopAssetJson, "Pass evil_shop_assets.json to the builder"))
 local sprintImage = "rbxassetid://114836508163438"
 assert(not RunService:IsRunning(), "Build personal shop in Edit mode")
 
@@ -12,11 +14,7 @@ local function BuildTemplates(parent: Instance): ()
 	local ink = rgb(21, 17, 30)
 	local white = rgb(255, 255, 255)
 	local blue = rgb(54, 155, 237)
-	local orange = rgb(243, 136, 40)
-	local green = rgb(83, 227, 109)
-	local gold = rgb(255, 215, 67)
-	local gray = rgb(172, 176, 187)
-	local red = rgb(243, 61, 68)
+	local gold = rgb(253, 215, 5)
 
 	local function place(gui: GuiObject, name: string, x: number, y: number, w: number, h: number, color: Color3?, layer: number?): ()
 		gui.Name = name
@@ -50,7 +48,7 @@ local function BuildTemplates(parent: Instance): ()
 		local obj = Instance.new("TextLabel")
 		place(obj, name, x, y, w, h, nil, layer or 6)
 		obj.AutoLocalize = false
-		obj.Font = Enum.Font.GothamBlack
+		obj.Font = Enum.Font.BuilderSansExtraBold
 		obj.Text = value
 		obj.TextScaled = false
 		obj.TextWrapped = false
@@ -67,45 +65,6 @@ local function BuildTemplates(parent: Instance): ()
 		obj.Parent = root
 		return obj
 	end
-	local function shade(root: GuiObject): ()
-		local gradient = Instance.new("UIGradient")
-		gradient.Rotation = 90
-		gradient.Color = ColorSequence.new(white, rgb(206, 206, 206))
-		gradient.Parent = root
-	end
-	local function button(root: Instance, name: string, x: number, y: number, w: number, h: number, size: number, value: string, color: Color3, layer: number?): ImageButton
-		local obj = Instance.new("ImageButton")
-		place(obj, name, x, y, w, h, color, layer or 5)
-		obj.AutoButtonColor = false
-		obj.AnchorPoint = Vector2.new(0.5, 0.5)
-		obj.Position = UDim2.fromOffset(x + w / 2, y + h / 2)
-		obj:SetAttribute("HasClickSound", true)
-		obj:SetAttribute("HasInteractionEffect", true)
-		local scale = Instance.new("UIScale")
-		scale.Parent = obj
-		outline(obj, 15, 0.025)
-		shade(obj)
-		label(obj, "TitleText", 8, 0, w - 16, h, size, value, nil, (layer or 5) + 2)
-		obj.Parent = root
-		return obj
-	end
-	local function checker(root: Frame, cell: number, tint: Color3): ()
-		local w, h = root.Size.X.Offset - 14, root.Size.Y.Offset - 14
-		local grid = frame(root, "CheckerFrame", 7, 7, w, h, nil, root.ZIndex + 1)
-		for y = 0, math.ceil(h / cell) - 1 do
-			for x = 0, math.ceil(w / cell) - 1 do
-				if (x + y) % 2 == 0 then
-					frame(grid, "Tile", x * cell, y * cell, math.min(cell, w - x * cell), math.min(cell, h - y * cell), tint, grid.ZIndex)
-				end
-			end
-		end
-	end
-	local function badge(root: GuiObject, layer: number): ()
-		local dot = frame(root, "AlertFrame", root.Size.X.Offset - 19, -10, 34, 34, red, layer)
-		outline(dot, 18, 0.07)
-		label(dot, "AlertText", 0, 0, 34, 34, 22, "!", nil, layer + 1)
-		dot.Visible = false
-	end
 	local function canvas(name: string): Frame
 		local root = frame(nil, name, 0, 0, 1920, 1080, nil, 1)
 		root.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -118,129 +77,136 @@ local function BuildTemplates(parent: Instance): ()
 		obj.Parent = parent
 	end
 
+	local function asset(key: string): string
+		return assert(assets[key], "Missing shop image: " .. key)
+	end
+
+	local function image(root: Instance, name: string, x: number, y: number, w: number, h: number, key: string, layer: number, mode: Enum.ScaleType?, slice: Rect?): ImageLabel
+		local obj = Instance.new("ImageLabel")
+		place(obj, name, x, y, w, h, nil, layer)
+		obj.Image = asset(key)
+		obj.ScaleType = mode or Enum.ScaleType.Stretch
+		if slice then obj.SliceCenter = slice end
+		obj.Parent = root
+		return obj
+	end
+
+	local function imageButton(root: Instance, name: string, x: number, y: number, w: number, h: number, key: string, layer: number): ImageButton
+		local obj = Instance.new("ImageButton")
+		place(obj, name, x + w / 2, y + h / 2, w, h, nil, layer)
+		obj.AnchorPoint = Vector2.new(0.5, 0.5)
+		obj.Image = asset(key)
+		obj.ScaleType = Enum.ScaleType.Stretch
+		obj.AutoButtonColor = false
+		obj:SetAttribute("HasClickSound", true)
+		obj:SetAttribute("HasInteractionEffect", true)
+		Instance.new("UIScale", obj)
+		obj.Parent = root
+		return obj
+	end
+
+	local function AddShadow(main: TextLabel, parent: Instance): ()
+		local shadow = main:Clone()
+		shadow:ClearAllChildren()
+		shadow.Name = "ShadowText"
+		shadow:SetAttribute("DesignTextSize", nil)
+		shadow.ZIndex = main.ZIndex - 1
+		shadow.TextColor3 = Color3.new(0, 0, 0)
+		if parent == main then
+			shadow.AutomaticSize = Enum.AutomaticSize.None
+			shadow.Position = UDim2.fromOffset(0, 3)
+			shadow.Size = UDim2.fromScale(1, 1)
+		else
+			shadow.Position += UDim2.fromOffset(0, 4)
+		end
+		shadow.Parent = parent
+	end
+
 	local shop = canvas("PersonalShopFrame")
-	local panel = frame(shop, "PanelFrame", 364, 228, 1188, 586, rgb(245, 244, 247))
-	outline(panel, 26, 0.014)
-	checker(panel, 44, rgb(225, 224, 232))
+	local panel = image(shop, "PanelFrame", 266, 120, 1389, 943, "frame_evilshop_1", 2)
+	local header = image(panel, "HeaderFrame", 262, -120, 865, 322, "frame_evilshop_title", 3)
+	local function SetHitMask(region: GuiObject, key: string): ()
+		local mask = assert(hitMasks[key], "Missing hit mask: " .. key)
+		region:SetAttribute("ModalAlphaWidth", mask.width)
+		region:SetAttribute("ModalAlphaRows", mask.rows)
+	end
+	SetHitMask(panel, "frame_evilshop_1")
+	SetHitMask(header, "frame_evilshop_title")
+	local title = label(header, "TitleText", 202, 46, 461, 120, 88, "SHOP", nil, 6)
+	AddShadow(title, header)
+	local close = imageButton(panel, "CloseButton", 1261, -14, 94, 94, "btn_close", 8)
+	SetHitMask(close, "btn_close")
 
-	local header = frame(panel, "HeaderFrame", 379, -47, 430, 78, orange, 5)
-	outline(header, 23, 0.025)
-	checker(header, 34, rgb(252, 164, 62))
-	label(header, "TitleText", 12, 0, 406, 78, 56, "SHOP", nil, 8)
-	button(panel, "CloseButton", 1120, -21, 64, 64, 32, "×", red, 9)
-	local abilities = button(panel, "AbilitiesButton", 230, 62, 348, 64, 28, "ABILITY UPGRADES", orange)
-	local tools = button(panel, "ToolsButton", 596, 62, 348, 64, 28, "TOOL EVOLUTION", gray)
-	badge(abilities, 9)
-	badge(tools, 9)
-	panel:SetAttribute("ActiveTabColor", orange)
-	panel:SetAttribute("InactiveTabColor", gray)
+	local abilities = imageButton(panel, "AbilitiesButton", 351, 90, 336, 98, "btn_green_1_336", 7)
+	local tools = imageButton(panel, "ToolsButton", 701, 90, 336, 98, "btn_graypurple_1_336", 7)
+	label(abilities, "TitleText", 7, 0, 322, 98, 56, "ABILITY UPGRADES", nil, 8)
+	label(tools, "TitleText", 7, 0, 322, 98, 56, "TOOL EVOLUTION", nil, 8)
+	for _, tab in { abilities, tools } do
+		image(tab, "AlertFrame", 279, -7, 41, 44, "btn_tip", 9, Enum.ScaleType.Fit).Visible = false
+	end
+	panel:SetAttribute("ActiveTabImage", asset("btn_green_1_336"))
+	panel:SetAttribute("InactiveTabImage", asset("btn_graypurple_1_336"))
 
-	local abilitiesFrame = frame(panel, "AbilitiesFrame", 24, 150, 1140, 410, nil)
-	local toolsFrame = frame(panel, "ToolsFrame", 24, 150, 1140, 410, nil)
+	local abilitiesFrame = frame(panel, "AbilitiesFrame", 109, 205, 1170, 498, nil, 3)
+	local toolsFrame = frame(panel, "ToolsFrame", 141, 205, 1106, 498, nil, 3)
 	toolsFrame.Visible = false
 
-	local function card(root: Frame, key: string, index: number, width: number, name: string, a: Color3, b: Color3, symbol: string?, tiers: {string}?): ()
-		local tile = frame(root, key, (index - 1) * (width + 18), 0, width, 410, a, 3)
-		outline(tile, 22, 0.017)
-		checker(tile, 36, b)
-		label(tile, "TitleText", 12, 10, width - 24, 44, 32, name)
-		if tiers then
-			local viewport = Instance.new("ViewportFrame")
-			place(viewport, "ToolViewport", 12, 47, width - 24, 140, nil, 5)
-			viewport.Ambient = rgb(171, 161, 190)
-			viewport.LightColor = white
-			viewport.LightDirection = Vector3.new(-1, -1, -1)
-			viewport.Parent = tile
-			local ribbon = frame(tile, "EquippedFrame", 17, 68, 154, 33, green, 7)
-			ribbon.Rotation = -9
-			outline(ribbon, 9, 0.05)
-			label(ribbon, "TitleText", 4, 0, 146, 33, 20, "EQUIPPED", nil, 8)
-			label(tile, "TierText", 12, 179, width - 24, 35, 26, "")
-			local route = frame(tile, "ProgressFrame", 14, 218, width - 28, 38, ink, 5)
-			route.BackgroundTransparency = 0.3
-			outline(route, 9, 0)
-			local step = (width - 40) / #tiers
-			for i, id in tiers do
-				local node = frame(route, "Step" .. i, 6 + (i - 1) * step, 4, step - 5, 30, ink, 6)
-				outline(node, 6, 0)
-				label(node, "TitleText", 0, 0, step - 5, 30, 20, id, nil, 7)
-			end
-		else
-			if symbol then
-				label(tile, "SymbolText", 0, 69, width, 102, 72, symbol)
-			else
-				local rune = frame(tile, "RuneMarkFrame", (width - 49) / 2, 96, 49, 49, gold, 6)
-				rune.Rotation = 45
-				outline(rune, 8, 0.06)
-				local core = frame(rune, "CoreFrame", 14, 14, 21, 21, white, 7)
-				outline(core, 3, 0.06)
-			end
-			local route = frame(tile, "ProgressFrame", math.floor((width - 182) / 2), 189, 182, 32, nil, 5)
-			for i = 1, 5 do
-				local dot = frame(route, "Step" .. i, (i - 1) * 38, 3, 28, 28, ink, 6)
-				outline(dot, 16, 0.07)
-			end
+	local compareSlice = Rect.new(24, 24, 64, 64)
+	local function card(root: Frame, key: string, x: number, name: string, iconKey: string, isTool: boolean): ()
+		local width = if isTool then 538 else 378
+		local tile = image(root, key, x, 0, width, 498, if isTool then "frame_evilshop_2" else "frame_evilshop_4", 4)
+		label(tile, "TitleText", 12, 14, width - 24, 78, 56, name)
+		local iconWidth, iconHeight = if isTool then 230 else 220, if isTool then 190 else 182
+		image(tile, "IconImage", (width - iconWidth) / 2, if isTool then 82 else 90, iconWidth, iconHeight, iconKey, 5, Enum.ScaleType.Fit)
+		if isTool then
+			local equipped = image(tile, "EquippedFrame", width - 136, 72, 136, 55, "icon_frame_evilshop", 7)
+			label(equipped, "TitleText", 6, 0, 125, 55, 28, "EQUIPPED", Color3.new(0, 0, 0), 8)
 		end
-		local compare = frame(tile, "CompareFrame", 14, 266, width - 28, 62, ink, 5)
-		compare.BackgroundTransparency = 0.24
-		outline(compare, 10, 0)
-		label(compare, "PrimaryText", 8, 0, width - 44, 31, 22, "")
-		label(compare, "SecondaryText", 8, 31, width - 44, 31, 20, "")
-		local buy = button(tile, "BuyButton", 14, 341, width - 28, 54, 28, "", green)
-		buy:SetAttribute("AvailableColor", green)
-		buy:SetAttribute("LockedColor", gray)
-		buy:SetAttribute("MaxColor", gold)
+
+		local compareWidth, compareHeight = if isTool then 490 else 330, if isTool then 96 else 84
+		local compare = image(tile, "CompareFrame", (width - compareWidth) / 2, 273, compareWidth, compareHeight, "frame_evilshop_3", 5, Enum.ScaleType.Slice, compareSlice)
+		if isTool then
+			local primary = label(compare, "PrimaryText", 0, 0, compareWidth, 48, 32, "")
+			primary.Position = UDim2.fromOffset(8, 0)
+			primary.Size = UDim2.fromOffset(compareWidth - 16, 48)
+			local nextText = label(compare, "SecondaryText", 8, 42, compareWidth - 16, 48, 36, "")
+			nextText.TextColor3 = gold
+		else
+			label(compare, "PrimaryText", 8, 0, compareWidth - 16, 84, 44, "")
+		end
+
+		local buyWidth = if isTool then 310 else 330
+		local lockedArt = "btn_graypurple_2_" .. buyWidth
+		local buy = imageButton(tile, "BuyButton", (width - buyWidth) / 2, 390, buyWidth, 80, lockedArt, 7)
+		buy:SetAttribute("AvailableImage", asset("btn_bule_2_" .. buyWidth))
+		buy:SetAttribute("LockedImage", asset(lockedArt))
+		buy:SetAttribute("MaxImage", asset(lockedArt))
+		local content = frame(buy, "ContentFrame", 0, 0, buyWidth, 80, nil, 8)
+		local layout = Instance.new("UIListLayout")
+		layout.FillDirection = Enum.FillDirection.Horizontal
+		layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+		layout.VerticalAlignment = Enum.VerticalAlignment.Center
+		layout.SortOrder = Enum.SortOrder.LayoutOrder
+		layout.Padding = UDim.new(0, 10)
+		layout.Parent = content
+		local money = image(content, "MoneyIcon", 0, 0, 54, 45, "icon_money_s", 9, Enum.ScaleType.Fit)
+		money.LayoutOrder = 1
+		local price = label(content, "TitleText", 0, 0, 0, 72, 56, "", nil, 10)
+		price.LayoutOrder = 2
+		price.AutomaticSize = Enum.AutomaticSize.X
+		local limit = Instance.new("UISizeConstraint")
+		limit.MaxSize = Vector2.new(buyWidth - 84, 72)
+		limit.Parent = price
+		AddShadow(price, price)
 	end
 
-	card(abilitiesFrame, "moveSpeed", 1, 368, "MOVE SPEED", blue, rgb(71, 174, 248), "⚡")
-	card(abilitiesFrame, "runeBatch", 2, 368, "RUNE BATCH", orange, rgb(254, 159, 60))
-	card(abilitiesFrame, "sellBonus", 3, 368, "SALE BONUS", rgb(51, 188, 78), rgb(67, 210, 89), "$")
-	card(toolsFrame, "weapon", 1, 561, "WEAPON EVOLUTION", rgb(143, 100, 223), rgb(160, 119, 236), nil, {"W01", "W02", "W03", "W04", "W05", "W06"})
-	card(toolsFrame, "carryTool", 2, 561, "CARRY EVOLUTION", rgb(38, 173, 157), rgb(52, 194, 176), nil, {"T0", "T1", "T2", "T3", "T4"})
-
-	-- 徒手搬运的商店展示模型与 3D 视口空容器统一放入 Models.Previews，武器展示复用 Models.Weapons。
-	local previews = models:FindFirstChild("Previews")
-	if not previews or not previews:IsA("Folder") then
-		local created = Instance.new("Folder")
-		created.Name = "Previews"
-		created.Parent = models
-		previews = created
-	end
-	local iron = rgb(151, 160, 175)
-	local function model(id: string): Model
-		local old = (previews :: Folder):FindFirstChild(id)
-		if old then old:Destroy() end
-		local result = Instance.new("Model")
-		result.Name = id
-		result.Parent = previews
-		return result
-	end
-	local function part(root: Model, name: string, size: Vector3, at: Vector3, color: Color3, shape: Enum.PartType?, angle: Vector3?): Part
-		local p = Instance.new("Part")
-		p.Name = name
-		p.Size = size
-		local r = angle or Vector3.zero
-		p.CFrame = CFrame.new(at) * CFrame.Angles(math.rad(r.X), math.rad(r.Y), math.rad(r.Z))
-		p.Color = color
-		p.Shape = shape or Enum.PartType.Block
-		p.Anchored = true
-		p.CanCollide = false
-		p.CanTouch = false
-		p.CanQuery = false
-		p.Parent = root
-		return p
-	end
-	local v, ball = Vector3.new, Enum.PartType.Ball
-	local shoulder = model("T0")
-	part(shoulder, "Torso", v(1.7, 2.08, 1.01), v(0, -0.52, 0), iron)
-	part(shoulder, "Head", v(0.86, 0.86, 0.86), v(0, 0.98, 0), white, ball)
-	for _, side in {-1, 1} do
-		part(shoulder, "Shoulder", v(0.8, 1.39, 0.91), v(side * 1.05, -0.06, 0), iron, nil, v(0, 0, side * 12))
-	end
+	card(abilitiesFrame, "moveSpeed", 0, "MOVE SPEED", "icon_sneakers", false)
+	card(abilitiesFrame, "runeBatch", 396, "RUNE BATCH", "icon_paint", false)
+	card(abilitiesFrame, "sellBonus", 792, "SALE BONUS", "icon_money_1", false)
+	card(toolsFrame, "weapon", 0, "RUSTY PAN", "icon_pan", true)
+	card(toolsFrame, "carryTool", 568, "BARE SHOULDER", "icon_power", true)
 
 	local hud = canvas("PersonalHudFrame")
-	local open = button(hud, "ShopButton", 1642, 317, 208, 62, 28, "SHOP", orange)
-	badge(open, 9)
 	local stamina = frame(hud, "StaminaFrame", 1642, 392, 208, 37, ink, 3)
 	outline(stamina, 12, 0.025)
 	local track = frame(stamina, "TrackFrame", 5, 5, 198, 27, rgb(55, 52, 72), 4)
@@ -248,7 +214,7 @@ local function BuildTemplates(parent: Instance): ()
 	local fill = frame(track, "FillFrame", 0, 0, 198, 27, blue, 5)
 	fill.Size = UDim2.fromScale(1, 1)
 	outline(fill, 8, 0)
-	label(stamina, "TitleText", 0, 0, 208, 37, 20, "STAMINA")
+	label(stamina, "TitleText", 0, 0, 208, 37, 26, "STAMINA")
 	stamina.Visible = false
 	local oldRootSprint = parent:FindFirstChild("TouchSprintFrame")
 	if oldRootSprint then oldRootSprint:Destroy() end
@@ -274,15 +240,6 @@ local function BuildTemplates(parent: Instance): ()
 	local action = sprint:FindFirstChild("ActionText") :: TextLabel
 	if action then
 		action.Text = "SPRINT"
-	end
-	local legacyPreviews = models:FindFirstChild("PersonalShopPreviews")
-	if legacyPreviews then legacyPreviews:Destroy() end
-	local legacyWorld = models:FindFirstChild("ViewportWorld")
-	if legacyWorld then legacyWorld:Destroy() end
-	if not (previews :: Folder):FindFirstChild("ViewportWorld") then
-		local world = Instance.new("WorldModel")
-		world.Name = "ViewportWorld"
-		world.Parent = previews
 	end
 	mount(shop)
 	mount(hud)

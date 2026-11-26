@@ -94,7 +94,7 @@ check(Rules.DescribePrice(F.AutoClerk).textId == 'PadPrice' and Rules.DescribePr
 
 -- 工具函数：构造测试白膜与重置场景
 local function makeTestBody(manager, stage)
-	local model = B.ModelsFolder.Characters.WhiteR15:Clone()
+	local model = B.ModelsFolder.Characters["WhiteR15-People"]:Clone()
 	local id = B.HttpService.GenerateGUID(false)
 	model:SetAttribute('ItemId', id)
 	model.Parent = manager.runtime
@@ -121,7 +121,7 @@ local function makeTestBody(manager, stage)
 	return item
 end
 
-local function makeTestManager()
+local function makeTestManager(runInit)
 	B.ResetPlayers()
 	table.clear(B.broadcasts)
 	table.clear(B.notices)
@@ -138,13 +138,64 @@ local function makeTestManager()
 		SpendCoins = B.Info.SpendCoins,
 		TrySpendCoins = B.Info.TrySpendCoins,
 	})
-	manager.initialized = true
+	if runInit then
+		manager:Init()
+	else
+		manager.initialized = true
+	end
 	return manager, coinsEarned
 end
 
 -- 3. 踩踏解锁前置校验、防远距离作弊、并发防双扣与全房广播
 do
-	local manager = makeTestManager()
+	local facilities = {
+		[F.FastChute] = Scene.AutomationLine.FastChuteLanding,
+		[F.Brute1] = Scene.BrutePost,
+		[F.AutoRune] = Scene.AutoRuneMachine,
+		[F.AutoSmelter] = Scene.AutoSmelterMachine.AutoPotionRack,
+		[F.AutoClerk] = Scene.AutoClerkStation,
+	}
+	local parts = {}
+	for id, model in facilities do
+		local part = Instance.new('Part')
+		part.Transparency = 0.25
+		part.CanCollide = true
+		part.CanQuery = true
+		part.CanTouch = true
+		part.Parent = model
+		parts[id] = part
+	end
+	local runeAnchor = Scene.AutoRuneWorkBed
+	runeAnchor.Transparency = 1
+	runeAnchor.CanCollide = false
+	runeAnchor.CanQuery = false
+	runeAnchor.CanTouch = false
+	local sign = Instance.new('SurfaceGui')
+	sign.Enabled = true
+	sign.Parent = parts[F.AutoRune]
+	local light = Instance.new('PointLight')
+	light.Enabled = true
+	light.Parent = parts[F.AutoRune]
+	local effect = Instance.new('ParticleEmitter')
+	effect.Enabled = true
+	effect.Parent = parts[F.AutoRune]
+	local disabledEffect = Instance.new('ParticleEmitter')
+	disabledEffect.Enabled = false
+	disabledEffect.Parent = parts[F.AutoRune]
+	local function isHidden(part)
+		return part.Transparency == 1 and not part.CanCollide and not part.CanQuery and not part.CanTouch
+	end
+	local function isRestored(part)
+		return part.Transparency == 0.25 and part.CanCollide and part.CanQuery and part.CanTouch
+	end
+
+	local manager = makeTestManager(true)
+	for id, part in parts do
+		check(isHidden(part), 'startup hides facility without leaving collisions: ' .. id)
+	end
+	check(not sign.Enabled and not light.Enabled and not effect.Enabled, 'startup hides signs, lights and effects')
+	check(Scene.FastChuteCover.CoverPlate.CanCollide, 'chute remains covered at startup')
+	check(Scene.UnlockPads[F.FastChute].TriggerZone.CanTouch and Scene.UnlockPads[F.FastChute].GuiAnchor.PadGui.Enabled, 'locked pad stays visible and usable')
 	local padA00Pos = Scene.UnlockPads[F.FastChute].TriggerZone.Position
 	local padA03Pos = Scene.UnlockPads[F.AutoRune].TriggerZone.Position
 	local p1, _, _, root1 = B.CreatePlayer(101, Vector3.zero)
@@ -162,6 +213,7 @@ do
 	root1.CFrame = CFrame.new(padA03Pos)
 	root1.Position = padA03Pos
 	check(not manager:TryUnlockFacility(p1, F.AutoRune) and p1:GetAttribute('Coins') == 5000, 'A03 blocked until A00 unlocked')
+	check(isHidden(parts[F.AutoRune]), 'failed purchase leaves A03 hidden')
 
 	-- 互斥锁拦截同帧重入并发
 	root1.CFrame = CFrame.new(padA00Pos)
@@ -175,6 +227,7 @@ do
 	local ok1 = manager:TryUnlockFacility(p1, F.FastChute)
 	local ok2 = manager:TryUnlockFacility(p2, F.FastChute)
 	check(ok1 and not ok2, 'only first player unlocks shared A00')
+	check(isRestored(parts[F.FastChute]) and isHidden(parts[F.AutoRune]), 'A00 restores its landing without revealing A03')
 	check(p1:GetAttribute('Coins') == 4750 and p2:GetAttribute('Coins') == 500, 'second player never double-charged')
 
 	-- A00 空洞开启与 Pad 隐藏 + 全房通知横幅
@@ -206,6 +259,13 @@ do
 	B.now += 0.2
 	manager:Update()
 	check(manager:IsFacilityUnlocked(F.AutoRune) and p1:GetAttribute('Coins') == 2750, 'Update step-on polling unlocks A03 automatically')
+	check(isRestored(parts[F.AutoRune]) and isHidden(runeAnchor), 'A03 restores authored part properties and preserves transparent anchors')
+	check(sign.Enabled and light.Enabled and effect.Enabled and not disabledEffect.Enabled, 'A03 restores enabled and disabled presentation properties')
+	local smelterPos = Scene.UnlockPads[F.AutoSmelter].TriggerZone.Position
+	root1.CFrame = CFrame.new(smelterPos); root1.Position = smelterPos
+	check(not manager:TryUnlockFacility(p1, F.AutoSmelter) and isHidden(parts[F.AutoSmelter]), 'unaffordable A04 leaves its rack hidden')
+	p1:SetAttribute('Coins', 4500)
+	check(manager:TryUnlockFacility(p1, F.AutoSmelter) and isRestored(parts[F.AutoSmelter]), 'A04 restores the nested potion rack')
 
 	-- 验证 A01 -> A02 与独立分支 A05 前置规则
 	p1:SetAttribute('Coins', 15000)
@@ -216,10 +276,13 @@ do
 	check(not manager:TryUnlockFacility(p1, F.Brute2), 'A02 blocked until A01 unlocked')
 	root1.CFrame = CFrame.new(padA01Pos); root1.Position = padA01Pos
 	check(manager:TryUnlockFacility(p1, F.Brute1) and p1:GetAttribute('Coins') == 14000, 'A01 unlocks after A00 for 1000 coins')
+	check(isRestored(parts[F.Brute1]), 'first brute reveals the shared post')
 	root1.CFrame = CFrame.new(padA02Pos); root1.Position = padA02Pos
 	check(manager:TryUnlockFacility(p1, F.Brute2) and p1:GetAttribute('Coins') == 11500, 'A02 unlocks after A01 for 2500 coins')
+	check(isRestored(parts[F.Brute1]), 'second brute keeps the shared post visible')
 	root1.CFrame = CFrame.new(padA05Pos); root1.Position = padA05Pos
 	check(manager:TryUnlockFacility(p1, F.AutoClerk) and p1:GetAttribute('Coins') == 2500, 'A05 unlocks independently for 9000 coins')
+	check(isRestored(parts[F.AutoClerk]), 'A05 restores the clerk station')
 	manager:Destroy()
 end
 

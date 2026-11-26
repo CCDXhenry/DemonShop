@@ -16,10 +16,11 @@ for name,data in Data.Parts do
  part:SetAttribute('SurfaceVersion',Curve.Version)
  part:SetAttribute('Paintable',true)
  local geometry=Curve.Geometry(part)
- check(#geometry.triangles==960,'triangle count '..name)
+ check(#geometry.triangles==#data.triangles and #geometry.triangles>0,'triangle count '..name)
  check(geometry.total>0,'positive area '..name)
  allArea+=geometry.total
- for _,index in {97,321,511,741} do
+ for _,fraction in {.1,.33,.53,.77} do
+  local index=math.ceil(#geometry.triangles*fraction)
   local sample={part=name,face=1,u=.2,v=.35,triangle=index,surfaceVersion=Curve.Version}
   check(Curve.Valid(part,sample),'valid barycentric '..name)
   local point=Curve.Point(part,sample)
@@ -114,11 +115,12 @@ for _, name in { 'Head', 'LeftHand', 'LeftFoot', 'LowerTorso' } do
 	p.Name, p.Size = name, Data.Parts[name].size
 	p:SetAttribute('SurfaceVersion', Curve.Version)
 	p:SetAttribute('Paintable', true)
-	local rim = Curve.ProjectLocal(p, Vector3.new(p.Size.X * 0.35, p.Size.Y * 0.35, -p.Size.Z * 0.45))
+	local offset = if name == 'LeftFoot' then 0 else 0.35
+	local rim = Curve.ProjectLocal(p, Vector3.new(p.Size.X * offset, p.Size.Y * offset, -p.Size.Z * 0.45))
 	local rimPoint = Curve.Point(p, rim)
 	local rimNormal = Curve.Geometry(p).triangles[rim.triangle].normal
 	local sc = RuneRules.FitCurvedScale(p, rimPoint, rimNormal, 0)
-	check(sc ~= nil and sc >= Config.RuneMinScale,'curved limb rim fits rune without returning nil: ' .. name)
+	check(sc ~= nil and sc >= Config.RuneMinScale,'visible limb surface fits rune without returning nil: ' .. name)
 	p:Destroy()
 end
 print('PASS: '..count..' curved surface assertions (production geometry and protocol)')

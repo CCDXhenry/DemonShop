@@ -1,6 +1,109 @@
 -- Edit 资源构建器：幂等创建白膜 R15、道具、网络事件与唯一 UI 模板
 assert(not game:GetService("RunService"):IsRunning(), "Edit mode required")
 local RS, SS = game:GetService("ReplicatedStorage"), game:GetService("ServerStorage")
+local shopAssetJson, coinsOnly, hitMaskJson = ...
+local function BuildCoinsOverlay(gui: ScreenGui, root: Frame, assets: { [string]: string }): ()
+ local frameImage = assert(assets.frame_money, "Missing frame_money")
+ local iconImage = assert(assets.icon_money_m, "Missing icon_money_m")
+ local hitMasks = game:GetService("HttpService"):JSONDecode(hitMaskJson)
+ local function setHitMask(image, key)
+  image:SetAttribute("ModalAlphaWidth", hitMasks[key].width)
+  image:SetAttribute("ModalAlphaRows", hitMasks[key].rows)
+ end
+ local overlay = Instance.new("Frame")
+ overlay.Name = "OverlayCanvas"
+ overlay.Size = UDim2.fromOffset(1920, 1080)
+ overlay.AnchorPoint = Vector2.new(0.5, 0.5)
+ overlay.Position = UDim2.fromScale(0.5, 0.5)
+ overlay.BackgroundTransparency = 1
+ overlay.ZIndex = 900
+ Instance.new("UIScale", overlay)
+
+ local coins = Instance.new("ImageLabel")
+ coins.Name = "CoinsFrame"
+ coins.BackgroundTransparency = 1
+ coins.Position = UDim2.fromOffset(1682, 28)
+ coins.Size = UDim2.fromOffset(210, 65)
+ coins.Image = frameImage
+ coins.ScaleType = Enum.ScaleType.Slice
+ coins.SliceCenter = Rect.new(32, 16, 178, 49)
+ setHitMask(coins, "frame_money")
+ coins.ZIndex = 901
+ coins.Parent = overlay
+
+ local icon = Instance.new("ImageLabel")
+ icon.Name = "MoneyIcon"
+ icon.BackgroundTransparency = 1
+ icon.Position = UDim2.fromOffset(-42, -14)
+ icon.Size = UDim2.fromOffset(107, 89)
+ icon.Image = iconImage
+ icon.ScaleType = Enum.ScaleType.Fit
+ icon.ZIndex = 902
+ setHitMask(icon, "icon_money_m")
+ icon.Parent = coins
+
+ local amount = Instance.new("TextLabel")
+ amount.Name = "CoinsText"
+ amount.BackgroundTransparency = 1
+ amount.Position = UDim2.fromOffset(62, -5)
+ amount.Size = UDim2.fromOffset(140, 75)
+ amount.ZIndex = 904
+ amount.Font = Enum.Font.BuilderSansExtraBold
+ amount.Text = "0"
+ amount.TextSize = 56
+ amount.TextColor3 = Color3.new(1, 1, 1)
+ amount.AutoLocalize = false
+ local shadow = amount:Clone()
+ shadow.Name = "ShadowText"
+ shadow.Position += UDim2.fromOffset(0, 3)
+ shadow.ZIndex = 903
+ shadow.TextColor3 = Color3.new(0, 0, 0)
+ shadow.Parent = coins
+ amount:SetAttribute("DesignTextSize", 56)
+ local stroke = Instance.new("UIStroke")
+ stroke.StrokeSizingMode = Enum.StrokeSizingMode.ScaledSize
+ stroke.Thickness = 0.06
+ stroke.Color = Color3.new(0, 0, 0)
+ stroke.Parent = amount
+ amount.Parent = coins
+
+ local oldOverlay = gui:FindFirstChild(overlay.Name)
+ if oldOverlay then oldOverlay:Destroy() end
+ local status = root:FindFirstChild("StatusFrame")
+ if status then status:Destroy() end
+ local bar = root:FindFirstChild("BottomButtonsFrame")
+ local button = if bar then bar:FindFirstChild("ToolButton") else nil
+ if button then
+  local iconImage = button:FindFirstChild("IconImage")
+  local viewport = button:FindFirstChild("ToolViewport")
+  if not iconImage then
+   local toolIcon = Instance.new("ImageLabel")
+   toolIcon.Name = "IconImage"
+   toolIcon.BackgroundTransparency = 1
+   toolIcon.AnchorPoint = Vector2.new(.5, .5)
+   toolIcon.Position = UDim2.fromScale(.5, .5)
+   toolIcon.Size = UDim2.fromOffset(104, 104)
+   toolIcon.ScaleType = Enum.ScaleType.Fit
+   toolIcon.ZIndex = if viewport and viewport:IsA("GuiObject") then viewport.ZIndex else 2
+   toolIcon.Parent = button
+  end
+  if viewport then viewport:Destroy() end
+ end
+ gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+ overlay.Parent = gui
+end
+
+local shopAssets = if shopAssetJson then game:GetService("HttpService"):JSONDecode(shopAssetJson) else nil
+if coinsOnly then
+ local template = RS.UI.GameScreenGui
+ BuildCoinsOverlay(template, template.CenterFrame, assert(shopAssets, "Pass evil_shop_assets.json to the builder"))
+ return "Updated GameScreenGui.OverlayCanvas"
+end
+if not shopAssets then
+ local templates = RS:FindFirstChild("UI")
+ local screen = if templates then templates:FindFirstChild("GameScreenGui") else nil
+ assert(screen and screen:FindFirstChild("OverlayCanvas"), "Use build_evil_shop_ui.py game when initializing the new HUD")
+end
 local function folder(parent,name)
  local v=parent:FindFirstChild(name);if not v then v=Instance.new("Folder");v.Name=name;v.Parent=parent end;return v
 end
@@ -19,22 +122,28 @@ if not district:FindFirstChild("SummoningSubmitAnchor") then
  anchor.Anchored=true;anchor.Transparency=1;anchor.CanCollide=false;anchor.CanQuery=false;anchor.CanTouch=false;anchor.Parent=district
 end
 for _,name in {"SoulHoldingPool","RuneBodyTable","SoulConversionAltar","SoulCrystalDisplay"} do district[name].ModelStreamingMode=Enum.ModelStreamingMode.Persistent end
--- 恢复 M6 五槽台面，用锚点到墨具的固定坐标保证重跑不重复位移。
+-- 恢复 M6 五槽台面（仅旧模型包含 FullBodySlab / 墨具时调整，兼容替换后的新画符台）。
 local runeTable = district.RuneBodyTable
 local tableAnchor = runeTable.BodyPlacementAnchor.Position
 local slab = runeTable:FindFirstChild("FullBodySlab", true)
-slab.Size = Vector3.new(18, slab.Size.Y, 10.5)
-for name, offset in {
- InkTray = Vector3.new(6.5, -0.55, 4.25),
- InkPot = Vector3.new(7, -0.05, 4.25),
- Brush = Vector3.new(5.8, -0.25, 4.25),
- TransferStartAnchor = Vector3.new(0, 0.45, -4.85),
- StationPlaque = Vector3.new(0, -1.95, -5.35),
-} do
- runeTable:FindFirstChild(name, true).Position = tableAnchor + offset
+if slab and slab:IsA("BasePart") then
+ slab.Size = Vector3.new(18, slab.Size.Y, 10.5)
+ for name, offset in {
+  InkTray = Vector3.new(6.5, -0.55, 4.25),
+  InkPot = Vector3.new(7, -0.05, 4.25),
+  Brush = Vector3.new(5.8, -0.25, 4.25),
+  TransferStartAnchor = Vector3.new(0, 0.45, -4.85),
+  StationPlaque = Vector3.new(0, -1.95, -5.35),
+ } do
+  local target = runeTable:FindFirstChild(name, true)
+  if target and target:IsA("BasePart") then
+   target.Position = tableAnchor + offset
+  end
+ end
 end
-assert(characters:FindFirstChild("WhiteR15") and characters.WhiteR15:GetAttribute("SurfaceVersion")==1,
- "Import Assets/Models/GameModels.rbxm containing Models.Characters.WhiteR15 before building")
+local whiteBody = characters:FindFirstChild("WhiteR15-People")
+assert(whiteBody and whiteBody:GetAttribute("SurfaceVersion")==2,
+ "Import Assets/Models/GameModels.rbxm containing Models.Characters.WhiteR15-People before building")
 for _, bruteName in {"HellBrute_1", "HellBrute_2", "AutoClerk"} do
  local brute = characters:FindFirstChild(bruteName)
  assert(brute and brute:IsA("Model") and brute:FindFirstChild("HumanoidRootPart") and brute:FindFirstChildOfClass("Humanoid"),
@@ -86,11 +195,6 @@ else
   local c=Instance.new("UICorner");c.CornerRadius=UDim.new(0,16);c.Parent=f
   local s=Instance.new("UIStroke");s.StrokeSizingMode=Enum.StrokeSizingMode.ScaledSize;s.Thickness=.012;s.Color=Color3.fromRGB(138,80,190);s.Parent=f;return f
  end
- local hud=panel("StatusFrame",1390,60,460,240)
- label(hud,"TitleText","SOUL WORKSHOP",16,8,428,52,36)
- label(hud,"CoinsText","COINS  0",16,65,428,48,32)
- label(hud,"CarryText","HANDS EMPTY",16,120,428,44,26)
- label(hud,"StockText","POOL 0/8  |  POTIONS 0/8",16,172,428,40,24)
  label(root,"HintText","",400,900,1120,56,32)
  label(root,"NoticeText","",400,840,1120,48,28)
  local paint=panel("PaintFrame",550,90,820,170);paint.Visible=false
@@ -109,6 +213,7 @@ end
 if not root:FindFirstChildOfClass("UIScale") then
  local scale=Instance.new("UIScale");scale.Parent=root
 end
+if shopAssets then BuildCoinsOverlay(gui, root, shopAssets) end
 for _, info in { { name = "ExitPaintButton", cx = 735, cy = 982 }, { name = "ResetViewButton", cx = 1185, cy = 982 } } do
  local b = root:FindFirstChild(info.name)
  if b and b:IsA("GuiButton") then
@@ -388,8 +493,8 @@ for _, value in gui:GetDescendants() do
 		local dynamic = value.Name == "CoinsText" or value.Name == "CarryText" or value.Name == "StockText"
 			or value.Name == "HintText" or value.Name == "NoticeText" or value.Name == "ProgressText"
 			or value.Name == "ToolNameText" or value.Name == "ToolLvText" or value.Name == "KeyCodeText"
-		value.AutoLocalize = not dynamic and not string.find(value.Name, "KeyText")
-		if dynamic and value.Name ~= "ProgressText" and value.Name ~= "KeyCodeText" then value.Text = "" end
+		value.AutoLocalize = not dynamic and value.Name ~= "ShadowText" and not string.find(value.Name, "KeyText")
+		if dynamic and value.Name ~= "ProgressText" and value.Name ~= "KeyCodeText" and value.Name ~= "CoinsText" then value.Text = "" end
 	end
 end
 for _, node in gui:GetDescendants() do
@@ -491,4 +596,4 @@ for _, node in ui:GetDescendants() do
 	end
 end
 
-return {rigParts=#models.WhiteR15:GetChildren(),ui=gui:GetFullName(),models=models:GetFullName()}
+return {rigParts=#whiteBody:GetChildren(),ui=gui:GetFullName(),models=models:GetFullName()}

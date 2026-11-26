@@ -1,4 +1,4 @@
--- 聊天管理器：保留 GM 校验，支持清档与非正式环境加金币命令
+-- 聊天管理器：保留 GM 校验，支持清档与非正式环境加金币；Studio 本地测试客户端可自行加币
 --!strict
 local ServerStorage = game:GetService("ServerStorage")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -19,6 +19,15 @@ local function IsProductionEnvironment(): boolean
 		return false
 	end
 	return Config.GameId > 0 and game.GameId == Config.GameId
+end
+local function CanUseAddCoins(userId: number): boolean
+	if IsProductionEnvironment() then
+		return false
+	end
+	if RunService:IsStudio() and userId < 0 then
+		return true
+	end
+	return GMConfig.IsGMPlayer(userId)
 end
 local function ParseAddCoinsAmount(unfilteredText: string?): number?
 	local rawArg = if type(unfilteredText) == "string" then string.match(unfilteredText, "^%S+%s+(%S+)") else nil
@@ -71,7 +80,7 @@ function Manager.Init(self: Manager): ()
 		local addCommand = folder and folder:FindFirstChild("AddCoinsCommand")
 		if addCommand and addCommand:IsA("TextChatCommand") then
 			scope:Connect(addCommand.Triggered:Connect(function(source: TextSource, unfilteredText: string): ()
-				if IsProductionEnvironment() or not GMConfig.IsGMPlayer(source.UserId) then
+				if not CanUseAddCoins(source.UserId) then
 					return
 				end
 				local player = Players:GetPlayerByUserId(source.UserId)

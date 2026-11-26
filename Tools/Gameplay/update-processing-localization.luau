@@ -1,6 +1,26 @@
 -- 加工文案 Edit 模板迁移：仅增量配置文字及独立键位，不重建 HUD
 --!strict
 assert(game.PlaceId == 110812537538556 and not game:GetService("RunService"):IsRunning(), "DemonShop Edit required")
+local shopEntries = ...
+if shopEntries then
+	local localization = game:GetService("LocalizationService")
+	local localizationTable = localization:FindFirstChild("DemonShopLocalizationTable") :: LocalizationTable
+	assert(localizationTable, "DemonShopLocalizationTable is missing")
+	local entries = localizationTable:GetEntries()
+	for _, row in shopEntries do
+		local found = false
+		for index, existing in entries do
+			if (row.Key ~= "" and existing.Key == row.Key) or (row.Key == "" and existing.Key == "" and existing.Source == row.Source) then
+				entries[index] = row
+				found = true
+				break
+			end
+		end
+		if not found then table.insert(entries, row) end
+	end
+	localizationTable:SetEntries(entries)
+	return "Updated " .. #shopEntries .. " shop localization entries"
+end
 local ui = game:GetService("ReplicatedStorage").UI
 local gui = ui.GameScreenGui
 for _, value in gui:GetDescendants() do
@@ -8,8 +28,8 @@ for _, value in gui:GetDescendants() do
 		local dynamic = value.Name == "CoinsText" or value.Name == "CarryText" or value.Name == "StockText"
 			or value.Name == "HintText" or value.Name == "NoticeText" or value.Name == "ProgressText"
 			or value.Name == "ToolNameText" or value.Name == "ToolLvText" or value.Name == "KeyCodeText"
-		value.AutoLocalize = not dynamic and not string.find(value.Name, "KeyText")
-		if dynamic and value.Name ~= "ProgressText" and value.Name ~= "KeyCodeText" then value.Text = "" end
+		value.AutoLocalize = not dynamic and value.Name ~= "ShadowText" and not string.find(value.Name, "KeyText")
+		if dynamic and value.Name ~= "ProgressText" and value.Name ~= "KeyCodeText" and value.Name ~= "CoinsText" then value.Text = "" end
 	end
 end
 for _, node in gui:GetDescendants() do

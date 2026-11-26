@@ -224,7 +224,7 @@ function TextFitting.FitMarkedText(label: TextLabel): number?
 		return nil
 	end
 	local parent = label.Parent
-	local shadow = if parent ~= nil then parent:FindFirstChild("ShadowText") else nil
+	local shadow = label:FindFirstChild("ShadowText") or (if parent ~= nil then parent:FindFirstChild("ShadowText") else nil)
 	if shadow == label then
 		shadow = nil
 	end

@@ -13,7 +13,8 @@ C.TextChatService={FindFirstChild=function(_,folderName)
  if folderName~='CustomTextChatCommands' then return nil end
  return {FindFirstChild=function(_,cmdName)return commands[cmdName]end}
 end}
-C.Players={GetPlayerByUserId=function(_,id)return if id==B.player.UserId then B.player else nil end}
+C.playersById={[B.player.UserId]=B.player,[-1]={UserId=-1},[-2]={UserId=-2}}
+C.Players={GetPlayerByUserId=function(_,id)return C.playersById[id] end}
 C.RunService={IsStudio=function()return C.studio end}
 C.GMConfig={IsGMPlayer=function()return C.gm end}
 C.Info={AddCoins=function(player,amount)

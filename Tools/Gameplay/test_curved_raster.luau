@@ -79,7 +79,6 @@ local head = parts[2]
 local source = Data.Parts.Head
 local seamA, seamB
 for first, a in source.vertices do
-	if math.abs(a.Y) > 0.2 then continue end
 	for second = first + 1, #source.vertices do
 		if (a - source.vertices[second]).Magnitude < 1e-5 and (source.uvs[first] - source.uvs[second]).Magnitude > 0.1 then
 			seamA, seamB = first, second
@@ -259,6 +258,64 @@ do
 	check(allBase and #warmed.flashes == 0, 'appear highlight smoothly cools back to RuneBaseColor after RuneAppearSeconds')
 end
 warmupView:Destroy()
+
+-- 验证 R15 直连邻接跨缝投影与非邻接部位隔离：UpperTorso/LowerTorso 接缝处符文同时渲染到两部位，LeftUpperLeg 内侧不误染 RightUpperLeg
+do
+	local seamParts = {}
+	for _, name in { 'UpperTorso', 'LowerTorso', 'LeftUpperLeg', 'RightUpperLeg' } do
+		local p = R.Instance.new('Part')
+		p.Name, p.Size = name, Data.Parts[name].size
+		p:SetAttribute('Paintable', true)
+		p:SetAttribute('SurfaceVersion', Curve.Version)
+		table.insert(seamParts, p)
+	end
+	local seamModel = B.Model(seamParts)
+	local seamView = View.new()
+	local seamRecords = {}
+	seamView:Bind('seam', seamModel, seamRecords)
+	seamView:Update('seam')
+	local seamSample = Curve.ProjectLocal(seamParts[1], R.Vector3.new(0, -seamParts[1].Size.Y * 0.49, seamParts[1].Size.Z * 0.48))
+	local seamStamp = runeStamp(seamParts[1], seamSample, 1, 0, 1)
+	seamRecords[seamStamp.key] = seamStamp
+	seamView:Apply('seam', seamStamp)
+	B.step = 0.001
+	repeat seamView:Update('seam') until seamView:IsReady('seam')
+
+	local function TileHasInk(tex, tile)
+		local sz = tex.size
+		local x0 = math.floor(tile.X * sz / 4)
+		local x1 = math.floor((tile.X + 1) * sz / 4) - 1
+		local y0 = math.floor((3 - tile.Y) * sz / 4)
+		local y1 = math.floor((4 - tile.Y) * sz / 4) - 1
+		for py = y0, y1 do
+			for px = x0, x1 do
+				if buffer.readu8(tex.alpha, py * sz + px) > 0 then
+					return true
+				end
+			end
+		end
+		return false
+	end
+
+	local seamTex = seamView.textures.seam
+	check(TileHasInk(seamTex, Data.Parts.UpperTorso.tile) and TileHasInk(seamTex, Data.Parts.LowerTorso.tile), 'seam stamp projects seamlessly across UpperTorso and LowerTorso')
+	check(not TileHasInk(seamTex, Data.Parts.RightUpperLeg.tile), 'seam stamp does not bleed onto non-adjacent RightUpperLeg')
+
+	-- 单独测试 LeftUpperLeg 内侧落印不误染对侧 RightUpperLeg
+	local legView = View.new()
+	local legRecords = {}
+	legView:Bind('leg', seamModel, legRecords)
+	legView:Update('leg')
+	local legSample = Curve.ProjectLocal(seamParts[3], R.Vector3.new(-seamParts[3].Size.X * 0.49, 0, seamParts[3].Size.Z * 0.3))
+	local legStamp = runeStamp(seamParts[3], legSample, 2, 0, 1)
+	legRecords[legStamp.key] = legStamp
+	legView:Apply('leg', legStamp)
+	repeat legView:Update('leg') until legView:IsReady('leg')
+	check(TileHasInk(legView.textures.leg, Data.Parts.LeftUpperLeg.tile) and not TileHasInk(legView.textures.leg, Data.Parts.RightUpperLeg.tile), 'inner LeftUpperLeg stamp never bleeds across air to RightUpperLeg')
+
+	seamView:Destroy(); legView:Destroy()
+	for _, p in seamParts do p:Destroy() end
+end
 
 -- 网络已确认但本地未画完时不能结束会话
 table.clear(Net.requests)

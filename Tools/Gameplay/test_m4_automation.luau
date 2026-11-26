@@ -17,7 +17,7 @@ local function check(cond, msg)
 end
 
 local function makeStreetBody(manager, pos, hits)
-	local model = B.ModelsFolder.Characters.WhiteR15:Clone()
+	local model = B.ModelsFolder.Characters["WhiteR15-People"]:Clone()
 	local id = B.HttpService.GenerateGUID(false)
 	model.Name = 'WhiteNPC'
 	model:SetAttribute('ItemId', id)
@@ -51,7 +51,7 @@ local function makeStreetBody(manager, pos, hits)
 end
 
 local function makeManualBody(manager, stage, location)
-	local model = B.ModelsFolder.Characters.WhiteR15:Clone()
+	local model = B.ModelsFolder.Characters["WhiteR15-People"]:Clone()
 	local id = B.HttpService.GenerateGUID(false)
 	model:SetAttribute('ItemId', id)
 	model.Parent = manager.runtime

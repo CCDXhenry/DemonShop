@@ -56,6 +56,14 @@ type PlayerRecord = {
 	closing: boolean,
 }
 local PotionReserveName = "PotionReserve"
+local FacilityId = GameData.FacilityId
+local FacilityModels: { [number]: Model? } = {
+	[FacilityId.FastChute] = Scene.FastChuteLanding,
+	[FacilityId.Brute1] = Scene.BrutePost,
+	[FacilityId.AutoRune] = Scene.AutoRuneMachine,
+	[FacilityId.AutoSmelter] = Scene.AutoSmelterMachine,
+	[FacilityId.AutoClerk] = Scene.AutoClerkStation,
+}
 local Manager = {}
 local random = Random.new()
 Manager.__index = Manager
@@ -76,6 +84,7 @@ export type Manager = typeof(setmetatable(
 		shelfVisible: { [number]: { string } },
 		unlockedFacilities: { [number]: boolean },
 		unlockLocks: { [number]: boolean },
+		hiddenFacilities: { [Model]: { () -> () } },
 		chuteVisible: { string },
 		chuteOverflowCount: number,
 		chuteTakeSerial: number,
@@ -134,6 +143,7 @@ function Manager.new(data: PlayerData?): Manager
 		shelfVisible = {},
 		unlockedFacilities = {},
 		unlockLocks = {},
+		hiddenFacilities = {},
 		chuteVisible = {},
 		chuteOverflowCount = 0,
 		chuteTakeSerial = 0,
@@ -262,7 +272,7 @@ local function FlushAutoRuneVisuals(self: Manager): ()
 	end
 end
 local function CreateStationBody(self: Manager, location: string, stage: string, pose: CFrame): Types.Item?
-	local template = ModelTemplates.FindCharacter("WhiteR15")
+	local template = ModelTemplates.FindCharacter("WhiteR15-People")
 	if not template then
 		return nil
 	end
@@ -486,6 +496,57 @@ function Manager.IsNearPad(self: Manager, player: Player, facilityId: number): b
 	return (dx * dx + dz * dz) <= Config.UnlockPadTriggerRadius * Config.UnlockPadTriggerRadius
 		and dy <= Config.UnlockPadHeightTolerance
 end
+local function HideFacilityDescendant(descendant: Instance): (() -> ())?
+	if descendant:IsA("BasePart") then
+		local transparency = descendant.Transparency
+		local canCollide = descendant.CanCollide
+		local canQuery = descendant.CanQuery
+		local canTouch = descendant.CanTouch
+		descendant.Transparency = 1
+		descendant.CanCollide = false
+		descendant.CanQuery = false
+		descendant.CanTouch = false
+		return function()
+			descendant.Transparency = transparency
+			descendant.CanQuery = canQuery
+			descendant.CanCollide = canCollide
+			descendant.CanTouch = canTouch
+		end
+	elseif descendant:IsA("Decal") then
+		local transparency = descendant.Transparency
+		descendant.Transparency = 1
+		return function()
+			descendant.Transparency = transparency
+		end
+	elseif descendant:IsA("LayerCollector") or descendant:IsA("Light") or descendant:IsA("ParticleEmitter")
+		or descendant:IsA("Beam") or descendant:IsA("Trail") or descendant:IsA("Smoke")
+		or descendant:IsA("Fire") or descendant:IsA("Sparkles") or descendant:IsA("Highlight")
+	then
+		-- 这些实例都具有可写的 Enabled 属性，统一记录和恢复。
+		local enabled = descendant.Enabled
+		local effect = (descendant :: unknown) :: { Enabled: boolean }
+		effect.Enabled = false
+		return function()
+			effect.Enabled = enabled
+		end
+	end
+	return nil
+end
+function Manager.InitFacilityWorldState(self: Manager): ()
+	for facilityId, model in FacilityModels do
+		if model and not self:IsFacilityUnlocked(facilityId) then
+			local restoreDescendants = {}
+			for _, descendant in model:GetDescendants() do
+				local restore = HideFacilityDescendant(descendant)
+				if restore then
+					table.insert(restoreDescendants, restore)
+				end
+			end
+			self.hiddenFacilities[model] = restoreDescendants
+			model:SetAttribute("Unlocked", false)
+		end
+	end
+end
 function Manager.ApplyFacilityWorldState(self: Manager, facilityId: number): ()
 	local pad = Scene.UnlockPads[facilityId]
 	if pad then
@@ -504,7 +565,17 @@ function Manager.ApplyFacilityWorldState(self: Manager, facilityId: number): ()
 			end
 		end
 	end
-	local FacilityId = GameData.FacilityId
+	local model = FacilityModels[if facilityId == FacilityId.Brute2 then FacilityId.Brute1 else facilityId]
+	if model then
+		local restoreDescendants = self.hiddenFacilities[model]
+		if restoreDescendants then
+			self.hiddenFacilities[model] = nil
+			for _, restore in restoreDescendants do
+				restore()
+			end
+		end
+		model:SetAttribute("Unlocked", true)
+	end
 	if facilityId == FacilityId.FastChute then
 		local cover = Scene.FastChuteCover
 		if cover then
@@ -522,24 +593,7 @@ function Manager.ApplyFacilityWorldState(self: Manager, facilityId: number): ()
 				end
 			end
 		end
-	elseif facilityId == FacilityId.Brute1 or facilityId == FacilityId.Brute2 then
-		if Scene.BrutePost then
-			Scene.BrutePost:SetAttribute("Unlocked", true)
-		end
-		local state = self:EnsureAgents()
-		AutomationAgents.SyncUnlocked(state, workspace:GetServerTimeNow())
-	elseif facilityId == FacilityId.AutoRune then
-		if Scene.AutoRuneMachine then
-			Scene.AutoRuneMachine:SetAttribute("Unlocked", true)
-		end
-	elseif facilityId == FacilityId.AutoSmelter then
-		if Scene.AutoSmelterMachine then
-			Scene.AutoSmelterMachine:SetAttribute("Unlocked", true)
-		end
-	elseif facilityId == FacilityId.AutoClerk then
-		if Scene.AutoClerkStation then
-			Scene.AutoClerkStation:SetAttribute("Unlocked", true)
-		end
+	elseif facilityId == FacilityId.Brute1 or facilityId == FacilityId.Brute2 or facilityId == FacilityId.AutoClerk then
 		local state = self:EnsureAgents()
 		AutomationAgents.SyncUnlocked(state, workspace:GetServerTimeNow())
 	end
@@ -587,7 +641,6 @@ function Manager.EnsureAgents(self: Manager): AutomationAgents.State
 	return created
 end
 function Manager.StepAutomationAgents(self: Manager, now: number): boolean
-	local FacilityId = GameData.FacilityId
 	if self.agents == nil and not (self:IsFacilityUnlocked(FacilityId.Brute1) or self:IsFacilityUnlocked(FacilityId.Brute2) or self:IsFacilityUnlocked(FacilityId.AutoClerk)) then
 		return false
 	end
@@ -2599,6 +2652,7 @@ function Manager.Init(self: Manager): ()
 		return
 	end
 	self.initialized = true
+	self:InitFacilityWorldState()
 	self.runtime.Parent = workspace
 	self.scope:Own(self.runtime)
 	Ragdoll.Init()

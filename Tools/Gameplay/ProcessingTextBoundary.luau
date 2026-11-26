@@ -27,7 +27,7 @@ function B.Label(billboard)
 		end,
 	}), changed
 end
-B.TextFitting = {FitTextLabel = function() B.fits += 1 end}
+B.TextFitting = {FitTextLabel = function() B.fits += 1 end, FitMarkedText = function() return nil end}
 B.players = {LocalPlayer = {}}
 B.localizationService = {GetTranslatorForPlayerAsync = function()
 	B.pending = coroutine.running()

@@ -133,7 +133,9 @@ function Tool.Watch(self: Controller, label: TextLabel, forceWatch: boolean?): (
 			end
 		end
 		if not label:FindFirstAncestorWhichIsA("BillboardGui") then
-			TextFitting.FitTextLabel(label)
+			if TextFitting.FitMarkedText(label) == nil then
+				TextFitting.FitTextLabel(label)
+			end
 		end
 	end
 	self.connections[label] = {

@@ -42,6 +42,7 @@ function Boundary.Model(parts)
  end
  return {
   Parent=true,meshes=meshes,
+  GetAttribute=function() return nil end,
   GetChildren=function() return meshes end,
   GetPivot=function() return R.CFrame.identity end,
   FindFirstChild=function(_,name) for _,part in parts do if part.Name==name then return part end end end,

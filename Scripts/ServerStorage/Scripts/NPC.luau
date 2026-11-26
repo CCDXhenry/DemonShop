@@ -62,7 +62,7 @@ function NPC.Spawn(runtime: Folder, items: { [string]: Types.Item }): Types.Item
 	if not point then
 		return nil
 	end
-	local model = ModelTemplates.WaitCharacter("WhiteR15"):Clone()
+	local model = ModelTemplates.WaitCharacter("WhiteR15-People"):Clone()
 	local id = HttpService:GenerateGUID(false)
 	model.Name = "WhiteNPC"
 	model:SetAttribute("ItemId", id)

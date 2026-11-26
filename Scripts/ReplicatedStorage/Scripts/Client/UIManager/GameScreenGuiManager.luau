@@ -217,6 +217,7 @@ function Manager.Init(self: Manager, gui: ScreenGui, owned: boolean?): ()
 	self.gui, self.owned = gui, owned == true
 	self.scope = Lifecycle.new()
 	local root = gui:WaitForChild("CenterFrame") :: Frame
+	local overlay = gui:WaitForChild("OverlayCanvas") :: Frame
 	self.root = root
 	local touchControls = root:WaitForChild("TouchControlsFrame") :: Frame
 	self.touchControls = touchControls
@@ -229,9 +230,9 @@ function Manager.Init(self: Manager, gui: ScreenGui, owned: boolean?): ()
 	self.touchSprint = touchControls:WaitForChild("TouchSprintFrame") :: Frame
 	self.throwStick = touchControls:WaitForChild("ThrowStick") :: Frame
 	for _, node in gui:GetDescendants() do
-		if node:IsA("TextLabel") then
+		if node:IsA("TextLabel") and node.Name ~= "ShadowText" then
 			self.texts:Watch(node)
-			if node:IsDescendantOf(root) then
+			if node:IsDescendantOf(root) or node:IsDescendantOf(overlay) then
 				self.labels[node.Name] = node
 			end
 		end
@@ -269,7 +270,7 @@ function Manager.Create(self: Manager): ScreenGui
 	local parent = player:WaitForChild("PlayerGui")
 	assert(not parent:FindFirstChild("GameScreenGui"), "Duplicate GameScreenGui outside UIManager")
 	local template = ReplicatedStorage.UI:WaitForChild("GameScreenGui") :: ScreenGui
-	for _, name in { "CenterFrame", "WindowCanvas", "ModalButton" } do
+	for _, name in { "CenterFrame", "WindowCanvas", "OverlayCanvas", "ModalButton" } do
 		local child = template:FindFirstChild(name)
 		assert(child and child:IsA(if name == "ModalButton" then "ImageButton" else "Frame"), "Missing UI template node: " .. name)
 		if name ~= "ModalButton" then

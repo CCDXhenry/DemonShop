@@ -17,13 +17,25 @@ local brute = ui.BruteNameGui
 check(brute and brute:IsA('BillboardGui') and brute.MaxDistance==45 and brute.AlwaysOnTop and brute.LightInfluence==0,'brute nameplate restored as a world billboard')
 local title=brute.ContentFrame.NameText
 check(title.TextScaled and not title.AutoLocalize and title.UIStroke.StrokeSizingMode==R.Enum.StrokeSizingMode.ScaledSize,'brute title scales and accepts the existing localized names')
-for _,name in {'CenterFrame','WindowCanvas'} do
+for _,name in {'CenterFrame','WindowCanvas','OverlayCanvas'} do
  local frame=ui.GameScreenGui:FindFirstChild(name)
  check(frame and frame.Size==R.UDim2.fromOffset(1920,1080) and frame.AnchorPoint==R.Vector2.new(.5,.5),'fixed root canvas restored')
  check(frame:FindFirstChildOfClass('UIScale')~=nil,'canvas scale template restored')
 end
 check(ui.GameScreenGui.ModalButton:IsA('ImageButton') and not ui.GameScreenGui.ModalButton.Visible,'global backdrop restored')
 local center=ui.GameScreenGui.CenterFrame
+local overlay=ui.GameScreenGui:FindFirstChild('OverlayCanvas')
+local coins=overlay.CoinsFrame
+check(overlay.ZIndex==900 and coins.ZIndex>=overlay.ZIndex and coins.CoinsText.ZIndex>coins.ZIndex,'coins render above the modal')
+check(coins:IsA('ImageLabel') and coins.ScaleType==R.Enum.ScaleType.Slice and coins.SliceCenter==R.Rect.new(32,16,178,49),'coins capsule uses its nine-slice artwork')
+check(coins.MoneyIcon.ScaleType==R.Enum.ScaleType.Fit and coins.CoinsText:GetAttribute('DesignTextSize')==56 and coins.CoinsText.Size==R.UDim2.fromOffset(140,75) and coins.CoinsText.UIStroke.StrokeSizingMode==R.Enum.StrokeSizingMode.ScaledSize,'coins icon and amount use fitted artwork and text')
+local coinLabels=0
+for _, node in ui.GameScreenGui:GetDescendants() do
+ if node.Name=='CoinsText' then coinLabels+=1 end
+end
+check(coinLabels==1 and not center:FindFirstChild('StatusFrame'),'only the overlay coin label remains')
+local slot=center.BottomButtonsFrame.ToolButton
+check(slot.IconImage:IsA('ImageLabel') and slot.IconImage.ScaleType==R.Enum.ScaleType.Fit and not slot:FindFirstChild('ToolViewport'),'toolbar uses a fitted 2D image')
 check(center.ExitPaintButton.Size==R.UDim2.fromOffset(350,84) and center.ResetViewButton.Size==R.UDim2.fromOffset(350,84),'shared paint buttons resized to 84px height')
 local tc=center:FindFirstChild('TouchControlsFrame')
 check(tc and tc:IsA('Frame') and tc.Size==R.UDim2.fromOffset(1920,1080) and tc.AnchorPoint==R.Vector2.new(.5,.5) and not tc.Visible,'TouchControlsFrame restored inside CenterFrame')
@@ -50,8 +62,50 @@ for _, canvas in {shop,hud} do
  check(canvas:FindFirstChildOfClass('UIScale') == nil, 'M5 canvas inherits scale once')
 end
 local panel = shop.PanelFrame
+local hitTest = require('../../Scripts/ReplicatedStorage/Scripts/Client/UIManager/ModalImageHitTest')
+local function mockRegion(image, x, y, w, h)
+ return {
+  Visible = true,
+  AbsolutePosition = R.Vector2.new(x, y),
+  AbsoluteSize = R.Vector2.new(w, h),
+  GetAttribute = function(_, key) return image:GetAttribute(key) end,
+ }
+end
+local panelHit = mockRegion(panel, 266, 120, 1389 / 2, 943 / 2)
+check(panel:GetAttribute('ModalContentHeight')==nil and panel:GetAttribute('ModalAlphaRows')~=nil,'shop restores an alpha mask instead of the fixed height cutoff')
+check(hitTest.ContainsImage(panelHit, R.Vector2.new(266 + 350, 120 + 425)),'scaled skull near the bottom remains clickable')
+check(not hitTest.ContainsImage(panelHit, R.Vector2.new(269, 123)),'scaled transparent corner is backdrop')
+check(not hitTest.ContainsImage(panelHit, R.Vector2.new(600, 580)),'scaled transparent bottom margin is backdrop')
+local coinHit = mockRegion(coins, 100, 100, 210, 65)
+check(hitTest.ContainsImage(coinHit, R.Vector2.new(200, 130)),'foreground coin capsule has a visible hit region')
+check(coins.CoinsText.FontFace.Weight==R.Enum.FontWeight.ExtraBold and panel.HeaderFrame.TitleText.FontFace.Weight==R.Enum.FontWeight.ExtraBold,'shop typography uses the prototype weight fallback')
+check(panel.AbilitiesButton.ScaleType==R.Enum.ScaleType.Stretch and panel.ToolsButton.ScaleType==R.Enum.ScaleType.Stretch,'tabs use full authored artwork')
+check(panel.HeaderFrame.TitleText:GetAttribute('DesignTextSize')==88 and panel.AbilitiesButton.TitleText:GetAttribute('DesignTextSize')==56,'shop heading and tabs restore with larger type')
+check(panel.AbilitiesFrame.moveSpeed.TitleText:GetAttribute('DesignTextSize')==56 and panel.AbilitiesFrame.moveSpeed.CompareFrame.PrimaryText:GetAttribute('DesignTextSize')==44,'shop ability headings and figures restore with larger type')
+check(panel.ToolsFrame.weapon.CompareFrame.PrimaryText:GetAttribute('DesignTextSize')==32 and panel.ToolsFrame.weapon.CompareFrame.SecondaryText:GetAttribute('DesignTextSize')==36,'tool comparisons preserve distinct larger type roles')
+check(panel.ToolsFrame.weapon.BuyButton.ContentFrame.TitleText:GetAttribute('DesignTextSize')==56,'shop prices use larger type')
+check(panel:IsA('ImageLabel') and panel.Size==R.UDim2.fromOffset(1389,943),'shop uses the full-size panel artwork')
+for _, name in {'ActiveTabImage','InactiveTabImage'} do
+ check(type(panel:GetAttribute(name))=='string','shop declares tab artwork: '..name)
+end
 check(#panel.AbilitiesFrame:GetChildren() == 3 and #panel.ToolsFrame:GetChildren() == 2, 'shop contains all five purchase cards')
-check(not panel.AbilitiesButton.AlertFrame.Visible and not panel.ToolsButton.AlertFrame.Visible and not hud.ShopButton.AlertFrame.Visible,'purchase badges default hidden')
+check(not panel.AbilitiesButton.AlertFrame.Visible and not panel.ToolsButton.AlertFrame.Visible and not hud:FindFirstChild('ShopButton') and hud:FindFirstChild('StaminaFrame'),'purchase badges default hidden and only the stamina HUD is retained')
+for _, page in {panel.AbilitiesFrame,panel.ToolsFrame} do
+ for _, card in page:GetChildren() do
+  check(card.IconImage:IsA('ImageLabel') and card.IconImage.ImageContent.Uri~=nil and card.IconImage.ScaleType==R.Enum.ScaleType.Fit and not card:FindFirstChild('ProgressFrame') and not card:FindFirstChildOfClass('ViewportFrame'),'shop card uses a 2D icon without legacy progress markers')
+  check(card.CompareFrame.ScaleType==R.Enum.ScaleType.Slice and card.CompareFrame.SliceCenter==R.Rect.new(24,24,64,64),'comparison uses nine-slice artwork')
+  local secondary=card.CompareFrame:FindFirstChild('SecondaryText')
+  check((secondary~=nil)==(page==panel.ToolsFrame),'tools alone show a second comparison line')
+  if secondary then
+   check(secondary.TextColor3==R.Color3.fromRGB(253,215,5) and secondary.UIStroke.StrokeSizingMode==R.Enum.StrokeSizingMode.ScaledSize,'next tool uses outlined gold text')
+  end
+  local buy=card.BuyButton
+  check(buy.ScaleType==R.Enum.ScaleType.Stretch and buy.ContentFrame.MoneyIcon:IsA('ImageLabel'),'purchase button uses artwork and a separate money icon')
+  for _, name in {'AvailableImage','LockedImage','MaxImage'} do
+   check(type(buy:GetAttribute(name))=='string','purchase button declares state artwork: '..name)
+  end
+ end
+end
 local models = load('Assets/Models/GameModels.rbxm').Models
 local expectedCategories = {
 	Characters = true,
@@ -114,7 +168,6 @@ for _, templates in {ui, personal} do
   end
  end
 end
-check(panel.ToolsFrame.weapon.ToolViewport:IsA('ViewportFrame') and panel.ToolsFrame.carryTool.ToolViewport:IsA('ViewportFrame'), 'tool cards have independent 3D viewports')
 for _, template in {ui.GameScreenGui, shop, hud} do
  for _, node in template:GetDescendants() do
   if node:IsA('GuiButton') and node.Name ~= 'ModalButton' then
@@ -131,7 +184,7 @@ end
 for _, template in {shop,hud} do
  for _, instance in template:GetDescendants() do
   if instance:IsA('UIStroke') then check(instance.StrokeSizingMode==R.Enum.StrokeSizingMode.ScaledSize,'shop uses scaled outlines') end
-  if instance:IsA('TextLabel') then check(not instance.TextWrapped and not instance.TextScaled and type(instance:GetAttribute('DesignTextSize'))=='number','shop single-line labels have a design font size') end
+  if instance:IsA('TextLabel') and instance.Name~='ShadowText' then check(not instance.TextWrapped and not instance.TextScaled and type(instance:GetAttribute('DesignTextSize'))=='number','shop single-line labels have a design font size') end
  end
 end
 local rs=load('Assets/Foundation/ReplicatedStorage.rbxm')

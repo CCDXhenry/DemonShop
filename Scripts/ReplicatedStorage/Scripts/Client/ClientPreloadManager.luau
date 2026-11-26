@@ -7,6 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local GameData = require(ReplicatedStorage.Scripts.Shared.GameData)
 local ModelTemplates = require(ReplicatedStorage.Scripts.Shared.ModelTemplates)
+local ShopIconData = require(ReplicatedStorage.Scripts.Shared.ShopIconData)
 
 local Manager = {}
 
@@ -411,7 +412,32 @@ function Manager.PrepareGame()
 	if not IsCurrent(token) then
 		return
 	end
+	local shopIcons: { Decal } = {}
+	local seenImages: {[string]: boolean} = {}
+	local function AddShopImage(uri: string): ()
+		if seenImages[uri] then return end
+		seenImages[uri] = true
+		local decal = Instance.new("Decal")
+		decal.ColorMapContent = Content.fromUri(uri)
+		table.insert(shopIcons, decal)
+		table.insert(assets, decal)
+	end
+	for _, iconList in { ShopIconData.weapon, ShopIconData.carryTool } do
+		for _, icon in iconList do AddShopImage(icon) end
+	end
+	AddShopImage(ShopIconData.potion)
+	local ui = ReplicatedStorage:FindFirstChild("UI")
+	local shop = if ui then ui:FindFirstChild("PersonalShopFrame") else nil
+	if shop then
+		for _, node in shop:GetDescendants() do
+			local uri = node:GetAttribute("AvailableImage") :: string?
+			if uri then AddShopImage(uri) end
+		end
+	end
 	Manager.PreloadAsync(assets)
+	for _, decal in shopIcons do
+		decal:Destroy()
+	end
 	if not IsCurrent(token) then
 		return
 	end

@@ -449,7 +449,7 @@ slashSound.Parent = clubHandle
 clubTemplate.Parent = weaponsFolder
 
 local whiteTemplate = Instance.new('Model')
-whiteTemplate.Name = 'WhiteR15'
+whiteTemplate.Name = 'WhiteR15-People'
 local whiteHrp = Instance.new('Part')
 whiteHrp.Name = 'HumanoidRootPart'
 whiteHrp.Size = Vector3.new(2, 2, 1)

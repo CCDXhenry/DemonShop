@@ -59,9 +59,9 @@ catalog = (SHARED / "GameTexts.luau").read_text(encoding="utf-8")
 manager = (ROOT / "Scripts/ServerStorage/Scripts/ProcessingManager.luau").read_text(encoding="utf-8")
 for identifier in re.findall(r'self:Tell\(player, "([^"]+)"', manager):
     assert f"\t{identifier} = {{ source" in catalog, identifier
-migration = (ROOT / "Tools/Gameplay/update-processing-localization.luau").read_text(encoding="utf-8").replace(
-    'return "Updated processing localization templates"', ""
-)
+migration_source = (ROOT / "Tools/Gameplay/update-processing-localization.luau").read_text(encoding="utf-8")
+migration = migration_source[migration_source.index('local ui = game:GetService("ReplicatedStorage").UI'):]
+migration = migration.replace('return "Updated processing localization templates"', "")
 for name in ("build-game-assets.luau", "build-quality-samples.luau"):
     assert migration in (ROOT / f"Tools/Gameplay/{name}").read_text(encoding="utf-8")
 

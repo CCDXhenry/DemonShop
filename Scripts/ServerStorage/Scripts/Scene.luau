@@ -92,6 +92,7 @@ Scene.FastChuteOpening = OptionalPart(autoLine, "FastChuteOpening")
 Scene.ChuteBaffles = if autoLine then autoLine:FindFirstChild("ChuteThrowBaffles") else nil
 Scene.ChuteTopDrop = OptionalPart(autoLine, "ChuteTopDropAnchor")
 Scene.ChutePrompt = OptionalPart(autoLine, "ChutePromptAnchor")
+Scene.FastChuteLanding = OptionalModel(autoLine, "FastChuteLanding")
 Scene.ChuteDropZone = OptionalPart(autoLine, "FastChuteLanding", "DropZone")
 Scene.ChuteLanding = OptionalPart(autoLine, "FastChuteLanding", "LandingAnchor")
 Scene.ChutePickup = OptionalPart(autoLine, "FastChuteLanding", "ChutePickupAnchor")

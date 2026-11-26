@@ -1,6 +1,6 @@
 -- 加工多语言文案：业务分组、TextId 查询、插件扁平采集及旧通知解析
 --!strict
-export type TextId = "ShopTitle" | "ShopAbilities" | "ShopTools" | "ShopMove" | "ShopRunes" | "ShopSales" | "ShopWeapon" | "ShopCarry" | "ShopSprint" | "ShopStamina" | "ShopEquipped" | "ShopMax" | "ShopPrice" | "ShopWalkValue" | "ShopUnlimitedSprint" | "ShopRuneValue" | "ShopSellValue" | "ShopWeaponValue" | "ShopCarryValue" | "ShopWalkCompare" | "ShopSprintCompare" | "ShopSprintUnlimitedCompare" | "ShopRuneCompare" | "ShopSellCompare" | "ShopCarryCompare" | "ShopWeaponCompare" | "ShopRuneBatchHint" | "ShopWeaponSingle" | "ShopWeaponCone" | "ShopWeaponSpin" | "ShopWeaponLine" | "ShopWeaponSlam" | "ToolbarPotion" | "PromptPickUp" | "PromptPool" | "PromptTable" | "PromptAltar" | "PromptShelf" | "PromptSigil" | "PromptBody" | "PromptPotion" | "PromptOffer" | "PromptChute" | "PromptChuteLanding" | "PromptAutoOutput" | "PromptAutoShelf" | "DepositBodies" | "TakeChuteBody" | "TakeAutoRuneBody" | "CollectAutoPotion" | "TakePotion" | "TakeRuneBody" | "TakeBody" | "PotionReady" | "AltarWorking" | "ReturnTable" | "FetchPool" | "StunNpc" | "PoolUnfinishedOnly" | "StoreBody" | "TakeSharedBody" | "PoolEmpty" | "TableOtherPainter" | "TableOccupied" | "PlaceBody" | "TableNeedsBody" | "CollectRuneBody" | "ContinuePainting" | "FetchAndPaint" | "TableEmpty" | "ShelfFull" | "AltarBusy" | "InsertRuneBody" | "AltarNeedsRuneBody" | "HandsFullHint" | "CollectPotion" | "NoPotion" | "OfferPotion" | "EquipPotion" | "BringPotion" | "CarryBody" | "ChuteLocked" | "ChuteUnfinishedOnly" | "ChuteNeedsBody" | "ChuteEmpty" | "AutoOutputEmpty" | "NoAutoPotion" | "TableInUse" | "StoreUnfinished" | "PoolFull" | "PoolIsEmpty" | "TableIsOccupied" | "BringUnfinished" | "BringStunned" | "AltarOccupied" | "AltarNeedsCompleted" | "HandsFull" | "PotionsNotReady" | "BringPotionSigil" | "CoinLimit" | "RuneComplete" | "StationChanged" | "StationTooFar" | "ItemChanged" | "ItemUnavailable" | "PaintOutOfSequence" | "PaintRateExceeded" | "InvalidPaintPart" | "PaintVersionMismatch" | "PaintRejected" | "InvalidVisualSegment" | "DuplicateVisualSegment" | "SegmentOriginChanged" | "PaintBudgetReached" | "Coins" | "Stock" | "AltarCountdown" | "AltarShelfFull" | "CarryingPotion" | "CarryingRuneBody" | "CarryingBody" | "CarryingBodies" | "HandsEmpty" | "Painting" | "PaintingFlat" | "PaintFlipped" | "TakeTableBody" | "ThrowAim" | "TargetStunned" | "HitCount" | "StunnedCarry" | "CoinsAwarded" | "FacilityUnlocked" | "PaintSyncFailed" | "PaintSurfaceUnavailable" | "PaintSegmentLimit" | "UnknownNotice" | "PadPrereqNone" | "PadPrereqUnlocked" | "PadPrereqRequires" | "PadPrice"
+export type TextId = "ShopTitle" | "ShopAbilities" | "ShopTools" | "ShopMove" | "ShopRunes" | "ShopSales" | "ShopSprint" | "ShopStamina" | "ShopEquipped" | "ShopMax" | "ShopPrice" | "ShopMoveCompare" | "ShopMoveUnlimitedCompare" | "ShopMoveUnlimitedValue" | "ShopRuneCompare" | "ShopRuneValue" | "ShopSellCompare" | "ShopSellValue" | "ShopCurrentWeapon" | "ShopNextWeapon" | "ShopCurrentCarry" | "ShopNextCarry" | "ShopWeaponSingle" | "ShopWeaponCone" | "ShopWeaponSpin" | "ShopWeaponLine" | "ShopWeaponSlam" | "ToolbarPotion" | "PromptPickUp" | "PromptPool" | "PromptTable" | "PromptAltar" | "PromptShelf" | "PromptSigil" | "PromptBody" | "PromptPotion" | "PromptOffer" | "PromptChute" | "PromptChuteLanding" | "PromptAutoOutput" | "PromptAutoShelf" | "DepositBodies" | "TakeChuteBody" | "TakeAutoRuneBody" | "CollectAutoPotion" | "TakePotion" | "TakeRuneBody" | "TakeBody" | "PotionReady" | "AltarWorking" | "ReturnTable" | "FetchPool" | "StunNpc" | "PoolUnfinishedOnly" | "StoreBody" | "TakeSharedBody" | "PoolEmpty" | "TableOtherPainter" | "TableOccupied" | "PlaceBody" | "TableNeedsBody" | "CollectRuneBody" | "ContinuePainting" | "FetchAndPaint" | "TableEmpty" | "ShelfFull" | "AltarBusy" | "InsertRuneBody" | "AltarNeedsRuneBody" | "HandsFullHint" | "CollectPotion" | "NoPotion" | "OfferPotion" | "EquipPotion" | "BringPotion" | "CarryBody" | "ChuteLocked" | "ChuteUnfinishedOnly" | "ChuteNeedsBody" | "ChuteEmpty" | "AutoOutputEmpty" | "NoAutoPotion" | "TableInUse" | "StoreUnfinished" | "PoolFull" | "PoolIsEmpty" | "TableIsOccupied" | "BringUnfinished" | "BringStunned" | "AltarOccupied" | "AltarNeedsCompleted" | "HandsFull" | "PotionsNotReady" | "BringPotionSigil" | "CoinLimit" | "RuneComplete" | "StationChanged" | "StationTooFar" | "ItemChanged" | "ItemUnavailable" | "PaintOutOfSequence" | "PaintRateExceeded" | "InvalidPaintPart" | "PaintVersionMismatch" | "PaintRejected" | "InvalidVisualSegment" | "DuplicateVisualSegment" | "SegmentOriginChanged" | "PaintBudgetReached" | "Coins" | "Stock" | "AltarCountdown" | "AltarShelfFull" | "CarryingPotion" | "CarryingRuneBody" | "CarryingBody" | "CarryingBodies" | "HandsEmpty" | "Painting" | "PaintingFlat" | "PaintFlipped" | "TakeTableBody" | "ThrowAim" | "TargetStunned" | "HitCount" | "StunnedCarry" | "CoinsAwarded" | "FacilityUnlocked" | "PaintSyncFailed" | "PaintSurfaceUnavailable" | "PaintSegmentLimit" | "UnknownNotice" | "PadPrereqNone" | "PadPrereqUnlocked" | "PadPrereqRequires" | "PadPrice"
 export type Description = { textId: TextId, args: {string}?, argTextIds: {[number]: TextId}?, argSources: {[number]: string}? }
 export type Entry = { source: string, key: string }
 
@@ -69,7 +69,7 @@ local GameTexts = {
 		NoAutoPotion = { source = "NO AUTO POTION READY", key = "" }, -- 用途：自动药水架为空时的提示；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.HintText
 	},
 	Hud = {
-		Coins = { source = "COINS  {1}", key = "Processing.Coins" }, -- 用途：状态栏显示金币；{1} 为当前金币数；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.CoinsText
+		Coins = { source = "{1}", key = "Processing.Coins" }, -- 金币胶囊只显示余额数字。
 		Stock = { source = "POOL {1}  |  POTIONS {2}", key = "Processing.Stock" }, -- 用途：状态栏显示共享库存；{1} 为池内数量，{2} 为药水数量；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.StockText
 		AltarCountdown = { source = "ALTAR {1}s  |  POTIONS {2}", key = "Processing.AltarCountdown" }, -- 用途：显示转化进度；{1} 为剩余秒数，{2} 为药水数量；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.StockText
 		AltarShelfFull = { source = "ALTAR READY - SHELF FULL", key = "" }, -- 用途：转化结束但药水架已满时显示阻塞状态；UI：ReplicatedStorage.UI.GameScreenGui.CenterFrame.StatusFrame.StockText
@@ -137,27 +137,22 @@ local GameTexts = {
 		ShopMove = { source = "MOVE SPEED", key = "" },
 		ShopRunes = { source = "RUNE BATCH", key = "" },
 		ShopSales = { source = "SALE BONUS", key = "" },
-		ShopWeapon = { source = "WEAPON EVOLUTION", key = "" },
-		ShopCarry = { source = "CARRY EVOLUTION", key = "" },
 		ShopSprint = { source = "SPRINT", key = "" },
 		ShopStamina = { source = "STAMINA", key = "" },
 		ShopEquipped = { source = "EQUIPPED", key = "" },
 		ShopMax = { source = "MAX", key = "" },
-		ShopPrice = { source = "{1} COINS", key = "Processing.ShopPrice" },
-		ShopWalkValue = { source = "WALK {1}", key = "Processing.ShopWalkValue" },
-		ShopUnlimitedSprint = { source = "SPRINT {1} / UNLIMITED", key = "Processing.ShopUnlimitedSprint" },
-		ShopRuneValue = { source = "{1} PER PAINTING", key = "Processing.ShopRuneValue" },
-		ShopSellValue = { source = "+{1}% SALE VALUE", key = "Processing.ShopSellValue" },
-		ShopWeaponValue = { source = "{1} DAMAGE / {2} TARGETS", key = "Processing.ShopWeaponValue" },
-		ShopCarryValue = { source = "HOLDS {1}", key = "Processing.ShopCarryValue" },
-		ShopWalkCompare = { source = "WALK {1} > {2}", key = "Processing.ShopWalkCompare" },
-		ShopSprintCompare = { source = "SPRINT {1} > {2}", key = "Processing.ShopSprintCompare" },
-		ShopSprintUnlimitedCompare = { source = "SPRINT {1} > {2} / UNLIMITED", key = "Processing.ShopSprintUnlimitedCompare" },
-		ShopRuneCompare = { source = "{1} > {2} PER PAINTING", key = "Processing.ShopRuneCompare" },
-		ShopSellCompare = { source = "+{1}% > +{2}% SALE VALUE", key = "Processing.ShopSellCompare" },
-		ShopCarryCompare = { source = "HOLDS {1} > {2}", key = "Processing.ShopCarryCompare" },
-		ShopWeaponCompare = { source = "{1} > {2} DAMAGE / {3} > {4} TARGETS", key = "Processing.ShopWeaponCompare" },
-		ShopRuneBatchHint = { source = "PAINT BODIES TOGETHER", key = "" },
+		ShopPrice = { source = "{1}", key = "Processing.ShopPrice" },
+		ShopMoveCompare = { source = "{1} → {2}", key = "Processing.ShopMoveCompare" },
+		ShopMoveUnlimitedCompare = { source = "{1} → {2} (UNLIMITED SPRINT)", key = "Processing.ShopMoveUnlimitedCompare" },
+		ShopMoveUnlimitedValue = { source = "{1} (UNLIMITED SPRINT)", key = "Processing.ShopMoveUnlimitedValue" },
+		ShopRuneCompare = { source = "{1} → {2} BODIES", key = "Processing.ShopRuneCompare" },
+		ShopRuneValue = { source = "{1} BODIES", key = "Processing.ShopRuneValue" },
+		ShopSellCompare = { source = "+{1}% → +{2}%", key = "Processing.ShopSellCompare" },
+		ShopSellValue = { source = "+{1}%", key = "Processing.ShopSellValue" },
+		ShopCurrentWeapon = { source = "CURRENT: {1} / {2} TARGETS / {3} DAMAGE", key = "Processing.ShopCurrentWeapon" },
+		ShopNextWeapon = { source = "NEXT: {1} | {2} / {3} TARGETS / {4} DAMAGE", key = "Processing.ShopNextWeapon" },
+		ShopCurrentCarry = { source = "CURRENT: HOLDS {1}", key = "Processing.ShopCurrentCarry" },
+		ShopNextCarry = { source = "NEXT: {1} | HOLDS {2}", key = "Processing.ShopNextCarry" },
 		ShopWeaponSingle = { source = "MELEE", key = "" },
 		ShopWeaponCone = { source = "WIDE SWEEP", key = "" },
 		ShopWeaponSpin = { source = "SPIN ATTACK", key = "" },

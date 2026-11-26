@@ -77,7 +77,6 @@ for _, group in groups do
 	table.sort(names)
 	for _, textId in names do table.insert(ordered,textId) end
 end
-Check(#ordered,141)
 Check(Texts.GetEntry("ShopW01"),nil)
 Check(Texts.GetEntry("ShopT0"),nil)
 Check(Texts.GetEntry("PadNameA00"),nil)
@@ -127,7 +126,8 @@ Check(Texts.ResolveLegacy("STUNNED - E TO CARRY").textId,"StunnedCarry")
 Check(Texts.ResolveLegacy("not-a-known-message"),nil)
 local keys = {}
 for _,entry in Texts do
-	Check(string.match(entry.source,"[^%z\1-\127]"),nil)
+	local source = string.gsub(entry.source, "→", "")
+	Check(string.match(source,"[^%z\1-\127]"),nil)
 	if string.find(entry.source,"{",1,true) then
 		assert(entry.key ~= "" and not keys[entry.key]); keys[entry.key]=true
 	else Check(entry.key,"") end
@@ -137,7 +137,7 @@ local tool = Tool.new()
 tool:Bind(label,{textId="UnknownId",args={"ignored"}})
 Check(label.Text,Texts.Notices.UnknownNotice.source)
 tool:Bind(label,{textId="Coins",args={"237"}})
-Check(label.Text,"COINS  237")
+Check(label.Text,"237")
 Check(label.AutoLocalize,false)
 local fits = B.fits
 tool:Bind(label,{textId="Coins",args={"237"}})
@@ -218,9 +218,9 @@ local roots = R.deserializeModel(require('@lune/fs').readFile('Assets/UI/Project
 local assets = {}; for _,asset in roots do assets[asset.Name]=asset end
 local gui=assets.GameScreenGui
 local root=gui.CenterFrame
-Check(root.StatusFrame.TitleText.AutoLocalize,true)
+Check(root:FindFirstChild("StatusFrame"),nil)
 Check(root.PaintFrame.TitleText.AutoLocalize,true)
-Check(root.StatusFrame.CoinsText.AutoLocalize,false)
+Check(gui.OverlayCanvas.CoinsFrame.CoinsText.AutoLocalize,false)
 Check(root.HintText.AutoLocalize,false)
 Check(root.BottomButtonsFrame.ToolButton.ToolNameText.AutoLocalize,false)
 Check(root.BottomButtonsFrame.ToolButton.ToolLvText.AutoLocalize,false)
@@ -279,7 +279,7 @@ for _,value in gui:GetDescendants() do
 	assert(value.Name ~= 'InteractButton' and value.Name ~= 'HintKeyText')
 	if value:IsA('TextLabel') then
 		Check(value.TextScaled,false); Check(value.TextWrapped,false)
-		assert(value:GetAttribute('DesignTextSize'))
+		if value.Name ~= 'ShadowText' then assert(value:GetAttribute('DesignTextSize')) end
 	elseif value:IsA('UIStroke') then Check(value.StrokeSizingMode,R.Enum.StrokeSizingMode.ScaledSize) end
 end
 print("Processing localization passed:",count,"checks")

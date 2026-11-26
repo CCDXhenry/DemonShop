@@ -4,6 +4,54 @@ local Data = require(script.Parent.BodySurfaceData)
 local Types = require(script.Parent.GameTypes)
 local Curve = {}
 Curve.Version = Data.Version
+Curve.Neighbors = {
+	Head = { "UpperTorso" },
+	UpperTorso = { "Head", "LowerTorso", "LeftUpperArm", "RightUpperArm" },
+	LowerTorso = { "UpperTorso", "LeftUpperLeg", "RightUpperLeg" },
+	LeftUpperArm = { "UpperTorso", "LeftLowerArm" },
+	LeftLowerArm = { "LeftUpperArm", "LeftHand" },
+	LeftHand = { "LeftLowerArm" },
+	RightUpperArm = { "UpperTorso", "RightLowerArm" },
+	RightLowerArm = { "RightUpperArm", "RightHand" },
+	RightHand = { "RightLowerArm" },
+	LeftUpperLeg = { "LowerTorso", "LeftLowerLeg" },
+	LeftLowerLeg = { "LeftUpperLeg", "LeftFoot" },
+	LeftFoot = { "LeftLowerLeg" },
+	RightUpperLeg = { "LowerTorso", "RightLowerLeg" },
+	RightLowerLeg = { "RightUpperLeg", "RightFoot" },
+	RightFoot = { "RightLowerLeg" },
+} :: { [string]: { string } }
+
+local neighborLookup: { [string]: { [string]: boolean } } = {}
+for partName, list in Curve.Neighbors do
+	local set: { [string]: boolean } = {}
+	for _, neighbor in list do
+		set[neighbor] = true
+	end
+	neighborLookup[partName] = set
+end
+
+function Curve.AreNeighbors(a: string, b: string): boolean
+	local set = neighborLookup[a]
+	return set ~= nil and set[b] == true
+end
+
+function Curve.RestOffset(fromPart: string, toPart: string): Vector3?
+	local a = Data.Parts[fromPart] :: any
+	local b = Data.Parts[toPart] :: any
+	if not a or not b or typeof(a.restOffset) ~= "Vector3" or typeof(b.restOffset) ~= "Vector3" then
+		return nil
+	end
+	return (a.restOffset :: Vector3) - (b.restOffset :: Vector3)
+end
+
+function Curve.ToModelRest(partName: string, localPoint: Vector3): Vector3
+	local data = Data.Parts[partName] :: any
+	if not data or typeof(data.restOffset) ~= "Vector3" then
+		return localPoint
+	end
+	return localPoint + (data.restOffset :: Vector3)
+end
 type Triangle = {a: Vector3,b: Vector3,c: Vector3,normal: Vector3,area: number,allowed: boolean}
 type Geometry = {size: Vector3,triangles: {Triangle},bins: {[number]: {number}},total: number}
 local geometries: {[string]: Geometry} = {}

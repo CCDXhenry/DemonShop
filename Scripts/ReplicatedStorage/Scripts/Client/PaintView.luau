@@ -12,7 +12,7 @@ local UIManager = require(script.Parent.UIManager)
 local View = {}
 View.__index = View
 
-type CurvedTip = { part: string, point: Vector3, carry: number }
+type CurvedTip = { part: string, point: Vector3, restPoint: Vector3, carry: number }
 type FlatTip = { part: string, face: number, point: Vector2, carry: number }
 type StampGrid = { [string]: { [number]: { Vector3 } } }
 type PulseSlot = {
@@ -211,19 +211,30 @@ local function StepPulses(self: View): ()
 	end
 end
 
+local ModelStampBucket = "__model__"
+
+local function StampCoordAndBucket(partName: string, localPoint: Vector3): (string, Vector3)
+	local restPoint = Curve.ToModelRest(partName, localPoint)
+	if restPoint ~= localPoint then
+		return ModelStampBucket, restPoint
+	end
+	return partName, localPoint
+end
+
 local function HasNearbyCurvedStamp(self: View, id: string, partName: string, point: Vector3, cellSize: number, minDist: number): boolean
+	local bucketName, coord = StampCoordAndBucket(partName, point)
 	local idGrid = self.stampGrids[id]
 	if not idGrid then
 		return false
 	end
-	local partGrid = idGrid[partName]
+	local partGrid = idGrid[bucketName]
 	if not partGrid then
 		return false
 	end
 	local safeCell = math.max(cellSize, 0.05)
-	local gx = math.floor(point.X / safeCell)
-	local gy = math.floor(point.Y / safeCell)
-	local gz = math.floor(point.Z / safeCell)
+	local gx = math.floor(coord.X / safeCell)
+	local gy = math.floor(coord.Y / safeCell)
+	local gz = math.floor(coord.Z / safeCell)
 	local minDistSq = minDist * minDist
 	for dx = -1, 1 do
 		local baseX = (gx + dx + StampGridOffset) * StampGridBase
@@ -233,7 +244,7 @@ local function HasNearbyCurvedStamp(self: View, id: string, partName: string, po
 				local bucket = partGrid[baseXY + gz + dz + StampGridOffset]
 				if bucket then
 					for _, existing in bucket do
-						local diff = point - existing
+						local diff = coord - existing
 						if diff:Dot(diff) < minDistSq then
 							return true
 						end
@@ -246,24 +257,25 @@ local function HasNearbyCurvedStamp(self: View, id: string, partName: string, po
 end
 
 local function RecordCurvedStamp(self: View, id: string, partName: string, point: Vector3, cellSize: number): ()
+	local bucketName, coord = StampCoordAndBucket(partName, point)
 	local idGrid = self.stampGrids[id]
 	if not idGrid then
 		idGrid = {}
 		self.stampGrids[id] = idGrid
 	end
-	local partGrid = idGrid[partName]
+	local partGrid = idGrid[bucketName]
 	if not partGrid then
 		partGrid = {}
-		idGrid[partName] = partGrid
+		idGrid[bucketName] = partGrid
 	end
 	local safeCell = math.max(cellSize, 0.05)
-	local key = StampCellKey(math.floor(point.X / safeCell), math.floor(point.Y / safeCell), math.floor(point.Z / safeCell))
+	local key = StampCellKey(math.floor(coord.X / safeCell), math.floor(coord.Y / safeCell), math.floor(coord.Z / safeCell))
 	local bucket = partGrid[key]
 	if not bucket then
 		bucket = {}
 		partGrid[key] = bucket
 	end
-	table.insert(bucket, point)
+	table.insert(bucket, coord)
 end
 
 local function FlatGuiPoint(face: number, u: number, v: number, dimensions: Vector2): Vector2
@@ -374,7 +386,7 @@ function View.DrawLocal(self: View, id: string, session: string, gesture: number
 			if (sample.slice or tip ~= nil) and HasNearbyCurvedStamp(self, id, sample.part, center, dedupeDist, dedupeDist) then
 				return false
 			end
-			local scale = RuneRules.FitCurvedScale(part, center, triangle.normal, angle)
+			local scale = RuneRules.FitCurvedScale(part, center, triangle.normal, angle, model)
 			if not scale then
 				return false
 			end
@@ -401,6 +413,26 @@ function View.DrawLocal(self: View, id: string, session: string, gesture: number
 			return true
 		end
 
+		local function ProjectInterp(partA: BasePart, partB: BasePart, interpRest: Vector3): (BasePart, Types.Sample)
+			if partA == partB then
+				local offset = Curve.ToModelRest(partA.Name, Vector3.zero)
+				return partA, Curve.ProjectLocal(partA, interpRest - offset)
+			end
+			local offsetA = Curve.ToModelRest(partA.Name, Vector3.zero)
+			local localA = interpRest - offsetA
+			local projA = Curve.ProjectLocal(partA, localA)
+			local distA = (Curve.Point(partA, projA) - localA).Magnitude
+
+			local offsetB = Curve.ToModelRest(partB.Name, Vector3.zero)
+			local localB = interpRest - offsetB
+			local projB = Curve.ProjectLocal(partB, localB)
+			local distB = (Curve.Point(partB, projB) - localB).Magnitude
+			if distA <= distB then
+				return partA, projA
+			end
+			return partB, projB
+		end
+
 		for _, sample in samples do
 			local part = model:FindFirstChild(sample.part)
 			if not part or not part:IsA("BasePart") or not Curve.Valid(part, sample) then
@@ -415,34 +447,44 @@ function View.DrawLocal(self: View, id: string, session: string, gesture: number
 				continue
 			end
 			local point = Curve.Point(part, sample)
-			local jump = if tip and tip.part == sample.part then (point - tip.point).Magnitude else 0
-			if not tip or sample.breakBefore or tip.part ~= sample.part or jump > spacing * 3 then
-				EmitCurved(part, sample, 0)
-				tip = { part = sample.part, point = point, carry = 0 }
+			local restPoint = Curve.ToModelRest(sample.part, point)
+			local isNeighbor = tip ~= nil and (tip.part == sample.part or Curve.AreNeighbors(tip.part, sample.part))
+			local tipPart = if isNeighbor and tip then model:FindFirstChild((tip :: CurvedTip).part) else nil
+			local jump = if isNeighbor and tip then (restPoint - (tip :: CurvedTip).restPoint).Magnitude else 0
+			if not tip or sample.breakBefore or not isNeighbor or not tipPart or not tipPart:IsA("BasePart") or jump > spacing * 3 then
+				local emitted = EmitCurved(part, sample, 0)
+				if emitted then
+					tip = { part = sample.part, point = point, restPoint = restPoint, carry = 0 }
+				else
+					tip = nil
+				end
 				continue
 			end
 			if jump < 1e-4 then
 				continue
 			end
-			local delta = point - tip.point
-			local remaining = tip.carry + jump
+			local prevTip = tip :: CurvedTip
+			local delta = restPoint - prevTip.restPoint
+			local remaining = prevTip.carry + jump
 			local cursor = 0
-			local carry = tip.carry
+			local carry = prevTip.carry
 			while remaining >= spacing - 1e-5 do
 				local advance = spacing - carry
 				cursor += advance
 				local alpha = math.clamp(cursor / jump, 0, 1)
-				local projected = Curve.ProjectLocal(part, tip.point:Lerp(point, alpha))
-				local projTri = geometry.triangles[projected.triangle :: number]
+				local interpRest = prevTip.restPoint:Lerp(restPoint, alpha)
+				local chosenPart, projected = ProjectInterp(tipPart :: BasePart, part, interpRest)
+				local projGeometry = Curve.Geometry(chosenPart)
+				local projTri = projGeometry.triangles[projected.triangle :: number]
 				if projTri and projTri.allowed then
 					local right, up = RuneRules.Basis(projTri.normal)
 					local angle = RuneRules.AngleFromDirection(delta, right, up)
-					EmitCurved(part, projected, angle)
+					EmitCurved(chosenPart, projected, angle)
 				end
 				remaining = math.max(0, remaining - spacing)
 				carry = 0
 			end
-			tip = { part = sample.part, point = point, carry = remaining }
+			tip = { part = sample.part, point = point, restPoint = restPoint, carry = remaining }
 		end
 
 		if #batch > 0 then

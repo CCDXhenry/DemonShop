@@ -59,8 +59,6 @@ if not target then
  local fill=Instance.new("ImageLabel");fill.Name="FillImage";fill.BackgroundTransparency=1;fill.BorderSizePixel=0;fill.Size=UDim2.fromScale(1,1);fill.ScaleType=Enum.ScaleType.Stretch;fill.Image="rbxassetid://88599892799863";fill.Active=false;fill.Parent=clip
  target.Parent=rs.UI
 end
-local status=root.StatusFrame
-status.BackgroundTransparency=.05
 local paint=root.PaintFrame
 paint.BackgroundTransparency=.04
 -- 复用既有药水模板，只扩充层次，保留 Bottle 主部件与承载契约。
@@ -100,8 +98,8 @@ for _, value in gui:GetDescendants() do
 		local dynamic = value.Name == "CoinsText" or value.Name == "CarryText" or value.Name == "StockText"
 			or value.Name == "HintText" or value.Name == "NoticeText" or value.Name == "ProgressText"
 			or value.Name == "ToolNameText" or value.Name == "ToolLvText" or value.Name == "KeyCodeText"
-		value.AutoLocalize = not dynamic and not string.find(value.Name, "KeyText")
-		if dynamic and value.Name ~= "ProgressText" and value.Name ~= "KeyCodeText" then value.Text = "" end
+		value.AutoLocalize = not dynamic and value.Name ~= "ShadowText" and not string.find(value.Name, "KeyText")
+		if dynamic and value.Name ~= "ProgressText" and value.Name ~= "KeyCodeText" and value.Name ~= "CoinsText" then value.Text = "" end
 	end
 end
 for _, node in gui:GetDescendants() do

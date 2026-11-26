@@ -7,11 +7,20 @@ local Boundary = {
 	Instance = Instance,
 	Vector3 = Roblox.Vector3,
 	CFrame = Roblox.CFrame,
+	Content = Roblox.Content,
+	imageUris = {},
 }
 local ContentProvider = {}
 function ContentProvider:PreloadAsync(targets, _onAssetFetched)
 	Boundary.callCount += 1
-	Boundary.targets = targets
+	Boundary.targets = {}
+	for _, target in targets do
+		if typeof(target) == "Instance" and target:IsA("Decal") then
+			table.insert(Boundary.imageUris, target.ColorMapContent.Uri)
+		else
+			table.insert(Boundary.targets, target)
+		end
+	end
 end
 local Heartbeat = {}
 function Heartbeat:Wait() end

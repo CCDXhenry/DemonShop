@@ -164,7 +164,6 @@ local function OptionalPart(root: Instance?, ...: string): BasePart?
 	return if current and current:IsA("BasePart") then current else nil
 end
 local autoLine = district:FindFirstChild("AutomationLine")
-local fastChuteCover = if autoLine then autoLine:FindFirstChild("FastChuteCover") else nil
 local fastChuteOpening = OptionalPart(autoLine, "FastChuteOpening")
 local chutePrompt = OptionalPart(autoLine, "ChutePromptAnchor")
 local chuteDropZone = OptionalPart(autoLine, "FastChuteLanding", "DropZone")
@@ -1419,32 +1418,7 @@ function Client.Update(self: Client, dt: number): ()
 		maxHp = focused and focused.maxHp,
 		touch = UserInputService.TouchEnabled,
 	})
-	local carryText: GameTexts.Description = { textId = "HandsEmpty" }
-	local carryCount = player:GetAttribute("CarryBodyCount")
-	local count = math.max(#carried, if type(carryCount) == "number" then carryCount else 0)
-	if count > 0 then
-		local tierCapacity = player:GetAttribute("CarryCapacity")
-		local capacity = if type(tierCapacity) == "number" then tierCapacity else 1
-		carryText = { textId = "CarryingBodies", args = { tostring(count), tostring(capacity) } }
-	elseif held then
-		carryText = { textId = if held.stage == "Painted" then "CarryingRuneBody" else "CarryingBody" }
-	end
-	self:Text("CarryText", carryText)
-	if snapshot then
-		local stock: GameTexts.Description = {textId = "Stock", args = {tostring(snapshot.pool), tostring(snapshot.shelf)}}
-		local soonest: number? = nil
-		for _, item in self.items do
-			if item.kind == "Body" and item.location == "Altar" and item.convertEnds and item.convertEnds > workspace:GetServerTimeNow() then
-				soonest = if soonest and soonest < item.convertEnds then soonest else item.convertEnds
-			end
-		end
-		if snapshot.altarId or soonest then
-			local seconds = if soonest then math.max(0, math.ceil(soonest - workspace:GetServerTimeNow())) else 0
-			stock = {textId = "AltarCountdown", args = {tostring(seconds), tostring(snapshot.shelf)}}
-		end
-		self:Text("StockText", stock)
-	end
-	local carryingBody = #self:Carried() > 0
+	local carryingBody = #carried > 0
 	self.ui:Refresh({painting=self.paintId~=nil,hasTarget=false,windowOpen=UIManager.HasShowingWindow(),carryingBody=carryingBody})
 	if self.paintId then
 		SyncHiddenPlayers(self)
@@ -1721,29 +1695,11 @@ function Client.UpdateAutomationViews(self: Client, snapshot: Types.Snapshot?): 
 			end
 		end
 	end
-	local a00Open = unlocked ~= nil and unlocked[GameData.FacilityId.FastChute] == true
-	if fastChuteCover then
-		fastChuteCover:SetAttribute("Unlocked", a00Open)
-		for _, descendant in fastChuteCover:GetDescendants() do
-			if descendant:IsA("BasePart") then
-				descendant.LocalTransparencyModifier = if a00Open then 1 else 0
-				descendant.CanCollide = not a00Open
-				descendant.CanQuery = not a00Open
-				descendant.CanTouch = not a00Open
-				elseif descendant:IsA("BillboardGui") then
-					descendant.Enabled = not a00Open
-				elseif descendant:IsA("SurfaceGui") then
-					descendant.Enabled = not a00Open
-				end
-		end
-	end
 	local serverNow = workspace:GetServerTimeNow()
 	if autoRuneMachine then
-		autoRuneMachine:SetAttribute("Unlocked", unlocked ~= nil and unlocked[GameData.FacilityId.AutoRune] == true)
 		autoRuneMachine:SetAttribute("Working", snapshot ~= nil and (snapshot.autoRuneEnds or 0) > serverNow)
 	end
 	if autoSmelterMachine then
-		autoSmelterMachine:SetAttribute("Unlocked", unlocked ~= nil and unlocked[GameData.FacilityId.AutoSmelter] == true)
 		autoSmelterMachine:SetAttribute("Working", snapshot ~= nil and (snapshot.autoSmelterEnds or 0) > serverNow)
 	end
 end

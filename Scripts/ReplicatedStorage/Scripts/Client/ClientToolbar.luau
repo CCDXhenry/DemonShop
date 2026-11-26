@@ -8,7 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Scripts"):WaitForChild("Shared")
 local Lifecycle = require(Shared:WaitForChild("LifecycleTool"))
 local Config = require(Shared:WaitForChild("GameConfig"))
 local GameData = require(Shared:WaitForChild("GameData"))
-local ModelTemplates = require(Shared:WaitForChild("ModelTemplates"))
+local ShopIconData = require(Shared:WaitForChild("ShopIconData"))
 local ProcessingTextTool = require(script.Parent.ProcessingTextTool)
 local UIManager = require(script.Parent.UIManager)
 local Toolbar = {}
@@ -137,103 +137,12 @@ local function CollectTools(): { Tool }
 	end
 	return list
 end
-local function PreviewCamera(viewport: ViewportFrame): Camera
-	local existing = viewport:FindFirstChildOfClass("Camera")
-	if existing then
-		return existing
-	end
-	-- 界面克隆进 PlayerGui 后，模板里的 Camera 不会跟着过去，预览时再补一台。
-	local camera = Instance.new("Camera")
-	camera.Name = "Camera"
-	camera.Parent = viewport
-	return camera
+local function SetToolIcon(button: ImageButton, tool: Tool): ()
+	local icon = button:WaitForChild("IconImage") :: ImageLabel
+	local level = PersonalRules.WeaponLevel(tool.Name)
+	icon.Image = if tool.Name == "Potion" then ShopIconData.potion elseif level then ShopIconData.weapon[level] else ""
 end
-local function RenderPreview(button: ImageButton, tool: Tool): ()
-	local viewport = button:WaitForChild("ToolViewport") :: ViewportFrame
-	local world = viewport:FindFirstChildOfClass("WorldModel") or ModelTemplates.WaitViewportWorld():Clone()
-	world.Parent = viewport
-	for _, child in world:GetChildren() do
-		child:Destroy()
-	end
-	-- 预览和发放使用同一份道具模板。
-	local template = ModelTemplates.FindTool(tool.Name)
-	if not template then return end
-	local clone = template:Clone()
-	local discard: { Instance } = {}
-	for _, descendant in clone:GetDescendants() do
-		if descendant:IsA("BaseScript") or descendant:IsA("Sound") then
-			table.insert(discard, descendant)
-		elseif descendant:IsA("BasePart") then
-			descendant.Anchored = true
-			descendant.CanCollide = false
-			descendant.CanTouch = false
-			descendant.CanQuery = false
-		end
-	end
-	for _, descendant in discard do
-		descendant:Destroy()
-	end
 
-	-- 姿态标准化：提取主参考部件并归一化到原点，消除角色运行时的任意旋转与位置偏移
-	local referencePart: BasePart? = nil
-	if clone.PrimaryPart and clone.PrimaryPart:IsA("BasePart") then
-		referencePart = clone.PrimaryPart
-	elseif clone:FindFirstChild("Handle") and (clone:FindFirstChild("Handle") :: Instance):IsA("BasePart") then
-		referencePart = clone:FindFirstChild("Handle") :: BasePart
-	else
-		referencePart = clone:FindFirstChildWhichIsA("BasePart")
-	end
-
-	if referencePart then
-		local refCFrame = referencePart.CFrame
-		local targetCFrame = refCFrame.Rotation
-		local offsets: { [BasePart]: CFrame } = {}
-		for _, item in clone:GetDescendants() do
-			if item:IsA("BasePart") then
-				offsets[item] = refCFrame:ToObjectSpace(item.CFrame)
-			end
-		end
-		for part, rel in offsets do
-			part.CFrame = targetCFrame * rel
-		end
-	end
-
-	clone.Parent = world
-	local directionAttribute = viewport:GetAttribute("ViewDirection")
-	local direction = if typeof(directionAttribute) == "Vector3" and directionAttribute.Magnitude >= 1e-4
-		then directionAttribute
-		else Vector3.new(-1, 0.7, -1.5)
-	local fovAttribute = viewport:GetAttribute("PreviewFieldOfView")
-	local fov = if typeof(fovAttribute) == "number" then fovAttribute else 35
-	local minimum = Vector3.new(math.huge, math.huge, math.huge)
-	local maximum = -minimum
-	local found = false
-	for _, item in clone:GetDescendants() do
-		if item:IsA("BasePart") then
-			found = true
-			for x = -1, 1, 2 do
-				for y = -1, 1, 2 do
-					for z = -1, 1, 2 do
-						local corner = item.CFrame:PointToWorldSpace(item.Size * Vector3.new(x, y, z) * 0.5)
-						minimum = minimum:Min(corner)
-						maximum = maximum:Max(corner)
-					end
-				end
-			end
-		end
-	end
-	local center = if found then (minimum + maximum) * 0.5 else Vector3.zero
-	local radius = if found then math.max((maximum - minimum).Magnitude * 0.5, 0.2) else 1
-	local width = if viewport.AbsoluteSize.X > 0 then viewport.AbsoluteSize.X else viewport.Size.X.Offset
-	local height = if viewport.AbsoluteSize.Y > 0 then viewport.AbsoluteSize.Y else viewport.Size.Y.Offset
-	local aspect = math.max(0.01, width) / math.max(1, height)
-	local halfAngle = math.atan(math.tan(math.rad(fov * 0.5)) * math.min(1, aspect))
-	local distance = radius / math.max(math.sin(halfAngle), 1e-3) * 1.12
-	local camera = PreviewCamera(viewport)
-	camera.FieldOfView = fov
-	camera.CFrame = CFrame.lookAt(center + direction.Unit * distance, center)
-	viewport.CurrentCamera = camera
-end
 local function SetEquipped(button: ImageButton, tool: Tool): ()
 	local image = button:WaitForChild("EquippedImage")
 	if image:IsA("GuiObject") then
@@ -296,7 +205,7 @@ function Toolbar.Create(self: Controller, tool: Tool): Slot
 	button.Parent = bar
 	local slotScope = Lifecycle.new()
 	ApplyToolName(self.texts, button, tool)
-	RenderPreview(button, tool)
+	SetToolIcon(button, tool)
 	slotScope:Connect(tool:GetAttributeChangedSignal("StackCount"):Connect(function(): ()
 		ApplyToolName(self.texts, button, tool)
 	end))

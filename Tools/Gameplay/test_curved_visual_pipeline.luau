@@ -18,6 +18,16 @@ part.Name, part.Size = 'UpperTorso', Data.Parts.UpperTorso.size
 part:SetAttribute('Paintable', true)
 part:SetAttribute('SurfaceVersion', Curve.Version)
 part.Parent = model
+local lowerTorso = Roblox.Instance.new('Part')
+lowerTorso.Name, lowerTorso.Size = 'LowerTorso', Data.Parts.LowerTorso.size
+lowerTorso:SetAttribute('Paintable', true)
+lowerTorso:SetAttribute('SurfaceVersion', Curve.Version)
+lowerTorso.Parent = model
+local leftUpperLeg = Roblox.Instance.new('Part')
+leftUpperLeg.Name, leftUpperLeg.Size = 'LeftUpperLeg', Data.Parts.LeftUpperLeg.size
+leftUpperLeg:SetAttribute('Paintable', true)
+leftUpperLeg:SetAttribute('SurfaceVersion', Curve.Version)
+leftUpperLeg.Parent = model
 
 local bodyId = '1314d4e7-f70a-4f54-a2d9-d0e1612bf7ec'
 local session = '7d1516b7-104c-4ab3-91ba-a17d51bb7bd4'
@@ -77,6 +87,37 @@ for _, segment in view:Drain(bodyId) do table.insert(nextBatch, segment) end
 check(#nextBatch == 1, 'new session click generates one rune')
 check(Rules.Apply(state, nextBatch, secondSession) ~= nil, 'new painting session can append to existing body')
 check(Rules.Apply(state, nextBatch, session) == nil, 'foreign session remains rejected')
+
+-- 跨衣裤交界（UpperTorso -> LowerTorso -> LeftUpperLeg）连续拖动不断档，且首点越界失败后不跳过后续落印
+do
+	local seamView = View.new()
+	local seamBody = 'cross-seam-body'
+	local seamSess = '11111111-2222-3333-4444-555555555555'
+	seamView:Bind(seamBody, model)
+	local waistPath = {}
+	local function addRestPoint(candPart, worldInTorso)
+		local offset = Data.Parts[candPart.Name].restOffset
+		table.insert(waistPath, Curve.ProjectLocal(candPart, worldInTorso - offset))
+	end
+	for i = 0, 14 do
+		local y = -0.35 - i * 0.095 -- 从 UpperTorso (-0.35) 连续经过 LowerTorso (-0.80..-1.21) 到 LeftUpperLeg (-1.68)
+		local p = Roblox.Vector3.new(0.43, y, 0.48)
+		local target = if y >= -0.79 then part elseif y >= -1.21 then lowerTorso else leftUpperLeg
+		addRestPoint(target, p)
+	end
+	seamView:DrawLocal(seamBody, seamSess, 1, waistPath)
+	local waistDirty = seamView:Drain(seamBody)
+	local partsHit = {}
+	local totalWaistStamps = 0
+	for _, seg in waistDirty do
+		partsHit[seg.part] = (partsHit[seg.part] or 0) + 1
+		totalWaistStamps += 1
+	end
+	check((partsHit.UpperTorso or 0) >= 1 and (partsHit.LowerTorso or 0) >= 1 and (partsHit.LeftUpperLeg or 0) >= 1,
+		string.format('continuous drag across shirt-pants seam stamps all 3 parts (Upper=%d, Lower=%d, Leg=%d)', partsHit.UpperTorso or 0, partsHit.LowerTorso or 0, partsHit.LeftUpperLeg or 0))
+	check(totalWaistStamps >= 4, 'continuous drag across waist maintains equidistant stamps (' .. totalWaistStamps .. ')')
+	seamView:Destroy()
+end
 
 view:Destroy(); observer:Destroy(); model:Destroy(); replacement:Destroy()
 print('PASS: ' .. count .. ' curved rune pipeline assertions (production renderer, queue, protocol and server storage; GPU boundary mocked)')

@@ -47,6 +47,7 @@ type RasterTask = { thread: thread, count: number, rebuild: boolean }
 type Diagnostics = { submitted: number, completed: number, scanned: number, commits: number, commitSeconds: number }
 type Texture = {
 	image: EditableImage,
+	basePixels: buffer?,
 	pixels: buffer,
 	alpha: buffer,
 	size: number,
@@ -76,8 +77,8 @@ local AppearBlue = math.floor(Config.RuneAppearHighlightColor.B * 255 + 0.5)
 local FlashSteps = 3
 local MaxActiveFlashBatches = 24
 local FlashCoalesceWindow = 0.06
-local NormalDotThreshold = 0.45
-local PlaneDepthFactor = 0.65
+local NormalDotThreshold = 0.25
+local PlaneDepthFactor = 1.05
 local DiagonalFactor = 1.42
 local SacrificeSteps = 20
 local SegmentsPerBatch = 128
@@ -101,6 +102,8 @@ export type View = typeof(setmetatable({} :: {
 	diagnostics: Diagnostics?,
 	sacrifice: { [string]: number? },
 	sacrificeStep: { [string]: number },
+	baseAtlases: { [string]: { [number]: buffer } },
+	baseAtlasRetry: { [string]: number },
 }, View))
 
 function View.new(): View
@@ -117,16 +120,62 @@ function View.new(): View
 		failed = false,
 		sacrifice = {},
 		sacrificeStep = {},
+		baseAtlases = {},
+		baseAtlasRetry = {},
 	}, View)
 end
 
 local function SetModelTexture(model: Model, image: EditableImage?): ()
-	local content = if image then Content.fromObject(image) else Content.none
+	local baseAtlas = model:GetAttribute("PaintBaseTexture")
+	local content = if image then Content.fromObject(image)
+		elseif type(baseAtlas) == "string" then Content.fromUri(baseAtlas) else Content.none
 	for _, part in model:GetChildren() do
 		if part:IsA("MeshPart") and Curve.IsPart(part) then
 			part.TextureContent = content
 		end
 	end
+end
+
+local function GetBasePixels(self: View, uri: string, size: number): buffer?
+	local cached = self.baseAtlases[uri]
+	if cached then
+		return cached[size]
+	end
+	if os.clock() < (self.baseAtlasRetry[uri] or 0) then
+		return nil
+	end
+	self.baseAtlasRetry[uri] = math.huge
+	task.spawn(function()
+		local ok, source = pcall(function()
+			return AssetService:CreateEditableImageAsync(Content.fromUri(uri))
+		end)
+		if not ok or not source then
+			self.baseAtlasRetry[uri] = os.clock() + 3
+			return
+		end
+		local width, height = source.Size.X, source.Size.Y
+		local pixels = source:ReadPixelsBuffer(Vector2.zero, source.Size)
+		source:Destroy()
+		local atlas: { [number]: buffer } = {}
+		for _, target in { Config.PaintActiveTextureSize, Config.PaintObserverTextureSize } do
+			if target == width and target == height then
+				atlas[target] = pixels
+			else
+				local scaled = buffer.create(target * target * 4)
+				for y = 0, target - 1 do
+					local row = math.floor((y + 0.5) * height / target) * width
+					for x = 0, target - 1 do
+						local column = math.floor((x + 0.5) * width / target)
+						buffer.writeu32(scaled, (y * target + x) * 4, buffer.readu32(pixels, (row + column) * 4))
+					end
+				end
+				atlas[target] = scaled
+			end
+		end
+		self.baseAtlases[uri] = atlas
+		self.baseAtlasRetry[uri] = nil
+	end)
+	return nil
 end
 
 local function SetTexture(self: View, id: string, model: Model, image: EditableImage?): ()
@@ -197,6 +246,14 @@ function View.Ensure(self: View, id: string): Texture?
 		texture = nil
 	end
 	if not texture then
+		local uri = model:GetAttribute("PaintBaseTexture")
+		local basePixels: buffer? = nil
+		if type(uri) == "string" then
+			basePixels = GetBasePixels(self, uri, size)
+			if not basePixels then
+				return nil
+			end
+		end
 		local count = 0
 		local oldest: string? = nil
 		for key, entry in self.textures do
@@ -220,7 +277,11 @@ function View.Ensure(self: View, id: string): Texture?
 			return nil
 		end
 		local pixels = buffer.create(size * size * 4)
-		buffer.fill(pixels, 0, 255)
+		if basePixels then
+			buffer.copy(pixels, 0, basePixels)
+		else
+			buffer.fill(pixels, 0, 255)
+		end
 		local alpha = buffer.create(size * size)
 		local initialQueue: { Types.VisualSegment } = {}
 		for _, segment in pairs(self.records[id] or {}) do
@@ -228,6 +289,7 @@ function View.Ensure(self: View, id: string): Texture?
 		end
 		texture = {
 			image = image,
+			basePixels = basePixels,
 			pixels = pixels,
 			alpha = alpha,
 			size = size,
@@ -343,63 +405,38 @@ local function MappingFor(texture: Texture, part: BasePart, index: number, key: 
 	return mapping
 end
 
-local function Prepare(texture: Texture, tiles: { [number]: Tile }, segment: Types.VisualSegment): ()
-	local body = texture.parts[segment.part]
-	if not body then
-		local part = texture.model:FindFirstChild(segment.part)
-		if not part or not part:IsA("BasePart") or not Curve.IsPart(part) then
-			return
-		end
-		local geometry = Curve.Geometry(part)
-		local size = part.Size
-		body = {
-			part = part,
-			key = part.Name .. ":" .. tostring(size),
-			sx = size.X, sy = size.Y, sz = size.Z,
-			bins = geometry.bins,
-			triangleCount = #geometry.triangles,
-			candidateCount = 0,
-			candidates = {},
-		}
-		texture.parts[segment.part] = body
+local function EnsureRasterPart(texture: Texture, partName: string): RasterPart?
+	local body = texture.parts[partName]
+	if body then
+		return body
 	end
-	local triIndex = segment.triangle
-	if segment.surfaceVersion ~= Curve.Version or not triIndex then
-		return
+	local part = texture.model:FindFirstChild(partName)
+	if not part or not part:IsA("BasePart") or not Curve.IsPart(part) then
+		return nil
 	end
-	if triIndex < 1 or triIndex % 1 ~= 0 or triIndex > body.triangleCount then
-		return
-	end
-	if not (segment.u >= 0 and segment.v >= 0 and segment.u + segment.v <= 1.00001) then
-		return
-	end
-	local anchor = MappingFor(texture, body.part, triIndex, body.key)
-	if not anchor or not anchor.allowed then
-		return
-	end
-
-	local cx = anchor.ox + anchor.bx * segment.u + anchor.cx * segment.v
-	local cy = anchor.oy + anchor.by * segment.u + anchor.cy * segment.v
-	local cz = anchor.oz + anchor.bz * segment.u + anchor.cz * segment.v
-	local normal = Vector3.new(anchor.nx, anchor.ny, anchor.nz)
-	local scale = math.clamp(segment.scale, Config.RuneMinScale, 1)
-	local width = Config.RuneStampSize * scale
-	local half = width * 0.5
-	local invWidth = 1 / width
-	local glyphRight, glyphDown = RuneRules.Axes(normal, segment.angle)
-	local uAxis = glyphRight * invWidth
-	local vAxis = glyphDown * invWidth
-	local boundRadius = half * DiagonalFactor
-
-	local stamp: Stamp = {
-		cx = cx, cy = cy, cz = cz,
-		nx = anchor.nx, ny = anchor.ny, nz = anchor.nz,
-		ux = uAxis.X, uy = uAxis.Y, uz = uAxis.Z,
-		vx = vAxis.X, vy = vAxis.Y, vz = vAxis.Z,
-		depthLimit = half * PlaneDepthFactor,
-		glyph = segment.glyph,
+	local geometry = Curve.Geometry(part)
+	local size = part.Size
+	body = {
+		part = part,
+		key = part.Name .. ":" .. tostring(size),
+		sx = size.X, sy = size.Y, sz = size.Z,
+		bins = geometry.bins,
+		triangleCount = #geometry.triangles,
+		candidateCount = 0,
+		candidates = {},
 	}
+	texture.parts[partName] = body
+	return body
+end
 
+local function RasterizeStampOnPart(
+	texture: Texture,
+	tiles: { [number]: Tile },
+	body: RasterPart,
+	stamp: Stamp,
+	boundRadius: number
+): ()
+	local cx, cy, cz = stamp.cx, stamp.cy, stamp.cz
 	local sx, sy, sz = body.sx, body.sy, body.sz
 	local padding = boundRadius + 0.04
 	local lowBinX = math.max(-1, math.floor((cx - padding) / sx * BinCount + BinCount * 0.5))
@@ -455,7 +492,7 @@ local function Prepare(texture: Texture, tiles: { [number]: Tile }, segment: Typ
 		if m.maxX < minX or m.minX > maxX or m.maxY < minY or m.minY > maxY or m.maxZ < minZ or m.minZ > maxZ then
 			continue
 		end
-		if m.nx * anchor.nx + m.ny * anchor.ny + m.nz * anchor.nz < NormalDotThreshold then
+		if m.nx * stamp.nx + m.ny * stamp.ny + m.nz * stamp.nz < NormalDotThreshold then
 			continue
 		end
 		local pcX = m.ax + m.gxX * (cx - m.ox) + m.gxY * (cy - m.oy) + m.gxZ * (cz - m.oz)
@@ -483,6 +520,86 @@ local function Prepare(texture: Texture, tiles: { [number]: Tile }, segment: Typ
 	end
 end
 
+local function Prepare(texture: Texture, tiles: { [number]: Tile }, segment: Types.VisualSegment): ()
+	local body = EnsureRasterPart(texture, segment.part)
+	if not body then
+		return
+	end
+	local triIndex = segment.triangle
+	if segment.surfaceVersion ~= Curve.Version or not triIndex then
+		return
+	end
+	if triIndex < 1 or triIndex % 1 ~= 0 or triIndex > body.triangleCount then
+		return
+	end
+	if not (segment.u >= 0 and segment.v >= 0 and segment.u + segment.v <= 1.00001) then
+		return
+	end
+	local anchor = MappingFor(texture, body.part, triIndex, body.key)
+	if not anchor or not anchor.allowed then
+		return
+	end
+
+	local cx = anchor.ox + anchor.bx * segment.u + anchor.cx * segment.v
+	local cy = anchor.oy + anchor.by * segment.u + anchor.cy * segment.v
+	local cz = anchor.oz + anchor.bz * segment.u + anchor.cz * segment.v
+	local normal = Vector3.new(anchor.nx, anchor.ny, anchor.nz)
+	local scale = math.clamp(segment.scale, Config.RuneMinScale, 1)
+	local width = Config.RuneStampSize * scale
+	local half = width * 0.5
+	local invWidth = 1 / width
+	local glyphRight, glyphDown = RuneRules.Axes(normal, segment.angle)
+	local uAxis = glyphRight * invWidth
+	local vAxis = glyphDown * invWidth
+	local boundRadius = half * DiagonalFactor
+	local minDim = math.min(body.sx, body.sy, body.sz)
+
+	local stamp: Stamp = {
+		cx = cx, cy = cy, cz = cz,
+		nx = anchor.nx, ny = anchor.ny, nz = anchor.nz,
+		ux = uAxis.X, uy = uAxis.Y, uz = uAxis.Z,
+		vx = vAxis.X, vy = vAxis.Y, vz = vAxis.Z,
+		depthLimit = math.min(half * PlaneDepthFactor, minDim * 0.42),
+		glyph = segment.glyph,
+	}
+
+	RasterizeStampOnPart(texture, tiles, body, stamp, boundRadius)
+
+	-- 跨 R15 直连邻接部件无缝投影：在静态参考空间平移印章中心，避免在非直连部件间跨空气误染。
+	local neighbors = Curve.Neighbors[segment.part]
+	if not neighbors then
+		return
+	end
+	for _, neighborName in ipairs(neighbors) do
+		local shift = Curve.RestOffset(segment.part, neighborName)
+		if not shift then
+			continue
+		end
+		local neighborBody = EnsureRasterPart(texture, neighborName)
+		if not neighborBody then
+			continue
+		end
+		local ncx, ncy, ncz = cx + shift.X, cy + shift.Y, cz + shift.Z
+		local reach = boundRadius + 0.04
+		if math.abs(ncx) > neighborBody.sx * 0.5 + reach
+			or math.abs(ncy) > neighborBody.sy * 0.5 + reach
+			or math.abs(ncz) > neighborBody.sz * 0.5 + reach
+		then
+			continue
+		end
+		local nMinDim = math.min(neighborBody.sx, neighborBody.sy, neighborBody.sz)
+		local neighborStamp: Stamp = {
+			cx = ncx, cy = ncy, cz = ncz,
+			nx = anchor.nx, ny = anchor.ny, nz = anchor.nz,
+			ux = uAxis.X, uy = uAxis.Y, uz = uAxis.Z,
+			vx = vAxis.X, vy = vAxis.Y, vz = vAxis.Z,
+			depthLimit = math.min(half * PlaneDepthFactor, nMinDim * 0.42),
+			glyph = segment.glyph,
+		}
+		RasterizeStampOnPart(texture, tiles, neighborBody, neighborStamp, boundRadius)
+	end
+end
+
 local function ExpandBox(boxes: { [number]: DirtyBox }, chunkKey: number, minX: number, minY: number, maxX: number, maxY: number): ()
 	local box = boxes[chunkKey]
 	if box then
@@ -505,6 +622,19 @@ local function MarkDirtyPixel(texture: Texture, x: number, y: number): ()
 	ExpandBox(texture.dirtyBoxes, chunkKey, x, y, x, y)
 end
 
+local function BlendInk(
+	pixels: buffer, offset: number, basePixels: buffer?, baseOffset: number,
+	red: number, green: number, blue: number, alpha: number
+): ()
+	local baseR = if basePixels then buffer.readu8(basePixels, baseOffset) else 255
+	local baseG = if basePixels then buffer.readu8(basePixels, baseOffset + 1) else 255
+	local baseB = if basePixels then buffer.readu8(basePixels, baseOffset + 2) else 255
+	local amount = alpha / 255
+	buffer.writeu8(pixels, offset, math.floor(baseR + (red - baseR) * amount + 0.5))
+	buffer.writeu8(pixels, offset + 1, math.floor(baseG + (green - baseG) * amount + 0.5))
+	buffer.writeu8(pixels, offset + 2, math.floor(baseB + (blue - baseB) * amount + 0.5))
+end
+
 local function ApplyFlashColor(texture: Texture, pixels: { number }, ratio: number): ()
 	local size = texture.size
 	local alphaBuf = texture.alpha
@@ -516,9 +646,7 @@ local function ApplyFlashColor(texture: Texture, pixels: { number }, ratio: numb
 		local a = buffer.readu8(alphaBuf, pixelIndex)
 		if a > 0 then
 			local offset = pixelIndex * 4
-			buffer.writeu8(pixelBuf, offset, math.floor(255 + (inkR - 255) * a / 255 + 0.5))
-			buffer.writeu8(pixelBuf, offset + 1, math.floor(255 + (inkG - 255) * a / 255 + 0.5))
-			buffer.writeu8(pixelBuf, offset + 2, math.floor(255 + (inkB - 255) * a / 255 + 0.5))
+			BlendInk(pixelBuf, offset, texture.basePixels, offset, inkR, inkG, inkB, a)
 			local y = math.floor(pixelIndex / size)
 			local x = pixelIndex - y * size
 			MarkDirtyPixel(texture, x, y)
@@ -594,9 +722,7 @@ local function RasterTile(texture: Texture, tile: Tile, diagnostics: Diagnostics
 			if currentAlpha > oldAlpha then
 				buffer.writeu8(alphaBuf, pixelIndex, currentAlpha)
 				local offset = pixelIndex * 4
-				buffer.writeu8(pixelBuf, offset, math.floor(255 + (inkR - 255) * currentAlpha / 255 + 0.5))
-				buffer.writeu8(pixelBuf, offset + 1, math.floor(255 + (inkG - 255) * currentAlpha / 255 + 0.5))
-				buffer.writeu8(pixelBuf, offset + 2, math.floor(255 + (inkB - 255) * currentAlpha / 255 + 0.5))
+				BlendInk(pixelBuf, offset, texture.basePixels, offset, inkR, inkG, inkB, currentAlpha)
 				if flashPixels then
 					table.insert(flashPixels, pixelIndex)
 				end
@@ -684,9 +810,7 @@ local function UploadTint(texture: Texture, brightness: number): ()
 				local a = buffer.readu8(alphaBuf, srcPixelRow + col)
 				if a > 0 then
 					local dstOffset = dstRowOffset + col * 4
-					buffer.writeu8(out, dstOffset, math.floor(255 + (inkR - 255) * a / 255 + 0.5))
-					buffer.writeu8(out, dstOffset + 1, math.floor(255 + (inkG - 255) * a / 255 + 0.5))
-					buffer.writeu8(out, dstOffset + 2, math.floor(255 + (inkB - 255) * a / 255 + 0.5))
+					BlendInk(out, dstOffset, texture.basePixels, (srcPixelRow + col) * 4, inkR, inkG, inkB, a)
 				end
 			end
 		end

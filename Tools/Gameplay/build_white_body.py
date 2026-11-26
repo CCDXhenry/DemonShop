@@ -110,7 +110,7 @@ for name,data in metadata.items():
     lines.append('uvs={'+','.join(vec('Vector2',p) for p in data['uvs'])+'},')
     lines.append('triangles={'+','.join('{'+','.join(map(str,f))+'}' for f in data['triangles'])+'}}')
 lines.append('return {Version='+str(VERSION)+',Parts=parts}')
-(ROOT/'Scripts/ReplicatedStorage/Scripts/Shared/BodySurfaceData.luau').write_text('\n'.join(lines)+'\n',encoding='utf-8')
+(OUT/'BodySurfaceData-v1.luau').write_text('\n'.join(lines)+'\n',encoding='utf-8')
 bpy.ops.export_scene.fbx(filepath=str(OUT/'WhiteBody.fbx'), use_selection=False, object_types={'MESH'},
                          axis_forward='-Z',axis_up='Y',apply_unit_scale=True,bake_space_transform=True,
                          add_leaf_bones=False)

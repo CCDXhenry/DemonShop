@@ -2,18 +2,18 @@
 --!strict
 local Players = game:GetService("Players")
 local GuiService = game:GetService("GuiService")
-local UserInputService = game:GetService("UserInputService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Scripts.Shared
-local Config = require(Shared.GameConfig)
 local GameData = require(Shared.GameData)
 local GameTexts = require(Shared.GameTexts)
 local Types = require(Shared.GameTypes)
 local Net = require(Shared.ProcessingNet)
 local Lifecycle = require(Shared.LifecycleTool)
-local ModelTemplates = require(Shared.ModelTemplates)
+local ShopIconData = require(Shared.ShopIconData)
 local Rules = require(Shared.PersonalUpgradeRules)
 local UIManager = require(script.Parent.UIManager)
+local ModalImageHitTest = require(script.Parent.UIManager.ModalImageHitTest)
 local WindowBase = require(script.Parent.UIManager.WindowBase)
 local UIActions = require(script.Parent.UIManager.UIActions)
 local Text = require(script.Parent.ProcessingTextTool)
@@ -26,16 +26,11 @@ local AbilityCategories: {GameData.UpgradeCategory} = {"moveSpeed", "runeBatch",
 local ToolCategories: {GameData.UpgradeCategory} = {"weapon", "carryTool"}
 local Titles: {[string]: GameTexts.TextId} = {
 	moveSpeed = "ShopMove", runeBatch = "ShopRunes", sellBonus = "ShopSales",
-	weapon = "ShopWeapon", carryTool = "ShopCarry",
 }
 local WeaponShapes: {[string]: GameTexts.TextId} = {
 	Single = "ShopWeaponSingle", Cone = "ShopWeaponCone", Spin = "ShopWeaponSpin",
 	Line = "ShopWeaponLine", Slam = "ShopWeaponSlam",
 }
-local CompletedColor = Color3.fromRGB(255, 223, 81)
-local CurrentColor = Color3.fromRGB(222, 153, 56)
-local LockedColor = Color3.fromRGB(58, 52, 74)
-
 local function Bind(text: Text.Controller, parent: Instance, name: string, id: GameTexts.TextId, ...: number): ()
 	local label = parent:FindFirstChild(name) :: TextLabel
 	local args: {string} = {}
@@ -43,40 +38,15 @@ local function Bind(text: Text.Controller, parent: Instance, name: string, id: G
 	text:Bind(label, {textId = id, args = args})
 end
 
-local function RenderPreview(card: Frame, id: string, source: Instance?): ()
-	if card:GetAttribute("PreviewId") == id then return end
-	local viewport = card:FindFirstChild("ToolViewport") :: ViewportFrame
-	if source and source:IsA("Tool") then source = source:FindFirstChild("Visual") end
-	if not source or not source:IsA("Model") then return end
-	local world = viewport:FindFirstChildOfClass("WorldModel") or ModelTemplates.WaitViewportWorld():Clone()
-	world.Parent = viewport
-	world:ClearAllChildren()
-	local clone = source:Clone()
-	for _, child in clone:GetDescendants() do
-		if child:IsA("BasePart") then child.Anchored = true end
-	end
-	clone.Parent = world
-	local camera: Camera = viewport:FindFirstChildOfClass("Camera") or Instance.new("Camera")
-	camera.Parent = viewport
-	local bounds, size = clone:GetBoundingBox()
-	local center = bounds.Position
-	camera.FieldOfView = 33
-	camera.CFrame = CFrame.lookAt(center + Vector3.new(0.5, 0.29, 1).Unit * size.Magnitude * 1.75, center)
-	viewport.CurrentCamera = camera
-	card:SetAttribute("PreviewId", id)
-end
-
-local function RefreshComparison(text: Text.Controller, card: Frame, category: string, current: number, nextLevel: number?): ()
-	local compare = card:FindFirstChild("CompareFrame") :: Frame
+local function RefreshComparison(text: Text.Controller, card: ImageLabel, category: string, current: number, nextLevel: number?): ()
+	local compare = card:FindFirstChild("CompareFrame") :: ImageLabel
 	if category == "moveSpeed" then
 		local now = Rules.GetMoveTier(current)
 		if nextLevel then
 			local next = Rules.GetMoveTier(nextLevel)
-			Bind(text, compare, "PrimaryText", "ShopWalkCompare", now.walk, next.walk)
-			Bind(text, compare, "SecondaryText", if next.unlimited then "ShopSprintUnlimitedCompare" else "ShopSprintCompare", now.sprint, next.sprint)
+			Bind(text, compare, "PrimaryText", if next.unlimited then "ShopMoveUnlimitedCompare" else "ShopMoveCompare", now.walk, next.walk)
 		else
-			Bind(text, compare, "PrimaryText", "ShopWalkValue", now.walk)
-			Bind(text, compare, "SecondaryText", "ShopUnlimitedSprint", now.sprint)
+			Bind(text, compare, "PrimaryText", "ShopMoveUnlimitedValue", now.walk)
 		end
 	elseif category == "runeBatch" then
 		local now = Rules.GetRuneBatch(current)
@@ -85,7 +55,6 @@ local function RefreshComparison(text: Text.Controller, card: Frame, category: s
 		else
 			Bind(text, compare, "PrimaryText", "ShopRuneValue", now)
 		end
-		Bind(text, compare, "SecondaryText", "ShopRuneBatchHint")
 	elseif category == "sellBonus" then
 		local now = math.round(Rules.GetSellBonus(current) * 100)
 		if nextLevel then
@@ -93,30 +62,45 @@ local function RefreshComparison(text: Text.Controller, card: Frame, category: s
 		else
 			Bind(text, compare, "PrimaryText", "ShopSellValue", now)
 		end
-		Bind(text, compare, "SecondaryText", "ShopPrice", Rules.ComputePlayerPayout(Config.PotionReward, current))
-	elseif category == "weapon" then
-		local now = Rules.GetWeaponTier(current)
-		RenderPreview(card, now.model, ModelTemplates.FindWeapon(now.model))
-		text:BindSource(card:FindFirstChild("TierText") :: TextLabel, now.name_t)
-		if nextLevel then
-			local next = Rules.GetWeaponTier(nextLevel)
-			Bind(text, compare, "PrimaryText", "ShopWeaponCompare", now.damage, next.damage, now.targets, next.targets)
-		else
-			Bind(text, compare, "PrimaryText", "ShopWeaponValue", now.damage, now.targets)
-		end
-		Bind(text, compare, "SecondaryText", WeaponShapes[now.shape])
 	else
-		local now = Rules.GetCarryTier(current)
-		local previewId = if now.previewModel ~= "" then now.previewModel else now.model
-		local source: Instance? = if now.previewModel ~= "" then ModelTemplates.FindPreview(now.previewModel) else ModelTemplates.FindCarryRig(now.model)
-		RenderPreview(card, previewId, source)
-		text:BindSource(card:FindFirstChild("TierText") :: TextLabel, now.name_t)
-		if nextLevel then
-			Bind(text, compare, "PrimaryText", "ShopCarryCompare", now.capacity, Rules.GetCarryTier(nextLevel).capacity)
+		local icon = card:FindFirstChild("IconImage") :: ImageLabel
+		local title = card:FindFirstChild("TitleText") :: TextLabel
+		local primary = compare:FindFirstChild("PrimaryText") :: TextLabel
+		local secondary = compare:FindFirstChild("SecondaryText") :: TextLabel
+		secondary.Visible = nextLevel ~= nil
+		primary.Position = UDim2.new(0, 8, if nextLevel then 0 else 0.25, 0)
+		if category == "weapon" then
+			local now = Rules.GetWeaponTier(current)
+			icon.Image = ShopIconData.weapon[current]
+			text:BindSource(title, now.name_t)
+			text:Bind(primary, {
+				textId = "ShopCurrentWeapon",
+				args = { "", tostring(now.targets), tostring(now.damage) },
+				argTextIds = { WeaponShapes[now.shape] },
+			})
+			if nextLevel then
+				local next = Rules.GetWeaponTier(nextLevel)
+				text:Bind(secondary, {
+					textId = "ShopNextWeapon",
+					args = { next.name_t, "", tostring(next.targets), tostring(next.damage) },
+					argSources = { next.name_t },
+					argTextIds = { [2] = WeaponShapes[next.shape] },
+				})
+			end
 		else
-			Bind(text, compare, "PrimaryText", "ShopCarryValue", now.capacity)
+			local now = Rules.GetCarryTier(current)
+			icon.Image = ShopIconData.carryTool[current]
+			text:BindSource(title, now.name_t)
+			Bind(text, compare, "PrimaryText", "ShopCurrentCarry", now.capacity)
+			if nextLevel then
+				local next = Rules.GetCarryTier(nextLevel)
+				text:Bind(secondary, {
+					textId = "ShopNextCarry",
+					args = { next.name_t, tostring(next.capacity) },
+					argSources = { next.name_t },
+				})
+			end
 		end
-		(compare:FindFirstChild("SecondaryText") :: TextLabel).Visible = false
 	end
 end
 
@@ -135,10 +119,7 @@ function Shop.Init(gui: ScreenGui, sprintButton: ImageButton, scope: Lifecycle.L
 	local hud = UIManager.CreateFrame("PersonalHudFrame", gui:FindFirstChild("CenterFrame") :: Frame)
 	scope:Own(hud)
 	local text = Text.new()
-	local shortcut = hud:FindFirstChild("ShopButton") :: ImageButton
-	local shortcutAlert = shortcut:FindFirstChild("AlertFrame") :: Frame
 	local modal = gui:FindFirstChild("ModalButton") :: GuiButton?
-	Bind(text, shortcut, "TitleText", "ShopTitle")
 	Bind(text, sprintButton, "ActionText", "ShopSprint")
 	Bind(text, hud:FindFirstChild("StaminaFrame") :: Frame, "TitleText", "ShopStamina")
 	local stopSprint = Sprint.Init(hud, sprintButton, modal, scope)
@@ -149,36 +130,34 @@ function Shop.Init(gui: ScreenGui, sprintButton: ImageButton, scope: Lifecycle.L
 	local function Refresh(): ()
 		local allowed = ready and player:GetAttribute("Painting") ~= true
 		if not allowed then UIManager.CloseWindow(WindowId) end
-		shortcut.Visible = allowed
-		local coins = Coins()
-		shortcutAlert.Visible = allowed and CanBuyAny(levels, GameData.GetPersonalUpgradeOrder(), coins)
 		if refreshWindow then refreshWindow() end
 	end
 
 	local function NewWindow(frame: Frame, id: string, actions: UIActions.UIActions): WindowBase.WindowBase
 		local window = WindowBase.new(frame, id, actions)
-		local panel = frame:FindFirstChild("PanelFrame") :: Frame
+		local panel = frame:FindFirstChild("PanelFrame") :: ImageLabel
 		local windowText = Text.new()
 		local abilityPage = panel:FindFirstChild("AbilitiesFrame") :: Frame
 		local toolPage = panel:FindFirstChild("ToolsFrame") :: Frame
 		local abilityTab = panel:FindFirstChild("AbilitiesButton") :: ImageButton
 		local toolTab = panel:FindFirstChild("ToolsButton") :: ImageButton
-		local abilityAlert = abilityTab:FindFirstChild("AlertFrame") :: Frame
-		local toolAlert = toolTab:FindFirstChild("AlertFrame") :: Frame
+		local abilityAlert = abilityTab:FindFirstChild("AlertFrame") :: ImageLabel
+		local toolAlert = toolTab:FindFirstChild("AlertFrame") :: ImageLabel
 		local close = panel:FindFirstChild("CloseButton") :: ImageButton
-		local activeColor = panel:GetAttribute("ActiveTabColor") :: Color3
-		local inactiveColor = panel:GetAttribute("InactiveTabColor") :: Color3
+		local activeImage = panel:GetAttribute("ActiveTabImage") :: string
+		local inactiveImage = panel:GetAttribute("InactiveTabImage") :: string
 
 		local currentTab = abilityPage
-		local cards: {[string]: Frame} = {}
-		Bind(windowText, panel:FindFirstChild("HeaderFrame") :: Frame, "TitleText", "ShopTitle")
+		local cards: {[string]: ImageLabel} = {}
+		Bind(windowText, panel:FindFirstChild("HeaderFrame") :: ImageLabel, "TitleText", "ShopTitle")
 		Bind(windowText, abilityTab, "TitleText", "ShopAbilities")
 		Bind(windowText, toolTab, "TitleText", "ShopTools")
 		for _, category in GameData.GetPersonalUpgradeOrder() do
 			local page = if category == "weapon" or category == "carryTool" then toolPage else abilityPage
-			local card = page:FindFirstChild(category) :: Frame
+			local card = page:FindFirstChild(category) :: ImageLabel
 			cards[category] = card
-			Bind(windowText, card, "TitleText", Titles[category])
+			local titleId = Titles[category]
+			if titleId then Bind(windowText, card, "TitleText", titleId :: GameTexts.TextId) end
 			local ribbon = card:FindFirstChild("EquippedFrame")
 			if ribbon then Bind(windowText, ribbon, "TitleText", "ShopEquipped") end
 			local buy = card:FindFirstChild("BuyButton") :: ImageButton
@@ -193,30 +172,26 @@ function Shop.Init(gui: ScreenGui, sprintButton: ImageButton, scope: Lifecycle.L
 			local coins = Coins()
 			abilityPage.Visible = currentTab == abilityPage
 			toolPage.Visible = currentTab == toolPage
-			abilityTab.BackgroundColor3 = if abilityPage.Visible then activeColor else inactiveColor
-			toolTab.BackgroundColor3 = if toolPage.Visible then activeColor else inactiveColor
+			abilityTab.Image = if abilityPage.Visible then activeImage else inactiveImage
+			toolTab.Image = if toolPage.Visible then activeImage else inactiveImage
 			abilityAlert.Visible = not abilityPage.Visible and CanBuyAny(levels, AbilityCategories, coins)
 			toolAlert.Visible = not toolPage.Visible and CanBuyAny(levels, ToolCategories, coins)
 			for category, card in cards do
 				local level = levels[category]
-				local maxLevel = GameData.GetMaxUpgradeLevel(category)
 				local cost = Rules.GetPurchaseCost(levels, category, level + 1)
 				local affordable = Rules.IsAffordable(levels, category, coins)
 				local buy = card:FindFirstChild("BuyButton") :: ImageButton
 				buy.Active = affordable
 				buy.Selectable = affordable
-				local colorAttribute = if not cost then "MaxColor" elseif affordable then "AvailableColor" else "LockedColor"
-				buy.BackgroundColor3 = buy:GetAttribute(colorAttribute) :: Color3
+				local imageAttribute = if not cost then "MaxImage" elseif affordable then "AvailableImage" else "LockedImage"
+				buy.Image = buy:GetAttribute(imageAttribute) :: string
+				local content = buy:FindFirstChild("ContentFrame") :: Frame
+				local moneyIcon = content:FindFirstChild("MoneyIcon") :: ImageLabel
+				moneyIcon.Visible = cost ~= nil
 				if cost then
-					Bind(windowText, buy, "TitleText", "ShopPrice", cost)
+					Bind(windowText, content, "TitleText", "ShopPrice", cost)
 				else
-					Bind(windowText, buy, "TitleText", "ShopMax")
-				end
-				local route = card:FindFirstChild("ProgressFrame") :: Frame
-				for i = 1, maxLevel do
-					local step = route:FindFirstChild("Step" .. i) :: Frame
-					local evolution = card.Parent == toolPage
-					step.BackgroundColor3 = if i > level then LockedColor elseif evolution and i ~= level then CurrentColor else CompletedColor
+					Bind(windowText, content, "TitleText", "ShopMax")
 				end
 				RefreshComparison(windowText, card, category, level, if cost then level + 1 else nil)
 			end
@@ -224,7 +199,12 @@ function Shop.Init(gui: ScreenGui, sprintButton: ImageButton, scope: Lifecycle.L
 
 		window.scope:Connect(abilityTab.Activated:Connect(function(): () currentTab = abilityPage; RefreshWindow() end))
 		window.scope:Connect(toolTab.Activated:Connect(function(): () currentTab = toolPage; RefreshWindow() end))
-		window.scope:Connect(close.Activated:Connect(function(): () window:Close() end))
+		window.scope:Connect(close.Activated:Connect(function(input: InputObject): ()
+			local point = UIManager.GetModalPointerPosition(input)
+			if not point or ModalImageHitTest.ContainsImage(close, point) or not ModalImageHitTest.ContainsShop(frame, gui, point) then
+				window:Close()
+			end
+		end))
 		window.onClosed = function(): ()
 			refreshWindow = nil
 			windowText:Destroy()
@@ -237,16 +217,19 @@ function Shop.Init(gui: ScreenGui, sprintButton: ImageButton, scope: Lifecycle.L
 	UIManager.RegisterWindow(WindowId, {
 		frameName = "PersonalShopFrame",
 		isModal = true,
-		modalContentRegions = {"PanelFrame", "HeaderFrame"},
+		containsModalPoint = ModalImageHitTest.ContainsShop,
 		newWindow = NewWindow,
 	})
-	local function Toggle(): ()
-		if ready and player:GetAttribute("Painting") ~= true and not GuiService.MenuIsOpen then
-			UIManager.SwitchWindowShowing(WindowId)
+	local function OnShopPrompt(prompt: ProximityPrompt, triggeringPlayer: Player): ()
+		if triggeringPlayer ~= player or not ready or player:GetAttribute("Painting") == true or GuiService.MenuIsOpen then
+			return
 		end
-	end
-	local function OnInput(input: InputObject, processed: boolean): ()
-		if input.KeyCode == Enum.KeyCode.B and not processed and not UserInputService:GetFocusedTextBox() then Toggle() end
+		local district = workspace:FindFirstChild("NeonContractDistrict")
+		local shop = if district then district:FindFirstChild("PersonalShop") else nil
+		local anchor = if shop then shop:FindFirstChild("InteractionAnchor") else nil
+		if anchor and prompt == anchor:FindFirstChild("ShopPrompt") then
+			UIManager.OpenWindow(WindowId)
+		end
 	end
 	local function OnNotice(notice: Types.Notice): ()
 		if notice.kind == "PersonalUpgrades" and notice.personalLevels then
@@ -256,8 +239,7 @@ function Shop.Init(gui: ScreenGui, sprintButton: ImageButton, scope: Lifecycle.L
 		end
 	end
 
-	scope:Connect(shortcut.Activated:Connect(Toggle))
-	scope:Connect(UserInputService.InputBegan:Connect(OnInput))
+	scope:Connect(ProximityPromptService.PromptTriggered:Connect(OnShopPrompt))
 	scope:Connect(player:GetAttributeChangedSignal("Coins"):Connect(Refresh))
 	scope:Connect(player:GetAttributeChangedSignal("Painting"):Connect(Refresh))
 	scope:Connect(Net.ConnectNotify(OnNotice))

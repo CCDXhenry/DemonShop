@@ -46,6 +46,8 @@ do
 	C.gm = false
 	C.addCoinsCommand:Fire({ UserId = C.player.UserId }, '/AddCoins 500')
 	check(#C.addedCoins == 0, 'non-GM cannot add coins')
+	C.addCoinsCommand:Fire({ UserId = -1 }, '/AddCoins 800')
+	check(#C.addedCoins == 0, 'non-production cloud rejects negative studio test user ids')
 	C.gm = true
 	C.addCoinsCommand:Fire({ UserId = -999 }, '/AddCoins 500')
 	check(#C.addedCoins == 0, 'unresolved player cannot add coins')
@@ -72,6 +74,13 @@ do
 		C.addCoinsCommand:Fire({ UserId = C.player.UserId }, invalid)
 	end
 	check(#C.addedCoins == 2, 'AddCoins rejects non-positive, fractional, and non-numeric arguments')
+	C.gm = false
+	C.addCoinsCommand:Fire({ UserId = C.player.UserId }, '/AddCoins 100')
+	check(#C.addedCoins == 2, 'Studio positive non-GM user cannot add coins')
+	C.addCoinsCommand:Fire({ UserId = -1 }, '/AddCoins 800')
+	check(#C.addedCoins == 3 and C.addedCoins[3].player == C.playersById[-1] and C.addedCoins[3].amount == 800, 'Studio local test client -1 can add explicit coins')
+	C.addCoinsCommand:Fire({ UserId = -2 }, '/AddCoins')
+	check(#C.addedCoins == 4 and C.addedCoins[4].player == C.playersById[-2] and C.addedCoins[4].amount == 1000, 'Studio local test client -2 defaults to 1000')
 	studioManager:Destroy()
 	check(C.addCoinsCommand:Count() == 0, 'AddCoinsCommand disconnects on Destroy')
 end

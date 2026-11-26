@@ -19,6 +19,7 @@ U.workspace.CurrentCamera={ViewportSize={X=960,Y=540},GetPropertyChangedSignal=f
 U.cameraChanged:Fire()
 check(U.cameraSignal:Count()==0 and replacementSignal:Count()==2,'camera replacement transfers each canvas listener once')
 check(U.scale.Scale==.5 and U.gui:FindFirstChild('CenterFrame'):FindFirstChildOfClass('UIScale').Scale==.5,'HUD and window root share fixed-canvas scaling rule')
+check(U.overlayScale.Scale==.5,'coin overlay uses the same scale as the window canvas')
 local nested=U.Node('Nested','Frame');nested.Parent=U.canvas
 local nestedScale=U.Node('UIScale','UIScale');nestedScale.Scale=1;nestedScale.Parent=nested
 local Wrapper=require('./GameFrameWrapper')
@@ -26,7 +27,7 @@ local wrapper=Wrapper.new(nested,UI.GetUIActions());wrapper:Init()
 check(replacementSignal:Count()==2 and nestedScale.Scale==1,'nested wrappers do not double-scale parent canvas')
 wrapper:OnDestroy();nested:Destroy()
 U.workspace.CurrentCamera=originalCamera;U.cameraChanged:Fire()
-check(replacementSignal:Count()==0 and U.scale.Scale==1,'camera teardown releases replacement listeners')
+check(replacementSignal:Count()==0 and U.scale.Scale==1 and U.overlayScale.Scale==1,'camera teardown releases replacement listeners and restores both canvases')
 UI.OpenWindow('A');UI.OpenWindow('A');check(created==1 and UI.IsWindowShowing('A'),'window singleton')
 local a=U.canvas.children[2]
 check(a.Parent==U.canvas and U.modal.Visible and U.modal.ZIndex==a.ZIndex-1,'window uses fixed canvas and backdrop')
@@ -41,6 +42,7 @@ UI.CloseWindow('A');UI.CloseWindow('A');check(closed==3,'close idempotent')
 UI.CloseAllWindow();check(not U.modal.Visible and not UI.HasShowingWindow() and closed==4,'close all releases stack')
 local panel=U.Node('PanelFrame','Frame')
 panel.AbsolutePosition=R.Vector2.new(150,150);panel.AbsoluteSize=R.Vector2.new(500,300);panel.Parent=U.template
+panel:SetAttribute('ModalContentHeight',0.8)
 local header=U.Node('HeaderFrame','Frame')
 header.AbsolutePosition=R.Vector2.new(300,100);header.AbsoluteSize=R.Vector2.new(200,80);header.Parent=panel
 UI.RegisterWindow('Shop',{frameName='TestWindow',isModal=true,modalContentRegions={'PanelFrame','HeaderFrame'},newWindow=factory})
@@ -58,7 +60,16 @@ tap(350,110);check(UI.IsWindowShowing('Shop'),'a backdrop event on the protrudin
 U.gui.IgnoreGuiInset=false
 tap(350,146);check(UI.IsWindowShowing('Shop'),'backdrop hit test converts touch coordinates for a screen with an inset')
 U.gui.IgnoreGuiInset=true
-tap(80,400);check(not UI.IsWindowShowing('Shop'),'tap outside the panel closes the shop')
+tap(180,440);check(not UI.IsWindowShowing('Shop'),'tap on the transparent bottom margin closes the shop')
+UI.RegisterWindow('AlphaShop',{frameName='TestWindow',isModal=true,newWindow=factory,
+ containsModalPoint=function(_,_,point) return point.X==180 and point.Y==440 end})
+UI.OpenWindow('AlphaShop')
+U.UserInputService.GetMouseLocation=function() return R.Vector2.new(180,476) end
+U.modal.Activated:Fire({UserInputType=R.Enum.UserInputType.MouseButton1,Position=R.Vector3.zero})
+U.UserInputService.GetMouseLocation=previousMouseLocation
+check(UI.IsWindowShowing('AlphaShop'),'mouse hit test removes top-bar inset even on a full-viewport canvas')
+tap(180,440);check(UI.IsWindowShowing('AlphaShop'),'touch hit test uses the event coordinates directly')
+tap(180,476);check(not UI.IsWindowShowing('AlphaShop'),'a transparent point is still dismissed')
 check(UI.FitTextLabel({})==22 and UI.FitTextWithShadow({},nil)==22,'text fitting interfaces retained')
 local function newEffectButton(name, baseline, ratio)
  local node=U.Node(name,'ImageButton')
@@ -167,7 +178,7 @@ UI.Init(U.gui);UI.OpenWindow('A');check(UI.IsWindowShowing('A') and U.modal.Acti
 UI.Destroy()
 local owned=UI.CreateGameScreenGui()
 check(owned.Parent==U.playerGui and UI.CreateGameScreenGui()==owned,'foundation owns one GUI independently of gameplay')
-check(owned:FindFirstChild('WindowCanvas') and owned:FindFirstChild('ModalButton'),'GUI clones all required edit templates')
+check(owned:FindFirstChild('WindowCanvas') and owned:FindFirstChild('OverlayCanvas') and owned:FindFirstChild('ModalButton'),'GUI clones all required edit templates')
 UI.Destroy()
 check(owned.destroyed and U.playerGui:FindFirstChild('GameScreenGui')==nil,'UI teardown destroys owned GUI')
 local duplicate=U.gui:Clone();duplicate.Parent=U.playerGui

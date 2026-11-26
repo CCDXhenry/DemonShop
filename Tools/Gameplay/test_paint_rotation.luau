@@ -178,17 +178,18 @@ local offsets = {
 	RightLowerLeg = V3.new(0.42, -2.55, 0),
 }
 local bodyParts, bodyFrames = {}, {}
+local meshFacing = C.Angles(0, math.pi, 0)
 for name, off in offsets do
 	local p = R.Instance.new('Part')
 	p.Name = name
 	p.Size = Data.Parts[name].size
 	p:SetAttribute('Paintable', true)
 	p:SetAttribute('SurfaceVersion', Curve.Version)
-	p:SetAttribute('RestPose', C.new(off))
-	p.CFrame = flatBase * C.new(off)
+	p:SetAttribute('RestPose', C.new(off) * meshFacing)
+	p.CFrame = flatBase * C.new(off) * meshFacing
 	p.Parent = bodyModel
 	bodyParts[name] = p
-	bodyFrames[name] = C.new(off - offsets.UpperTorso)
+	bodyFrames[name] = C.new(meshFacing:VectorToObjectSpace(off - offsets.UpperTorso))
 end
 local bodyGeometry = Rotation.Create(bodyModel, bodyFrames)
 local function setBodyPose(ori)
@@ -240,7 +241,7 @@ local sawTorsoLeftConcave, sawTorsoRightConcave = false, false
 local sawLeftArmInner, sawRightArmInner = false, false
 for _, s in rollSamples60 do
 	local p = bodyParts[s.part]
-	local lp = Curve.Point(p, s)
+	local lp = meshFacing:VectorToWorldSpace(Curve.Point(p, s))
 	if s.part == 'UpperTorso' then
 		if lp.X < -p.Size.X * 0.42 then sawTorsoLeftConcave = true end
 		if lp.X > p.Size.X * 0.42 then sawTorsoRightConcave = true end
@@ -335,7 +336,7 @@ Config.PaintRotationEnabled = false
 do
 	setBodyPose(C.identity)
 	local flatRes = Brush.Resolver(bodyModel, perspCam, flatBase, bodyGeometry, C.identity)
-	local headEdgeWorld = bodyParts.Head.CFrame:PointToWorldSpace(V3.new(0, bodyParts.Head.Size.Y * 0.4, -bodyParts.Head.Size.Z * 0.42))
+	local headEdgeWorld = bodyParts.Head.CFrame:PointToWorldSpace(V3.new(0, bodyParts.Head.Size.Y * 0.4, bodyParts.Head.Size.Z * 0.42))
 	local headEdgePtr = projectToScreen(headEdgeWorld)
 	assert(headEdgePtr, 'head edge projection fixture')
 	local _, _, wouldClamp = flatRes.ellipsoidPoint(C.identity, headEdgePtr)

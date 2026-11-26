@@ -19,7 +19,8 @@
 ## 曲面白膜（2026-11-17）
 
 - `WhiteR15` 已替换为 15 个独立曲面 MeshPart、15 个标准 R15 Motor6D，共 14,400 三角面；身体部件和模板带 `SurfaceVersion=1`。云端模型 `84781021841961` 属于体验群组 `33977495`，上传审核 Approved。正式恢复源为 `Assets/Models/GameModels.rbxm`，旧块状身体单独保存在 `Assets/Models/WhiteBody/WhiteR15Legacy.rbxm`。
-- Blender 源文件、FBX、四视角图、Studio Play 截图和验证结果位于 `Assets/Models/WhiteBody`。生成命令：`& 'D:/blender-5.4.0/blender-5.4.0/blender.exe' --background --python Tools/Gameplay/build_white_body.py`；渲染使用同目录 `render_white_body.py`。生成数据 `BodySurfaceData.luau` 经 Script Sync 同步。更改几何或 UV 必须递增表面版本，并一起更新客户端、服务端、模板及云端资产。
+- 原 `WhiteR15` 的 Blender 源文件、FBX 和验证结果位于 `Assets/Models/WhiteBody`。用同目录的工具重建原模型时，旧版曲面数据输出到 `Assets/Models/WhiteBody/BodySurfaceData-v1.luau`。
+- 街头行人和工位补料使用 `WhiteR15-People`，保留原 people 的体型、Plastic 材质与颜色。模型资产为 `102576860827795`，由原贴图烘焙的底图为 `131077260089592`。模板通过 `PaintBaseTexture` 指定底图，画符在底图上混合笔迹。当前 `BodySurfaceData.luau` 来自上传后网格的回读，表面版本为 2。调整几何或 UV 时应同步更新曲面版本、模板和画符数据。
 - 上云命令为 `python Tools/Gameplay/upload_white_body.py --api-key-env SIXCUBE_ROBLOX_OPENCLOUD_KEY`；只读取所选环境变量，不输出凭证。`upload.json` 记录上传操作、归属与结果，审核等待复用原操作。更新模型资产后同步更新 `build-white-assets.luau` 的模型 ID，再在目标 Place 的 Edit 执行该安装器。构建器不创建或覆写业务脚本。
 - 画符采用稳定三角面索引和重心坐标，`face=1` 保留为内部兼容字段，`u/v` 在曲面上表示第二、第三顶点的权重；视觉线段携带两个端点的三角面索引。UV 接缝两侧分别栅格化到同一图集，覆盖率按三角面真实面积的四等分采样累计。旧平面路径仅用于旧资产/规则回归，曲面资产拒绝不匹配的版本。
 - 图集操作者 1024、观察者 512；最近的 8 具身体驻留，每帧最多更新一个图集，CPU 栅格化时间预算 4ms。没有纹理内存或 API 权限时退出画符并提示不可用，不退回悬浮平面笔迹。服务器仍独立校验画符可见性、采样与完成度。
@@ -57,7 +58,7 @@
 历史经典剑参考归档保留在 `Assets/Models/ClassicSword.rbxm`（原 `Club` 已退役并移出 `ReplicatedStorage.Models`）。动画 `522635514` 与音效 `12222216` 集中在 `GameConfig`；本地 Animator 播放标准 R15 挥击，服务端接受攻击后播放一次音效。
 
 `ReplicatedStorage.Models` 根目录仅放 6 个语义分类目录，业务脚本统一经 `Shared/ModelTemplates` 访问：
-- `Characters`：`WhiteR15`、`HellBrute_1`、`HellBrute_2`、`AutoClerk`
+- `Characters`：`WhiteR15-People`、`WhiteR15`、`HellBrute_1`、`HellBrute_2`、`AutoClerk`
 - `Weapons`：`W01_RustyPan` ~ `W06_AbyssalHammer`（由 `build-weapon-assets.luau` 在 Edit 构建；发放与工具栏克隆对应 `Tool`，商店克隆其 `Visual`）
 - `CarryRigs`：`CarryRig_T1` ~ `CarryRig_T4`（由 `build-carry-assets.luau` 在 Edit 增量重建，角色背饰与商店视口共用）
 - `Items`：`Potion`
