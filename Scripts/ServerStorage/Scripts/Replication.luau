@@ -9,7 +9,7 @@ export type Replication = typeof(setmetatable({} :: { previous: { [string]: Type
 function Replication.new(): Replication
 	return setmetatable({ previous = nil }, Replication)
 end
-function Replication.Broadcast(self: Replication, snapshot: Types.Snapshot): ()
+function Replication.Broadcast(self: Replication, snapshot: Types.Snapshot, altarOutput: Types.AltarOutput?): ()
 	local current: { [string]: Types.ItemView } = {}
 	local changed: { Types.ItemView } = {}
 	local previous = self.previous
@@ -23,6 +23,6 @@ function Replication.Broadcast(self: Replication, snapshot: Types.Snapshot): ()
 	local removed: { string } = {}
 	for id in previous do if not current[id] then table.insert(removed, id) end end
 	snapshot.items = changed
-	Net.Broadcast({ kind = "Delta", snapshot = snapshot, removed = removed })
+	Net.Broadcast({ kind = "Delta", snapshot = snapshot, removed = removed, altarOutput = altarOutput })
 end
 return Replication

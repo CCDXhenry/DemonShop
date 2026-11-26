@@ -405,7 +405,7 @@ local tableDisplays=displayCalls
 local targetRest=offering.PrimaryPart.CFrame+V.new(-10,1,-6)
 local flying=table.clone(painting)
 flying.location,flying.version,flying.altarTossStarted="Altar",2,0
-flying.altarToss={from=paintingClone.PrimaryPart.CFrame,rest=targetRest,started=0,flightStarts=.25,landEnds=1.52}
+flying.altarToss={from=paintingClone.PrimaryPart.CFrame,mouth=R.CFrame.new(targetRest.Position+R.Vector3.yAxis*2.2),rest=targetRest,started=0,flightStarts=.25,landEnds=1.52}
 altar:UpdateState({offering=flying})
 check(altar.views.offering.mode=="Altar" and not tableView.model and paintingClone.Parent==B.world,"table display transitions in-place to altar without destroying clone")
 check(altar:GetAltarModel("offering")==paintingClone and altar.views.offering.bindGeneration==tableGeneration and displayCalls==tableDisplays,"in-place transition avoids re-cloning or re-binding rune textures")
@@ -416,21 +416,21 @@ check((paintingClone.PrimaryPart.CFrame.Position-start-V.yAxis*(.85*.5)).Magnitu
 altar:Step(.25+.95*.5,1/60)
 check(paintingClone.PrimaryPart.CFrame.Position.Y>targetRest.Position.Y+2.5 and altar:IsAltarTossing("offering",.25+.95*.5),"client flight phase follows parabolic arc above drop clearance")
 altar:Step(1.20+.32*.7,1/60)
-check(paintingClone.PrimaryPart.CFrame.Position.Y>=targetRest.Position.Y and altar:IsAltarTossing("offering",1.20+.32*.7),"client landing phase cushions body on altar surface")
+check(paintingClone.PrimaryPart.CFrame.Position.Y>=targetRest.Position.Y and paintingClone.Head.LocalTransparencyModifier > 0.5 and altar:IsAltarTossing("offering",1.20+.32*.7),"furnace descent fades the body during intake")
 altar:Step(1.52,1/60)
-check(not altar:IsAltarTossing("offering",1.52) and (paintingClone.PrimaryPart.CFrame.Position-targetRest.Position).Magnitude<1e-4,"client toss settles cleanly at altar rest pose")
+check(not altar:IsAltarTossing("offering",1.52) and (paintingClone.PrimaryPart.CFrame.Position-targetRest.Position).Magnitude<1e-4 and paintingClone.Head.LocalTransparencyModifier == 1,"client toss fully conceals the body at the rest pose")
 local landed=table.clone(flying)
 landed.version,landed.altarToss,landed.altarTossStarted,landed.convertEnds=3,nil,nil,8
 altar:UpdateState({offering=landed})
 local landedVisual=altar:GetAltarModel("offering")
-check(landedVisual==paintingClone and altar.views.offering.bindGeneration==tableGeneration,"landing confirmation keeps the same local altar clone for sacrifice float")
+check(landedVisual==paintingClone and altar.views.offering.bindGeneration==tableGeneration,"landing confirmation keeps the same hidden local altar clone")
 -- 其他客户端（旁观者）从肩扛或远端收到祭坛抛掷快照时，同样创建本地克隆并完整播放抛掷与落台过程
 local remoteOffering=rig(false)
 local observer=Manager.new(tableView,{Remove=function() end},function() end)
 local shoulderToss={
 	id="remote",kind="Body",location="Altar",version=1,hits=3,model=remoteOffering,
 	altarTossStarted=0,
-	altarToss={from=remoteOffering.PrimaryPart.CFrame,rest=targetRest,started=0,flightStarts=0,landEnds=1.27},
+	altarToss={from=remoteOffering.PrimaryPart.CFrame,mouth=R.CFrame.new(targetRest.Position+R.Vector3.yAxis*2.2),rest=targetRest,started=0,flightStarts=0,landEnds=1.27},
 }
 observer:UpdateState({remote=shoulderToss})
 local observerClone=observer:GetAltarModel("remote")
@@ -438,7 +438,7 @@ check(observerClone~=nil and observerClone~=remoteOffering and remoteOffering.He
 observer:Step(.475,1/60)
 check(observerClone.PrimaryPart.CFrame.Position.Y>targetRest.Position.Y+2.2,"other client sees the full parabolic toss arc locally")
 observer:Step(1.27,1/60)
-check(not observer:IsAltarTossing("remote",1.27) and (observerClone.PrimaryPart.CFrame.Position-targetRest.Position).Magnitude<1e-4,"other client settles smoothly onto altar surface")
+check(not observer:IsAltarTossing("remote",1.27) and (observerClone.PrimaryPart.CFrame.Position-targetRest.Position).Magnitude<1e-4,"other client settles smoothly inside the furnace")
 observer:Destroy();remoteOffering:Destroy()
 altar:Destroy();offering:Destroy()
 local waiting=rig(false)

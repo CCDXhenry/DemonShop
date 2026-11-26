@@ -290,7 +290,6 @@ prefix=(
     "local positions={Pool=Vector3.new(100,0,0),Table=Vector3.new(100,0,0),Altar=Vector3.new(100,0,0),Shelf=Vector3.new(100,0,0),Sigil=Vector3.new(100,0,0)}\n"
     "local Sound={Play=function() end}\n"
     "local UIManager={GetTargetGuiManager=function() return {Refresh=function() end,RefreshHits=function() end} end,HasShowingWindow=function() return false end}\n"
-    "local AltarSacrifice={new=function() return {Update=function() return nil end,Clear=function() end} end}\n"
     "local Client={}\n"
     "Client.__index=Client\n"
 )
@@ -477,10 +476,18 @@ next_local = client_src.find("\nlocal function ", potions_fn + 1)
 next_method = client_src.find("\nfunction Client.", potions_fn + 1)
 potions_end = min(x for x in (next_local, next_method) if x != -1)
 client_parts = [client_src[potions_start:potions_end]]
-for cname in ("Carried", "Held", "Update", "UpdateAltar"):
+for cname in ("Carried", "Held", "Update", "PlayAltarOutput", "UpdateAltar"):
     cstart = client_src.index("function Client." + cname + "(")
     cend = client_src.find("\nfunction Client.", cstart + 1)
     client_parts.append(client_src[cstart:cend])
+furnace_source = (ROOT / "Scripts/ReplicatedStorage/Scripts/Client/AltarFurnaceView.luau").read_text(encoding="utf-8")
+(OUT / "AltarFurnaceView.luau").write_text(
+    "local R=require('@lune/roblox')\n"
+    "local Instance,Color3,Vector3,CFrame,Enum=R.Instance,R.Color3,R.Vector3,R.CFrame,R.Enum\n"
+    "local workspace=R.Instance.new('Folder')\n"
+    "local Config=require('./GameConfig')\n" + furnace_source[furnace_source.index("local View ="):],
+    encoding="utf-8",
+)
 client_prefix = (
     "local R=require('@lune/roblox')\n"
     "local Vector2,Vector3,Enum,CFrame=R.Vector2,R.Vector3,R.Enum,R.CFrame\n"
@@ -497,7 +504,6 @@ client_prefix = (
     "local Sound=B.SoundMock\n"
     "local positions={Pool=Vector3.new(-20,2,0),Table=Vector3.new(0,2,0),Altar=Vector3.new(20,2,0),Shelf=Vector3.new(40,2,0),Sigil=Vector3.new(60,2,0)}\n"
     "local UIManager={GetTargetGuiManager=function() return {Refresh=function() end,RefreshHits=function() end} end,HasShowingWindow=function() return false end}\n"
-    "local AltarSacrifice={new=function() return {Update=function() return nil end,Clear=function() end} end}\n"
     "local function RestoreHiddenPlayers() end\n"
     "local function SyncHiddenPlayers() end\n"
     "local Client={}\n"

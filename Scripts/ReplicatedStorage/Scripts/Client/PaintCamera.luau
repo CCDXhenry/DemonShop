@@ -91,7 +91,7 @@ function Controller.StepToss(self: Controller, now: number, dt: number): ()
 	end
 	local focus = follow.target()
 	if now >= follow.ends or not focus then
-		self:Exit()
+		self:Exit(true)
 		return
 	end
 	-- 限制镜头安全高度（避开地下室承重顶板 SouthFoundation_Side Y>=18.0），回拉并朝向飞往祭坛的白膜。

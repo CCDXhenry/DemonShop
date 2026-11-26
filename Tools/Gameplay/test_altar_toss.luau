@@ -17,7 +17,7 @@ local function near(a, b)
 	return (a - b).Magnitude < 1e-4
 end
 
-local function body(id, layer, fromTable)
+local function body(id, fromTable)
 	local model = R.Instance.new("Model")
 	for _, name in {"HumanoidRootPart", "UpperTorso", "Head"} do
 		local part = R.Instance.new("Part")
@@ -29,12 +29,12 @@ local function body(id, layer, fromTable)
 	model.PrimaryPart = model.HumanoidRootPart
 	model.Parent = B.world
 	local item = {id = id, model = model, version = 1, location = "Altar"}
-	Carry.BeginAltarToss(item, layer, fromTable, 0)
+	Carry.BeginAltarToss(item, fromTable, 0)
 	return item, model
 end
 
-local automatic, model = body("table", 0, true)
-local manual, manualModel = body("shoulder", 1, false)
+local automatic, model = body("table", true)
+local manual, manualModel = body("shoulder", false)
 local initialAutoCFrame = model.PrimaryPart.CFrame
 local initialManualCFrame = manualModel.PrimaryPart.CFrame
 local events = 0
@@ -56,7 +56,7 @@ step(Config.LiftSeconds / 2)
 check(model.PrimaryPart.CFrame == initialAutoCFrame, "server skips per-frame PivotTo during table lift")
 check(model.UpperTorso.Anchored and not model.UpperTorso.CanCollide, "no collisions during lift")
 check(manual.altarToss.flightStarts == 0 and manualModel.PrimaryPart.CFrame == initialManualCFrame, "manual toss skips table lift and per-frame server PivotTo")
-check(automatic.altarToss.rest.Position.Y < manual.altarToss.rest.Position.Y, "simultaneous tosses have independent layers")
+check(near(automatic.altarToss.rest.Position, manual.altarToss.rest.Position) and near(automatic.altarToss.mouth.Position, Scene.AltarMouth.WorldCFrame.Position), "both sources feed the same furnace mouth")
 
 step(Config.LiftSeconds)
 check(model.PrimaryPart.CFrame == initialAutoCFrame and automatic.altarToss.flightStarts == Config.LiftSeconds, "server keeps body untouched at lift endpoint")
@@ -69,7 +69,7 @@ check(B.altarOwner == nil and events == 0, "server never switches altar body int
 
 local manualRest = manual.altarToss.rest
 local manualLandedAt = Config.FlightSeconds + landSeconds
-step(manualLandedAt)
+step(manualLandedAt + 0.02)
 check(manual.altarToss == nil and manual.convertEnds == manualLandedAt + 5 and manual.version == 2, "manual toss lands deterministically and starts conversion")
 check(manualModel:GetAttribute("PhysicsMode") == "AltarAnchored" and near(manualModel.PrimaryPart.CFrame.Position, manualRest.Position), "manual toss anchors at its altar rest pose")
 check(automatic.altarToss ~= nil and not automatic.convertEnds and model.PrimaryPart.CFrame == initialAutoCFrame, "table toss continues its own clock without per-frame PivotTo")
@@ -86,6 +86,8 @@ step(tableLandedAt)
 check(automatic.altarToss == nil and automatic.convertEnds == tableLandedAt + 5 and automatic.version == 2, "table toss completes landing and starts conversion once")
 check(near(model.PrimaryPart.CFrame.Position, tableRest.Position) and near(model.Head.CFrame.Position, headRest.Position), "landing aligns root and limbs to altar rest pose")
 check(model:GetAttribute("PhysicsMode") == "AltarAnchored", "final landing sets AltarAnchored mode")
+check(model.UpperTorso.Transparency == 1 and not model.UpperTorso.CanCollide and not model.UpperTorso.CanTouch and not model.UpperTorso.CanQuery,
+	"intake hides the authority body and disables all contacts")
 
 local conversion = automatic.convertEnds
 step(tableLandedAt + 1)
@@ -108,8 +110,8 @@ do
 	end
 	local unflippedItem = {id = "same-flip-id", model = unflippedModel, version = 1, location = "Altar", paintFlipped = false}
 	local flippedItem = {id = "same-flip-id", model = flippedModel, version = 1, location = "Altar", paintFlipped = true}
-	Carry.BeginAltarToss(unflippedItem, 0, true, 0)
-	Carry.BeginAltarToss(flippedItem, 0, true, 0)
+	Carry.BeginAltarToss(unflippedItem, true, 0)
+	Carry.BeginAltarToss(flippedItem, true, 0)
 	check(unflippedItem.altarToss.rest.LookVector:Dot(flippedItem.altarToss.rest.LookVector) < -0.9,
 		"flipped body lands face-down opposite to unflipped rest pose")
 	unflippedModel:Destroy()

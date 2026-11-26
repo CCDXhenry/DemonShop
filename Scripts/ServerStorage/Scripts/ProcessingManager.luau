@@ -829,6 +829,7 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 			} else nil,
 			altarToss = if item.altarToss then {
 				from = item.altarToss.from,
+				mouth = item.altarToss.mouth,
 				rest = item.altarToss.rest,
 				started = item.altarToss.started,
 				flightStarts = item.altarToss.flightStarts,
@@ -870,7 +871,7 @@ function Manager.Snapshot(self: Manager): Types.Snapshot
 		autoSmelterEnds = self.autoSmelterEnds,
 	}
 end
-function Manager.Changed(self: Manager): ()
+function Manager.Changed(self: Manager, altarOutput: Types.AltarOutput?): ()
 	for player, record in self.players do
 		player:SetAttribute("CarryBodyCount", self:CarryCount(player, record))
 	end
@@ -892,7 +893,7 @@ function Manager.Changed(self: Manager): ()
 		end
 	end
 	self.revision += 1
-	self.replication:Broadcast(self:Snapshot())
+	self.replication:Broadcast(self:Snapshot(), altarOutput)
 	FlushAutoRuneVisuals(self)
 end
 function Manager.Tell(_self: Manager, player: Player, textId: GameTexts.TextId, args: {string}?): ()
@@ -1047,12 +1048,8 @@ function Manager.ShelfKey(self: Manager): string
 	return table.concat(parts, ";")
 end
 function Manager.LaunchToAltar(self: Manager, item: Types.Item, started: number?): ()
-	local layer = 0
-	for _, other in self.items do
-		if other ~= item and other.kind == "Body" and other.location == "Altar" then layer += 1 end
-	end
 	local now = started or workspace:GetServerTimeNow()
-	local fromTable = item.location == "Table"
+	local fromTable = started ~= nil or item.location == "Table"
 	item.stage = "Converting"
 	item.location = "Altar"
 	item.flyEnds = nil
@@ -1062,12 +1059,12 @@ function Manager.LaunchToAltar(self: Manager, item: Types.Item, started: number?
 	if self.tableId == item.id then self.tableId = nil end
 	local holder = item.holder
 	local keep = holder ~= nil and self:HasOtherBodies(holder, item)
-	Carry.BeginAltarToss(item, layer, fromTable, now, not keep)
+	Carry.BeginAltarToss(item, fromTable, now, not keep)
 	if holder and keep then
 		self:Restack(holder)
 	end
 end
-function Manager.SpawnAltarPotion(self: Manager, item: Types.Item): ()
+function Manager.SpawnAltarPotion(self: Manager, item: Types.Item): string?
 	local quality = Config.DefaultPotionQuality
 	item.model:Destroy()
 	self.items[item.id] = nil
@@ -1078,8 +1075,11 @@ function Manager.SpawnAltarPotion(self: Manager, item: Types.Item): ()
 		self.shelfVisible[quality] = visible
 	end
 	if #visible < Config.ShelfVisibleLimit then
-		table.insert(visible, HttpService:GenerateGUID(false))
+		local id = HttpService:GenerateGUID(false)
+		table.insert(visible, id)
+		return id
 	end
+	return nil
 end
 local function BatchIds(session: PaintSession): { string }
 	local ids = {}
@@ -1186,6 +1186,7 @@ function Manager.EndPaint(self: Manager, player: Player): ()
 			altarTossStarted = item.altarToss.started
 			altarToss = {
 				from = item.altarToss.from,
+				mouth = item.altarToss.mouth,
 				rest = item.altarToss.rest,
 				started = item.altarToss.started,
 				flightStarts = item.altarToss.flightStarts,
@@ -2474,12 +2475,13 @@ function Manager.Update(self: Manager): ()
 			continue
 		end
 		if item.carryTransition then Carry.AdvanceTransition(item, now) end
-		if item.altarToss then
+		local altarToss = item.altarToss
+		if altarToss then
 			if not item.model:IsDescendantOf(workspace) then
 				self.items[item.id] = nil
 				changedMotion = true
 			elseif Carry.AdvanceAltarToss(item, now) then
-				item.convertEnds = now + Config.ConversionSeconds
+				item.convertEnds = altarToss.landEnds + Config.ConversionSeconds
 				changedMotion = true
 			end
 		elseif item.poolToss and item.poolToss.kind == "Manual" then
@@ -2608,9 +2610,14 @@ function Manager.Update(self: Manager): ()
 	table.sort(ready, function(a: Types.Item, b: Types.Item): boolean
 		return (a.convertEnds or 0) < (b.convertEnds or 0)
 	end)
+	local altarOutput: Types.AltarOutput? = nil
 	for _, item in ready do
 		if self.items[item.id] ~= item then continue end
-		self:SpawnAltarPotion(item)
+		local output: Types.AltarOutput = altarOutput or { bodyIds = {}, shelfIds = {} }
+		table.insert(output.bodyIds, item.id)
+		local shelfId = self:SpawnAltarPotion(item)
+		if shelfId then table.insert(output.shelfIds, shelfId) end
+		altarOutput = output
 		changed = true
 	end
 	if self.paint and not self:Root(self.paint.player) then
@@ -2619,7 +2626,7 @@ function Manager.Update(self: Manager): ()
 		changed = true
 	end
 	if changed then
-		self:Changed()
+		self:Changed(altarOutput)
 	else
 		FlushAutoRuneVisuals(self)
 	end

@@ -40,6 +40,7 @@ type LocalAltarToss = {
 	landEnds: number,
 	fromRoot: CFrame,
 	restRoot: CFrame,
+	mouth: CFrame,
 	fromTable: boolean,
 	settled: boolean,
 	parts: { LocalAltarPart },
@@ -353,21 +354,17 @@ local function ApplyAltarSettledPose(v: BodyView, toss: LocalAltarToss): ()
 	for _, part in toss.parts do
 		if part.visual.Parent == visual then
 			part.visual.CFrame = toss.restRoot * part.restOffset
+			part.visual.LocalTransparencyModifier = 1
 		end
 	end
 	toss.settled = true
 end
 
-local function StepAltarToss(v: BodyView, item: Types.ItemView, now: number): ()
+local function StepAltarToss(v: BodyView, now: number): ()
 	local toss = v.altarToss
 	local visual = v.visualModel
 	local visualRoot = visual and visual.PrimaryPart
 	if not toss or toss.settled or not visual or visual.Parent ~= workspace or not visualRoot then return end
-	if item.altarToss then
-		toss.restRoot = item.altarToss.rest
-	elseif v.authorityModel.PrimaryPart then
-		toss.restRoot = v.authorityModel.PrimaryPart.CFrame
-	end
 	if now >= toss.landEnds then
 		ApplyAltarSettledPose(v, toss)
 		return
@@ -375,10 +372,11 @@ local function StepAltarToss(v: BodyView, item: Types.ItemView, now: number): ()
 	local altarCfg = Physics.AltarToss
 	local liftHeight = if toss.fromTable then altarCfg.LiftHeight else 0
 	local launchRoot = toss.fromRoot + Vector3.yAxis * liftHeight
-	local dropRoot = toss.restRoot + Vector3.yAxis * altarCfg.DropClearance
+	local dropRoot = toss.restRoot.Rotation + (toss.mouth.Position + toss.mouth.UpVector * altarCfg.MouthClearance)
 	local rootCFrame: CFrame
 	local limbProgress = 0
 	local limbPitch = 0
+	local fade = 0
 	if now < toss.flightStarts then
 		local span = math.max(toss.flightStarts - toss.started, 0.001)
 		local raw = math.clamp((now - toss.started) / span, 0, 1)
@@ -398,16 +396,9 @@ local function StepAltarToss(v: BodyView, item: Types.ItemView, now: number): ()
 	else
 		local span = math.max(toss.landEnds - toss.flightEnds, 0.001)
 		local raw = math.clamp((now - toss.flightEnds) / span, 0, 1)
-		local touchSplit = 0.45
-		if raw < touchSplit then
-			local fallT = raw / touchSplit
-			local fallAlpha = fallT * fallT
-			rootCFrame = dropRoot:Lerp(toss.restRoot, fallAlpha)
-		else
-			local impactT = (raw - touchSplit) / (1 - touchSplit)
-			local bounce = math.sin(impactT * math.pi) * (1 - impactT) * (altarCfg.LandBounceStuds or 0.14)
-			rootCFrame = toss.restRoot + Vector3.yAxis * bounce
-		end
+		local alpha = SmoothStep(raw)
+		rootCFrame = dropRoot:Lerp(toss.restRoot, alpha)
+		fade = alpha
 		limbProgress = 0.85 + SmoothStep(raw) * 0.15
 		limbPitch = -math.sin(raw * math.pi) * (1 - raw) * 0.65
 	end
@@ -420,6 +411,8 @@ local function StepAltarToss(v: BodyView, item: Types.ItemView, now: number): ()
 			localFrame = localFrame * CFrame.Angles(limbPitch * part.swingAngle, 0, 0)
 		end
 		part.visual.CFrame = rootCFrame * localFrame
+		local original = v.hidden[part.source] or 0
+		part.visual.LocalTransparencyModifier = original + (1 - original) * fade
 	end
 end
 
@@ -484,6 +477,7 @@ local function BeginAltarToss(v: BodyView, item: Types.ItemView, fromTable: bool
 		landEnds = landEnds,
 		fromRoot = fromRoot,
 		restRoot = restRoot,
+		mouth = if tossInfo then tossInfo.mouth else restRoot + Vector3.yAxis * altarCfg.IntakeDepth,
 		fromTable = flightStarts > started,
 		settled = false,
 		parts = parts,
@@ -503,12 +497,11 @@ local function SyncAltarToss(v: BodyView, item: Types.ItemView): ()
 	end
 	if tossInfo then
 		current.restRoot = tossInfo.rest
+		current.mouth = tossInfo.mouth
 		current.flightStarts = tossInfo.flightStarts
 		current.flightEnds = tossInfo.flightStarts + Physics.AltarToss.FlightSeconds
 		current.landEnds = tossInfo.landEnds
 		current.fromTable = tossInfo.flightStarts > tossInfo.started
-	elseif started == nil and item.convertEnds ~= nil and v.authorityModel.PrimaryPart then
-		current.restRoot = v.authorityModel.PrimaryPart.CFrame
 	end
 end
 
@@ -938,7 +931,7 @@ function Manager.Step(self: Manager, now: number, seconds: number, painting: boo
 			continue
 		end
 		if v.mode == "Altar" and v.altarToss and not v.altarToss.settled then
-			StepAltarToss(v, item, now)
+			StepAltarToss(v, now)
 			continue
 		end
 		for sequence,prediction in v.predictionTokens do

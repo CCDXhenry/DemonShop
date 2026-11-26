@@ -34,7 +34,7 @@ local VisualUpload = require(script.Parent.VisualUpload)
 local WorldInteractionManager = require(script.Parent.WorldInteractionManager)
 local ManualThrow = require(script.Parent.ManualThrowController)
 local ThrowArc = require(Shared.ThrowArc)
-local AltarSacrifice = require(script.Parent.AltarSacrificeView)
+local AltarFurnace = require(script.Parent.AltarFurnaceView)
 local PotionShelf = require(script.Parent.PotionShelfView)
 local AutomationRules = require(Shared.AutomationRules)
 local ProcessingText = require(script.Parent.ProcessingTextTool)
@@ -76,9 +76,7 @@ export type Client = typeof(setmetatable(
 		attackTarget: string?,
 		comboEnds: number,
 		bodies: WhiteBodies.Manager,
-		altarViews: { [string]: AltarSacrifice.View },
-		altarIds: { [string]: boolean }?,
-		altarBodyId: string?,
+		altarFx: AltarFurnace.View,
 		altarLoopSound: Sound?,
 		potionShelf: PotionShelf.View,
 		autoPotionShelf: PotionShelf.View?,
@@ -145,6 +143,8 @@ local function Anchor(station: string, name: string): BasePart
 	return district:WaitForChild(station):WaitForChild(name) :: BasePart
 end
 local submitAnchor = district:WaitForChild("SummoningSubmitAnchor") :: BasePart
+local furnaceMouth = Anchor("SoulConversionAltar", "BodyRest"):WaitForChild("FurnaceMouth") :: Attachment
+local shelfSign = Anchor("SoulCrystalDisplay", "StationPlaque")
 local interactionAnchors: {[string]: BasePart} = {
 	Pool = Anchor("SoulHoldingPool", "PickupPointAnchor"),
 	Table = tableInteract,
@@ -263,9 +263,7 @@ function Client.new(): Client
 			attackTarget = nil,
 			comboEnds = 0,
 			bodies = bodies,
-			altarViews = {},
-			altarIds = {},
-			altarBodyId = nil,
+			altarFx = AltarFurnace.new(furnaceMouth, shelfSign),
 			altarLoopSound = nil,
 			potionShelf = PotionShelf.new(positions.Shelf),
 			autoPotionShelf = PotionShelf.new(positions.AutoShelf or Vector3.new(10.0, 2.0, -27.2), "AutoPotionShelfPresentation"),
@@ -490,7 +488,7 @@ function Client.TriggerAutoFlip(self: Client, animate: boolean): ()
 		end
 	end
 end
-function Client.ExitView(self: Client, altarTossStarted: number?): ()
+function Client.ExitView(self: Client, altarIntakeEnds: number?): ()
 	local id = self.paintId
 	if not id then
 		return
@@ -519,11 +517,17 @@ function Client.ExitView(self: Client, altarTossStarted: number?): ()
 	self.touch = nil
 	self.rotationAnchor = nil
 	self.angularSpeed = 0
-	if altarTossStarted then
-		local ends = altarTossStarted + Physics.AltarToss.LiftSeconds + Physics.AltarToss.CameraFollowSeconds
-		self.paintCamera:FollowToss(ends, function(): Vector3?
+	if altarIntakeEnds then
+		local ends = altarIntakeEnds + Physics.AltarToss.CameraPulseSeconds
+		self.paintCamera:FollowToss(ends, function(): Vector3
+			local mouth = furnaceMouth.WorldPosition
 			local torso = self.bodies:GetVisualPart(id, "UpperTorso")
-			return if torso and torso:IsDescendantOf(workspace) then torso.Position else nil
+			local now = workspace:GetServerTimeNow()
+			if torso and torso:IsDescendantOf(workspace) and now < altarIntakeEnds then
+				local blend = math.clamp(1 - (altarIntakeEnds - now) / Physics.AltarToss.LandSeconds, 0, 1)
+				return torso.Position:Lerp(mouth, blend)
+			end
+			return mouth
 		end)
 	else
 		self.paintCamera:Exit()
@@ -726,7 +730,11 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			for _, item in merged do table.insert(snapshot.items, item) end
 		end
 		self.snapshot = snapshot
-		self.potionShelf:Apply(snapshot.shelfItems, notice.kind == "Delta" and self.synced, os.clock())
+		local animate = notice.kind == "Delta" and self.synced
+		self.potionShelf:Apply(snapshot.shelfItems, animate, os.clock())
+		if animate and notice.altarOutput then
+			self:PlayAltarOutput(notice.altarOutput, snapshot.shelfItems)
+		end
 		if self.autoPotionShelf then
 			self.autoPotionShelf:Apply(snapshot.autoShelfItems or {}, notice.kind == "Delta" and self.synced, os.clock())
 		end
@@ -749,6 +757,10 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		end
 		for id, current in nextItems do
 			local prior = self.items[id]
+			local toss = current.altarToss
+			if animate and toss and (not prior or not prior.altarToss or prior.altarToss.landEnds ~= toss.landEnds) then
+				self.altarFx:ScheduleIntake(id, toss.landEnds)
+			end
 			if current.paintSlot and (not prior or not prior.paintSlot) then
 				table.insert(addedFollowers, id)
 			end
@@ -811,9 +823,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 							Sound.Play("PoolDeposit", positions.Pool)
 						elseif currentChute > lastChute then
 							Sound.Play("PoolDeposit", positions.Chute or positions.Pool)
-						elseif released and released.location == "Altar" then
-							Sound.Play("AltarPlace", positions.Altar)
-						else
+						elseif not released or released.location ~= "Altar" then
 							Sound.Play("BodyDrop")
 						end
 					end
@@ -855,7 +865,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		end
 		if self.paintId and (snapshot.painter ~= player.UserId or snapshot.session ~= self.session) then
 			local body = nextItems[self.paintId]
-			self:ExitView(if body then body.altarTossStarted else nil)
+			self:ExitView(if body and body.altarToss then body.altarToss.landEnds else nil)
 		end
 	elseif notice.kind == "Swing" and notice.actor and notice.started then
 		-- 本地已即时预测；远端其他角色在对应空间位置播放挥舞音效，避免服务端广播延迟与回声
@@ -953,13 +963,14 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 				item.location = "Altar"
 				item.stage = "Converting"
 				item.altarToss = notice.altarToss or item.altarToss
+				if self.synced and notice.altarToss then self.altarFx:ScheduleIntake(id, notice.altarToss.landEnds) end
 				item.altarTossStarted = notice.started or (if notice.altarToss then notice.altarToss.started else item.altarTossStarted)
 				if self.bodies and self.bodies.Bind then
 					self.bodies:Bind(item)
 				end
 			end
 		end
-		self:ExitView(notice.started or (if notice.altarToss then notice.altarToss.started else nil))
+		self:ExitView(if notice.altarToss then notice.altarToss.landEnds else nil)
 	elseif notice.kind == "Message" and (notice.textId or notice.text) then
 		self:Notice(notice)
 		self.messageEnds = os.clock() + 3
@@ -1639,91 +1650,44 @@ function Client.ResetPaintView(self: Client): ()
 	self.orientation,self.sentOrientation=CFrame.identity,CFrame.identity
 	Net.FireRequest({action="ResetView",session=self.session})
 end
+function Client.PlayAltarOutput(self: Client, output: Types.AltarOutput, slots: { [string]: CFrame }): ()
+	if self.altarFx:PlayOutput(output, slots, workspace:GetServerTimeNow()) then
+		Sound.Play("AltarComplete", self.altarFx.mouth.WorldPosition)
+	end
+end
+
 function Client.UpdateAltar(self: Client, now: number): ()
-	local active: { Types.ItemView } = {}
-	local seen: { [string]: boolean } = {}
-	for _, item in self.items do
-		if item.kind == "Body" and item.location == "Altar" then
-			table.insert(active, item)
-			seen[item.id] = true
-		end
-	end
-	local completed = false
-	local tracked = self.altarIds
-	if tracked then
-		for id in tracked do
-			if not seen[id] then
-				completed = true
-				break
+	local earliest: number? = nil
+	for id, item in self.items do
+		if item.kind ~= "Body" or item.location ~= "Altar" then continue end
+		local toss = item.altarToss
+		local ends = item.convertEnds
+		if toss and now >= toss.landEnds then ends = toss.landEnds + Config.ConversionSeconds end
+		if ends and (not earliest or ends < earliest) then earliest = ends end
+
+		if item.flyEnds then self.bodies:Fly(id, now) end
+		local flash = self.completeFlash
+		if toss then
+			local t = math.clamp(1 - (toss.landEnds - now) / Physics.AltarToss.LandSeconds, 0, 1)
+			if t > 0 then
+				self.view:SetSacrifice(id, 0, t * t * (3 - 2 * t))
 			end
-		end
-	elseif self.altarBodyId and not seen[self.altarBodyId] then
-		completed = true
-	end
-	if completed and Sound then
-		Sound.Play("AltarComplete", positions.Altar)
-	end
-	self.altarIds = seen
-	if #active == 0 then
-		local loopSound = self.altarLoopSound
-		if loopSound then
-			self.altarLoopSound = nil
-			if Sound and Sound.Stop then
-				Sound.Stop(loopSound)
-			else
-				loopSound:Stop()
-			end
-		end
-		for id, view in self.altarViews do
+		elseif item.flyEnds and (not flash or (flash.id ~= id and not table.find(flash.batch or {}, id))) then
 			self.view:ClearSacrifice(id)
-			view:Clear()
-			self.altarViews[id] = nil
-		end
-		self.altarBodyId = nil
-		return
-	end
-	if not self.altarLoopSound and Sound then
-		self.altarLoopSound = Sound.Play("AltarLoop", positions.Altar, nil, true)
-	end
-	local shelfFull = false
-	for _, item in active do
-		local model = self.bodies:GetAltarModel(item.id)
-		if not model then
-			self.view:ClearSacrifice(item.id)
-			local flying = self.altarViews[item.id]
-			if flying then flying:Clear(); self.altarViews[item.id] = nil end
-			continue
-		end
-		local tossing = self.bodies.IsAltarTossing and self.bodies:IsAltarTossing(item.id, now)
-		if (item.flyEnds and now < item.flyEnds) or tossing then
-			self.bodies:Fly(item.id, now)
-			if self.completeFlash == nil or (self.completeFlash.id ~= item.id and not table.find(self.completeFlash.batch or {}, item.id)) then
-				self.view:ClearSacrifice(item.id)
-			end
-			local flying = self.altarViews[item.id]
-			if flying then flying:Clear(); self.altarViews[item.id] = nil end
-			continue
-		end
-		self.bodies:Fly(item.id, now)
-		local view = self.altarViews[item.id]
-		if not view then
-			view = AltarSacrifice.new()
-			self.altarViews[item.id] = view
-		end
-		local convertEnds = item.convertEnds or ((if item.altarToss then item.altarToss.landEnds else now) + Config.ConversionSeconds)
-		local sample = view:Update(item.id, model, now, convertEnds, shelfFull)
-		if sample then
-			self.view:SetSacrifice(item.id, sample.brightness, sample.fade)
 		end
 	end
-	for id, view in self.altarViews do
-		if not seen[id] then
-			self.view:ClearSacrifice(id)
-			view:Clear()
-			self.altarViews[id] = nil
-		end
+
+	local fx = self.altarFx
+	local slots = if self.snapshot then self.snapshot.shelfItems else {}
+	if fx:Step(self.items, earliest, slots, now) then
+		Sound.Play("AltarPlace", fx.mouth.WorldPosition)
 	end
-	self.altarBodyId = active[1].id
+	if earliest and not self.altarLoopSound then
+		self.altarLoopSound = Sound.Play("AltarLoop", fx.mouth.WorldPosition, nil, true)
+	elseif not earliest and self.altarLoopSound then
+		Sound.Stop(self.altarLoopSound)
+		self.altarLoopSound = nil
+	end
 end
 function Client.UpdateAutomationViews(self: Client, snapshot: Types.Snapshot?): ()
 	local rawCoins = player:GetAttribute("Coins")
@@ -2037,27 +2001,11 @@ function Client.Destroy(self: Client): ()
 	if self.autoPotionShelf then
 		self.autoPotionShelf:Destroy()
 	end
-	if self.altarBodyId then self.view:ClearSacrifice(self.altarBodyId); self.altarBodyId = nil end
-	if self.altarIds then
-		for id in self.altarIds do
-			self.view:ClearSacrifice(id)
-		end
-		table.clear(self.altarIds)
-	end
-	local loopSound = self.altarLoopSound
-	if loopSound then
+	if self.altarLoopSound then
+		Sound.Stop(self.altarLoopSound)
 		self.altarLoopSound = nil
-		if Sound and Sound.Stop then
-			Sound.Stop(loopSound)
-		else
-			loopSound:Stop()
-		end
 	end
-	for id, view in self.altarViews do
-		self.view:ClearSacrifice(id)
-		view:Clear()
-		self.altarViews[id] = nil
-	end
+	self.altarFx:Destroy()
 	self.ignoreMouseMove, self.catchHardwareOrigin = false, false
 	self.bodies:Destroy()
 	self.view:Destroy()

@@ -191,7 +191,11 @@ function B.BuildDistrict(ranges)
 	altar.Parent = d
 	local altarAnchor = makePart(altar, 'BodyArrivalAnchor', Vector3.new(20, 2, 0))
 	attachPrompt(altarAnchor, ranges.Altar)
-	makePart(altar, 'BodyRest', Vector3.new(20, 1.25, 0), Vector3.new(9, 0.5, 5))
+	local rest = makePart(altar, 'BodyRest', Vector3.new(20, 1.25, 0), Vector3.new(9, 0.5, 5))
+	local mouth = Instance.new('Attachment')
+	mouth.Name = 'FurnaceMouth'
+	mouth.Position = Vector3.new(0, 4, 0)
+	mouth.Parent = rest
 
 	local display = Instance.new('Folder')
 	display.Name = 'SoulCrystalDisplay'
@@ -781,10 +785,11 @@ B.Carry = {
 			owner = thrower.UserId, started = B.now, chuteDropFrom = dropFrom, contact = contact, canEnterChute = canEnterChute,
 		}
 	end,
-	BeginAltarToss = function(item, _layer, _fromTable, now)
+	BeginAltarToss = function(item, _fromTable, now)
 		item.holder = nil
 		item.altarToss = {
 			from = CFrame.identity,
+			mouth = CFrame.identity,
 			rest = CFrame.identity,
 			started = now,
 			flightStarts = now,
@@ -810,6 +815,7 @@ B.Random = {
 }
 
 B.SoundMock = {
+	Stop = function(sound) sound:Stop() end,
 	Play = function(name, position, multiplier, looped)
 		local entry = {
 			name = name,

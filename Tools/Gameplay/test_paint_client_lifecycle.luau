@@ -34,7 +34,7 @@ local function client()
   },
   view=view,items={},synced=true,lastFrame=B.time,lastSync=B.time,lastHint=B.time,messageEnds=100,
   localProgress=0,localArea=0,localTotalArea=0,localFrontArea=0,localBackArea=0,localFrontTotalArea=0,localBackTotalArea=0,paintFlipped=false,flipFlash=nil,
-  hiddenPlayerParts={},altarViews={},altarView={Clear=function() end},
+  hiddenPlayerParts={},altarFx={Step=function() return false end},
   presentation={
    flipped=false,flipping=false,
    CapturePose=function() return nil end,

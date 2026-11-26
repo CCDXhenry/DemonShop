@@ -3,6 +3,7 @@ local R = require('@lune/roblox')
 local fs = require('@lune/fs')
 local CFrame, Vector3, Instance = R.CFrame, R.Vector3, R.Instance
 local B = require('./StationPotionBoundary')
+local AltarFurnace = require('./AltarFurnaceView')
 local Config = require('./GameConfig')
 local Scene = require('./StationScene')
 local Manager = require('./StationProcessingManager')
@@ -447,56 +448,60 @@ do
 	check(defaultOneShot ~= nil and defaultOneShot.Looped == false, 'GameSoundTool.Play one-shot template defaults to Looped = false')
 	SoundTool.Destroy()
 
-	-- 验证 Client:UpdateAltar 传 looped = true，且两具白膜在祭坛时第一具完成即触发 AltarComplete
+	-- 炉口反馈使用实际表现模块，只有一条落位光迹和完成音。
 	table.clear(B.soundPlays)
-	local dummyModel = Instance.new('Model')
+	local sign = Instance.new('Part')
+	sign.Position = Vector3.new(40, 3, 0)
+	local mouthFrame = CFrame.new(20, 5.25, 0)
+	local mouth = { WorldCFrame = mouthFrame, WorldPosition = mouthFrame.Position }
+	local fx = AltarFurnace.new(mouth, sign)
+	local oldNow = B.now
 	local altarClient = setmetatable({
 		items = {
 			a1 = { id = 'a1', kind = 'Body', location = 'Altar', convertEnds = 20 },
 			a2 = { id = 'a2', kind = 'Body', location = 'Altar', convertEnds = 25 },
 		},
-		altarViews = {},
-		altarBodyId = nil,
-		altarLoopSound = nil,
-		snapshot = { shelf = 0 },
-		bodies = {
-			GetAltarModel = function() return dummyModel end,
-			IsAltarTossing = function() return false end,
-			Fly = function() end,
-		},
-		view = {
-			ClearSacrifice = function() end,
-			SetSacrifice = function() end,
-		},
+		altarFx = fx,
+		snapshot = { shelfItems = {} },
 	}, Client)
-
+	fx:ScheduleIntake('a1', 10)
+	fx:ScheduleIntake('a2', 10)
+	altarClient:UpdateAltar(9.95)
+	check(#B.soundPlays == 1 and B.soundPlays[1].name == 'AltarLoop' and B.soundPlays[1].looped == true,
+		'UpdateAltar starts one loop for active conversion')
 	altarClient:UpdateAltar(10)
-	check(#B.soundPlays == 1 and B.soundPlays[1].name == 'AltarLoop' and B.soundPlays[1].looped == true, 'UpdateAltar starts AltarLoop with looped = true')
-
-	-- 第一具完成转化离开祭坛，第二具仍在转化
+	altarClient:UpdateAltar(10.01)
+	check(#B.soundPlays == 2 and B.soundPlays[2].name == 'AltarPlace', 'simultaneous intake plays exactly one place sound')
+	local firstSlot = CFrame.new(42, 3, 0)
+	local secondSlot = CFrame.new(43, 3, 0)
+	local slots = { p1 = firstSlot, p2 = secondSlot }
+	altarClient.snapshot.shelfItems = slots
 	altarClient.items.a1 = nil
-	altarClient:UpdateAltar(20)
-	local completeCount = 0
-	for _, s in B.soundPlays do
-		if s.name == 'AltarComplete' then
-			completeCount += 1
-		end
-	end
-	check(completeCount == 1 and altarClient.altarLoopSound ~= nil and not altarClient.altarLoopSound.stopped,
-		'UpdateAltar plays AltarComplete when first body finishes while keeping AltarLoop active for remaining body')
-
-	-- 第二具也完成转化
-	local loopHandle = altarClient.altarLoopSound
+	B.now = 20
+	local firstOutput = { bodyIds = { 'a1' }, shelfIds = { 'p1', 'p2' } }
+	altarClient:PlayAltarOutput(firstOutput, slots)
+	altarClient:PlayAltarOutput(firstOutput, slots)
+	check(#fx.flights == 1 and fx.flights[1].targetId == 'p1' and #B.soundPlays == 3 and B.soundPlays[3].name == 'AltarComplete',
+		'output starts one trajectory to the first new slot and rejects duplicate completion audio')
+	altarClient:UpdateAltar(20.34)
+	check(#fx.impacts == 2 and altarClient.altarLoopSound and not altarClient.altarLoopSound.stopped,
+		'all newly visible slots flash while remaining conversion keeps the same loop')
+	local loop = altarClient.altarLoopSound
 	altarClient.items.a2 = nil
-	altarClient:UpdateAltar(25)
-	completeCount = 0
-	for _, s in B.soundPlays do
-		if s.name == 'AltarComplete' then
-			completeCount += 1
-		end
-	end
-	check(completeCount == 2 and loopHandle.stopped and altarClient.altarLoopSound == nil,
-		'UpdateAltar stops AltarLoop and plays AltarComplete when final body finishes')
+	B.now = 25
+	local secondOutput = { bodyIds = { 'a2' }, shelfIds = { 'p1' } }
+	altarClient:PlayAltarOutput(secondOutput, slots)
+	altarClient.snapshot.shelfItems = {}
+	altarClient:UpdateAltar(25.1)
+	check(fx.flights[1] and fx.flights[1].targetId == nil, 'picking up output in flight redirects the trail to the shelf sign')
+	altarClient:UpdateAltar(25.5)
+	check(#fx.impacts == 1 and (fx.impacts[1].part.Position - (sign.Position + Vector3.yAxis * 0.55)).Magnitude < 0.001,
+		'collected or hidden output flashes the shelf sign')
+	check(loop.stopped and altarClient.altarLoopSound == nil, 'final output stops the shared altar loop')
+	fx:Destroy()
+	check(fx.folder.Parent == nil, 'altar effect view cleans up its pooled scene parts')
+	sign:Destroy()
+	B.now = oldNow
 end
 
 -- 6. P2-10: 校验 build-game-assets.luau 严禁在 legacy 表中包含任何基础框架事件或共享 UI 音效
@@ -742,9 +747,30 @@ do
 		local altarBody = makeWorldBody('m1-altar-' .. tostring(i), 'Converting', 'Altar')
 		altarBody.convertEnds = B.now - 1
 	end
+	m1:Changed()
+	table.clear(B.broadcasts)
 	m1.nextUpdate = 0
 	m1:Update()
 	local snapShelf = m1:Snapshot()
+	local output
+	for _, notice in B.broadcasts do
+		if notice.altarOutput then
+			check(output == nil and notice.kind == 'Delta', 'altar completion publishes one transient Delta per batch')
+			output = notice.altarOutput
+		end
+	end
+	check(output ~= nil, 'altar completion includes a batch output notification')
+	check(#output.bodyIds == 8 and #output.shelfIds == Config.ShelfVisibleLimit, 'one output batch includes all consumed bodies and only newly visible bottles')
+	local seenBodies = {}
+	for _, id in output.bodyIds do
+		check(not seenBodies[id] and m1.items[id] == nil, 'output lists each consumed body once')
+		seenBodies[id] = true
+	end
+	for _, id in output.shelfIds do
+		check(snapShelf.shelfItems[id] ~= nil, 'each output bottle ID resolves to an authoritative slot')
+	end
+	m1:Changed()
+	check(B.broadcasts[#B.broadcasts].altarOutput == nil, 'later deltas do not replay a completed batch')
 	local visibleShelfCount = 0
 	for _ in snapShelf.shelfItems do
 		visibleShelfCount += 1

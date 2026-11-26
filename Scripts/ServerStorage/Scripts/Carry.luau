@@ -7,6 +7,7 @@ local Ragdoll = require(script.Parent.Ragdoll)
 local NPC = require(script.Parent.NPC)
 local Scene = require(script.Parent.Scene)
 local Config = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
+local GameConfig = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local ThrowArc = require(ReplicatedStorage.Scripts.Shared.ThrowArc)
 local Ground = require(script.Parent.GroundAuthority)
 local PersonalRules = require(ReplicatedStorage.Scripts.Shared.PersonalUpgradeRules)
@@ -282,15 +283,20 @@ local function FreezePose(item: Types.Item, collision: boolean): ()
 		end
 	end
 end
-local function AnchorLanded(item: Types.Item, physicsMode: string, motionState: string): ()
-	-- 按落地姿态锚定，避免 SetMode("Static") 拉回休息姿态。
+local function AnchorAltarBody(item: Types.Item): ()
 	item.poolToss = nil
 	item.altarToss = nil
-	FreezePose(item, true)
+	FreezePose(item, false)
 	local model = item.model
-	model:SetAttribute("PhysicsMode", physicsMode)
-	model:SetAttribute("MotionState", motionState)
-	item.motionState = motionState
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.CanQuery = false
+			part.Transparency = 1
+		end
+	end
+	model:SetAttribute("PhysicsMode", "AltarAnchored")
+	model:SetAttribute("MotionState", "Altar")
+	item.motionState = "Altar"
 	item.version += 1
 end
 local function ReleasePool(item: Types.Item): ()
@@ -598,35 +604,20 @@ local function AltarRestOffset(part: BasePart, model: Model, pivot: CFrame): CFr
 	local rest = part:GetAttribute("RestPose")
 	return if typeof(rest) == "CFrame" then rest else pivot:ToObjectSpace(part.CFrame)
 end
-local function AltarRestPose(model: Model, pivot: CFrame, surface: CFrame): CFrame
-	-- 由整副白膜沿坛面法线的实际厚度确定落座高度。
-	local up = Scene.AltarRest.CFrame.UpVector
-	local bottom = math.huge
-	for _, part in model:GetChildren() do
-		if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
-			local pose = surface.Rotation * AltarRestOffset(part, model, pivot)
-			local half = part.Size * 0.5
-			local extent = math.abs(pose.RightVector:Dot(up)) * half.X
-				+ math.abs(pose.UpVector:Dot(up)) * half.Y
-				+ math.abs(pose.LookVector:Dot(up)) * half.Z
-			bottom = math.min(bottom, pose.Position:Dot(up) - extent)
-		end
-	end
-	return surface - up * (if bottom < math.huge then bottom else 0)
-end
-function Carry.BeginAltarToss(item: Types.Item, layer: number, fromTable: boolean, now: number, restoreTool: boolean?): ()
+function Carry.BeginAltarToss(item: Types.Item, fromTable: boolean, now: number, restoreTool: boolean?): ()
 	local from = item.model:GetPivot()
 	Carry.Detach(item, restoreTool)
 	FreezePose(item, false)
 	local flightStarts = now + (if fromTable then Altar.LiftSeconds else 0)
 	local landSeconds = Altar.LandSeconds or 0.32
-	local surface = Scene.AltarPilePose(item.id, layer)
-	if item.paintFlipped then
-		surface = surface * CFrame.Angles(0, math.pi, 0)
-	end
+	local mouth = Scene.AltarMouth.WorldCFrame
+	local yaw = if item.paintFlipped then math.pi else 0
+	local rest = mouth * CFrame.new(0, -Altar.IntakeDepth, 0) * CFrame.Angles(GameConfig.PaintLiePitch, 0, 0)
+		* CFrame.Angles(0, yaw, 0)
 	item.altarToss = {
 		from = from,
-		rest = AltarRestPose(item.model, from, surface),
+		mouth = mouth,
+		rest = rest,
 		started = now,
 		flightStarts = flightStarts,
 		landEnds = flightStarts + Altar.FlightSeconds + landSeconds,
@@ -649,7 +640,7 @@ function Carry.AdvanceAltarToss(item: Types.Item, now: number): boolean
 			part.CFrame = toss.rest * AltarRestOffset(part, model, pivot)
 		end
 	end
-	AnchorLanded(item, "AltarAnchored", "Altar")
+	AnchorAltarBody(item)
 	return true
 end
 function Carry.RecoverPool(item: Types.Item): ()

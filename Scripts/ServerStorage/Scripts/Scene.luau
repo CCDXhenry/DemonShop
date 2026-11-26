@@ -41,7 +41,8 @@ Scene.PoolFloor = Part(pool, "PoolFloor")
 Scene.Table = Part(district:WaitForChild("RuneBodyTable"), "BodyPlacementAnchor")
 Scene.TableInteract = Part(district:WaitForChild("RuneBodyTable"), "TransferStartAnchor")
 Scene.Altar = Part(district:WaitForChild("SoulConversionAltar"), "BodyArrivalAnchor")
-Scene.AltarRest = Part(district:WaitForChild("SoulConversionAltar"), "BodyRest")
+local altarRest = Part(district:WaitForChild("SoulConversionAltar"), "BodyRest")
+Scene.AltarMouth = altarRest:WaitForChild("FurnaceMouth") :: Attachment
 local display = district:WaitForChild("SoulCrystalDisplay")
 Scene.Shelf = Part(display, "StockPickupAnchor")
 local potionPointFolder = display:WaitForChild("PotionPoints")
@@ -158,28 +159,11 @@ function Scene.StationRange(target: string): number
 	end
 	return Config.InteractionRange
 end
-local function Unit(text: string, salt: number): number
-	local value = salt
-	for index = 1, #text do
-		value = (value * 33 + string.byte(text, index)) % 1000003
-	end
-	return value / 1000003
-end
 function Scene.TablePose(): CFrame
 	return PaintRotation.TablePose(Scene.Table.Position)
 end
 function Scene.CameraPose(count: number?): CFrame
 	return PaintRotation.CameraPose(Scene.Table.Position, count)
-end
-function Scene.AltarPilePose(id: string, layer: number): CFrame
-	local rest = Scene.AltarRest
-	local x = (Unit(id, 1) - 0.5) * 2 * math.clamp(rest.Size.X / 2 - 1.5, 0, Config.AltarPileSpread)
-	local z = (Unit(id, 4) - 0.5) * 2 * math.clamp(rest.Size.Z / 2 - 1.2, 0, Config.AltarPileSpread * 0.45)
-	local yaw = -math.pi / 2 + (Unit(id, 2) - 0.5) * math.pi / 4
-	local pitch = (Unit(id, 3) - 0.5) * 2 * Config.AltarPilePitch
-	local height = rest.Size.Y / 2 + layer * Config.AltarPileStep
-	return rest.CFrame * CFrame.new(x, height, z)
-		* CFrame.Angles(0, yaw, 0) * CFrame.Angles(Config.PaintLiePitch + pitch, 0, 0)
 end
 function Scene.PoolPose(slot: number): CFrame
 	return CFrame.new(Scene.PoolPickup.Position + Vector3.new(((slot - 1) % 4 - 1.5) * 4, 1.7, -5 - math.floor((slot - 1) / 4) * 4))

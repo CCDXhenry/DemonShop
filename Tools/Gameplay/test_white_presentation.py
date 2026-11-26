@@ -104,6 +104,7 @@ local workspace={GetServerTimeNow=function() return B.now end}
 local Vector2=R.Vector2
 local Random={new=function() return {} end}
 local Config=require('./PhysicsConfig')
+local GameConfig={PaintLiePitch=math.pi/2}
 local ThrowArc=require('./ThrowArc')
 local NPC={StopMotion=function() end}
 local Scene=require('./AltarScene')
@@ -137,16 +138,10 @@ end}
     ("item.model:PivotTo(", "PivotTo(item.model, "),
     ("model:PivotTo(", "PivotTo(model, "),
 ])
-scene = (server / "Scene.luau").read_text(encoding="utf-8")
-pile_pose = scene[scene.index("local function Unit("):scene.index("function Scene.TablePose(")]
-pile_pose += scene[scene.index("function Scene.AltarPilePose("):scene.index("function Scene.PoolPose(")]
 (OUT / "AltarScene.luau").write_text(roblox + """
-local bed=Instance.new("Part")
-bed.Size=Vector3.new(9,.5,5)
-bed.CFrame=CFrame.new(-12,1.25,-9)
-local Scene={AltarRest=bed}
-local Config={PaintLiePitch=math.pi/2,AltarPileSpread=1.2,AltarPilePitch=.2,AltarPileStep=.55}
-""" + pile_pose + "\nreturn Scene", encoding="utf-8")
+local mouth=CFrame.new(-12,6,-9)
+return {AltarMouth={WorldCFrame=mouth}}
+""", encoding="utf-8")
 processing = (server / "ProcessingManager.luau").read_text(encoding="utf-8")
 update = processing[processing.index("function Manager.Update("):processing.index("function Manager.Close(")]
 (OUT / "AltarProcessing.luau").write_text("""

@@ -33,6 +33,7 @@ export type PoolToss = {
 }
 export type AltarToss = {
 	from: CFrame,
+	mouth: CFrame,
 	rest: CFrame,
 	started: number,
 	flightStarts: number,
@@ -43,6 +44,7 @@ export type AltarToss = {
 }
 export type AltarTossView = {
 	from: CFrame,
+	mouth: CFrame,
 	rest: CFrame,
 	started: number,
 	flightStarts: number,
@@ -133,5 +135,6 @@ export type Snapshot = {
 	autoRuneEnds: number?,
 	autoSmelterEnds: number?,
 }
-export type Notice = { kind: string, paintBatch: { string }?, personalLevels: { [string]: number }?, attackSequence: number?, hit: boolean?, version: number?, hits: number?, hp: number?, maxHp: number?, weaponLevel: number?, attackPose: CFrame?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, flipped: boolean?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
+export type AltarOutput = { bodyIds: { string }, shelfIds: { string } }
+export type Notice = { altarOutput: AltarOutput?, kind: string, paintBatch: { string }?, personalLevels: { [string]: number }?, attackSequence: number?, hit: boolean?, version: number?, hits: number?, hp: number?, maxHp: number?, weaponLevel: number?, attackPose: CFrame?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, flipped: boolean?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
 return {}
