@@ -13,7 +13,7 @@ local InputReleaseGraceSeconds = 0.1
 local Manager = {}
 Manager.__index = Manager
 type PromptParent = BasePart | Model
-type Binding = { prompt: ProximityPrompt, scope: Lifecycle.Lifecycle, signature: string, holding: Rules.Action?, textValid: boolean, isDynamic: boolean }
+type Binding = { prompt: ProximityPrompt, scope: Lifecycle.Lifecycle, defaultHoldDuration: number, signature: string, holding: Rules.Action?, textValid: boolean, isDynamic: boolean }
 type CachedItem = {
 	kind: string,
 	stage: string,
@@ -57,16 +57,16 @@ function Manager.new(anchors: {[string]: BasePart}, readState: () -> State): Man
 	return setmetatable({bindings={}, anchors=anchors, readState=readState, suppressUntil=0, recovering=false, cache=nil}, Manager)
 end
 function Manager.GetTemplatePrompt(self: Manager): ProximityPrompt
+	local ui = ReplicatedStorage:FindFirstChild("UI")
+	local template = ui and ui:FindFirstChild("WorldInteractionPrompt")
+	if template and template:IsA("ProximityPrompt") then
+		return template
+	end
 	for _, anchor in self.anchors do
 		local prompt = anchor:FindFirstChild("WorldInteractionPrompt")
 		if prompt and prompt:IsA("ProximityPrompt") then
 			return prompt
 		end
-	end
-	local ui = ReplicatedStorage:FindFirstChild("UI")
-	local fallback = ui and ui:FindFirstChild("WorldInteractionPrompt")
-	if fallback and fallback:IsA("ProximityPrompt") then
-		return fallback
 	end
 	error("未找到 WorldInteractionPrompt 模板实例")
 end
@@ -112,21 +112,25 @@ function Manager.Create(self: Manager, target: string, anchor: PromptParent): Bi
 		end
 	else
 		prompt = self:GetTemplatePrompt():Clone()
+		prompt.RequiresLineOfSight = false
+		prompt.MaxActivationDistance = Config.InteractionRange
 		prompt.Parent = anchor
 	end
 	prompt.Enabled = false
 	if prompt.MaxActivationDistance <= 0 then
 		prompt.MaxActivationDistance = Config.InteractionRange
 	end
-	local binding: Binding = {prompt=prompt, scope=Lifecycle.new(), signature="", textValid=false, isDynamic=not isStation}
+	local binding: Binding = {prompt=prompt, scope=Lifecycle.new(), defaultHoldDuration=prompt.HoldDuration, signature="", textValid=false, isDynamic=not isStation}
 	self.bindings[target] = binding
 	binding.scope:Connect(prompt.PromptButtonHoldBegan:Connect(function(): ()
+		if prompt.HoldDuration <= 0 then return end
 		local action = self:Resolve(target)
 		if not prompt.Enabled or not action or action.signature ~= binding.signature then return end
 		binding.holding = action
 		self.suppressUntil = os.clock() + InputReleaseGraceSeconds
 	end))
 	binding.scope:Connect(prompt.PromptButtonHoldEnded:Connect(function(): ()
+		if prompt.HoldDuration <= 0 then return end
 		local holding = binding.holding
 		self.suppressUntil = os.clock() + InputReleaseGraceSeconds
 		-- 引擎完成长按时也可能先发出 HoldEnded；当前事件批次完成后再释放令牌。
@@ -137,8 +141,9 @@ function Manager.Create(self: Manager, target: string, anchor: PromptParent): Bi
 		local holding, current = binding.holding, self:Resolve(target)
 		binding.holding = nil
 		self.suppressUntil = os.clock() + InputReleaseGraceSeconds
-		if not prompt.Enabled or not holding or not current or holding.signature ~= current.signature then return end
-		Net.FireRequest({action="Interact", target=holding.target, version=holding.version})
+		if not prompt.Enabled or not current or current.signature ~= binding.signature then return end
+		if prompt.HoldDuration > 0 and (not holding or holding.signature ~= current.signature) then return end
+		Net.FireRequest({action="Interact", target=current.target, version=current.version})
 	end))
 	return binding
 end
@@ -358,6 +363,7 @@ function Manager.Refresh(self: Manager): ()
 			binding.signature = signature
 			binding.textValid = false
 			if action then
+				binding.prompt.HoldDuration = if action.instant then 0 else binding.defaultHoldDuration
 				local text, object = GameTexts.GetEntry(action.action), GameTexts.GetEntry(action.object)
 				if text and object then
 					TranslationTool.CustomAutoLocalizeProximityPrompt(binding.prompt, text.source, text.key, nil, object.source, object.key, nil)

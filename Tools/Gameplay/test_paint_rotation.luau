@@ -59,16 +59,20 @@ local radii = Rotation.EllipsoidRadii(geometry)
 check(math.abs(radii.X - Config.PaintEllipsoidScale) < 1e-5 and math.abs(radii.Y - 2 * Config.PaintEllipsoidScale) < 1e-5,
 	'EllipsoidRadii scales halfExtents by PaintEllipsoidScale')
 local neutralCenter = base:PointToWorldSpace(geometry.center)
-check(base.Position == placement and (Rotation.CameraPose(placement).Position - placement - V3.yAxis * Config.PaintCameraHeight).Magnitude < 1e-5,
+check(base.Position == placement and (Rotation.CameraPose(placement).Position - placement - Config.PaintCameraOffset * Config.PaintCameraHeight).Magnitude < 1e-5,
 	'table and camera use the workspace placement anchor')
 local flatAtOrigin = Rotation.TablePose(V3.zero)
 check((flatAtOrigin.UpVector - V3.xAxis).Magnitude < 1e-5 and (flatAtOrigin.LookVector - V3.yAxis).Magnitude < 1e-5,
 	'table pose points the head east and the chest upward')
 local overhead = Rotation.CameraPose(V3.zero)
-check((overhead.UpVector - V3.zAxis).Magnitude < 1e-5 and (overhead.Position - V3.yAxis * Config.PaintCameraHeight).Magnitude < 1e-5,
-	'paint camera sits overhead with the far side at the top of the screen')
-check(Config.PaintCameraHeight == 10.5 and Config.BrushRadius == 0.18,
-	'paint camera height clears overhead slab and brush radius matches rune stamp size')
+check((overhead.UpVector - Config.PaintCameraUp).Magnitude < 1e-5 and (overhead.RightVector - Config.PaintCameraRight).Magnitude < 1e-5 and (overhead.Position - Config.PaintCameraOffset * Config.PaintCameraHeight).Magnitude < 1e-5,
+	'paint camera pose comes from GameConfig')
+local tilt = Config.PaintCameraTilt
+local obliqueOffset = V3.new(0, math.cos(tilt), -math.sin(tilt))
+local obliqueUp = V3.new(0, math.sin(tilt), math.cos(tilt))
+local toAnchor = (V3.zero - overhead.Position).Unit
+check(math.abs(tilt - math.rad(35)) < 1e-6 and (Config.PaintCameraOffset - obliqueOffset).Magnitude < 1e-5 and (Config.PaintCameraUp - obliqueUp).Magnitude < 1e-5 and (Config.PaintCameraRight + V3.xAxis).Magnitude < 1e-5 and overhead.LookVector:Dot(toAnchor) > 0.999 and Config.PaintCameraHeight == 10.5 and Config.BrushRadius == 0.18,
+	'paint camera looks obliquely from the sign side, keeps the far side at the top, and brush radius matches rune stamp size')
 for _, angles in { V.new(0, math.pi / 2), V.new(math.pi / 2, 0), V.new(-2.4, 1.8), V.new(math.pi, math.pi) } do
 	local turnedPose = Rotation.Pose(base, geometry, C.Angles(angles.Y, angles.X, 0.4))
 	check((turnedPose:PointToWorldSpace(geometry.center) - neutralCenter).Magnitude < 1e-5,
@@ -95,9 +99,10 @@ Config.PaintRotationEnabled = false
 torso:Destroy()
 
 -- 3. 3D 椭圆体解析投影验证（内部 1:1 跟随，外部严格贴合透视地平线，旋转窄侧面平滑收窄无跳动）。
-local camPos = Rotation.CameraPose(V3.zero).Position
+-- 笔刷几何夹具固定正上方投影，不跟随可调的斜视机位。
+local camPos = V3.yAxis * Config.PaintCameraHeight
 local perspCam = {
-	CFrame = Rotation.CameraPose(V3.zero),
+	CFrame = C.fromMatrix(camPos, -V3.xAxis, V3.zAxis),
 	ViewportSize = viewport,
 	WorldToScreenPoint = function(_, p)
 		local rel = p - camPos

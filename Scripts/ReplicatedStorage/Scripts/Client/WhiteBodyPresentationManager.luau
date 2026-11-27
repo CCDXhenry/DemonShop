@@ -4,6 +4,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local GameConfig = require(script.Parent.Parent.Shared.GameConfig)
 local Physics = require(script.Parent.Parent.Shared.PhysicsConfig)
+local CageGeometry = require(script.Parent.Parent.Shared.CageGeometry)
 local HitRules = require(script.Parent.Parent.Shared.HitFeedbackRules)
 local Rotation = require(script.Parent.Parent.Shared.PaintRotation)
 local Types = require(script.Parent.Parent.Shared.GameTypes)
@@ -16,8 +17,12 @@ local Impact = require(script.Parent.ImpactReaction)
 local Mixer = require(script.Parent.PoseMixer)
 local Fall = require(script.Parent.LocalRagdoll)
 local ManualThrow = require(script.Parent.ManualThrowPresentation)
+local CageImpactView = require(script.Parent.CageImpactView)
 local Sound = require(script.Parent.Parent.Shared.GameSoundTool)
 local Input = game:GetService("UserInputService")
+local StreetPositionResponse = 34
+local StreetCorrectionSpeed = 26
+local StreetTurnSpeed = math.rad(540)
 local Manager = {}
 Manager.__index = Manager
 type AuthorityHandoff = {
@@ -52,6 +57,7 @@ type BodyView = {
 	altarToss: LocalAltarToss?,
 	manualToss: ManualThrow.State?,
 	manualVisible: boolean?,
+	streetLookYaw: number?,
 	offsets: {[string]: CFrame}, modelSince: number, boundAt: number, impacts: Impact.State, finalVersion: number?, mode: string, requested: string, jointMap: Adapter.Map, sourceJoints: Adapter.Map, rootTarget: BasePart?,
 	physicsMask: {[string]: boolean}, predictionTokens: {[number]: HitRules.Prediction},
 	cleanup: {RBXScriptConnection}, hidden: {[BasePart]: number}, dirty: boolean, retryAt: number, diagnostic: string?,
@@ -64,12 +70,16 @@ export type Manager = typeof(setmetatable({} :: {
 	onDisplay: (string, Model?) -> (), phases: {RBXScriptConnection}, debugEndpoint: BindableFunction?,
 	flyOrigin: { [string]: CFrame }, rootMissingAt: { [string]: number }, rootWarned: { [string]: boolean },
 	manualImpacts: { [string]: { started: number, lastPlayed: number, played: boolean, connections: { RBXScriptConnection } } },
+	softCageState: { [string]: { prevPos: Vector3, wallCooldowns: { [string]: number } } },
+	baffleConnections: { RBXScriptConnection },
+	baffleCooldowns: { [string]: number },
+	baffleBound: boolean,
 }, Manager))
 function Manager.new(tableView: TableView.Presentation, hitView: HitView.Presentation, onDisplay: (string, Model?) -> ()): Manager
 	local self: Manager = setmetatable({views={}, items={}, enabled=true, destroyed=false, generation=0, step=0,
 		contacts={}, retiredAt={}, lastPositions={}, queries=0, contactEnabled=true, impactEnabled=true, fallEnabled=true, pureModel=false,
 		tableView=tableView, hitView=hitView, onDisplay=onDisplay, phases={}, flyOrigin={}, rootMissingAt={}, rootWarned={},
-		manualImpacts={}}, Manager)
+		manualImpacts={}, softCageState={}, baffleConnections={}, baffleCooldowns={}, baffleBound=false}, Manager)
 	hitView.managed = function(id, source)
 		local v = self.views[id]
 		return v ~= nil and v.mode == "Street" and v.authorityModel == source
@@ -122,7 +132,18 @@ local function Release(self: Manager, v: BodyView)
 	end
 	table.clear(v.jointMap)
 	table.clear(v.sourceJoints)
-	for _,prediction in v.predictionTokens do prediction.resolved=true; prediction.retired=true end
+	for _,prediction in v.predictionTokens do
+		if prediction.targets then
+			prediction.targets[v.id] = nil
+			if next(prediction.targets) == nil then
+				prediction.resolved = true
+				prediction.retired = true
+			end
+		else
+			prediction.resolved = true
+			prediction.retired = true
+		end
+	end
 	table.clear(v.predictionTokens)
 end
 local function ReleaseManualImpact(self: Manager, id: string): ()
@@ -144,6 +165,7 @@ function Manager.Unbind(self: Manager, id: string)
 	self.flyOrigin[id] = nil
 	self.rootMissingAt[id] = nil
 	self.rootWarned[id] = nil
+	self.softCageState[id] = nil
 	ReleaseManualImpact(self, id)
 	if v then Release(self,v); self.onDisplay(id,nil) end
 end
@@ -241,14 +263,28 @@ local function Prepare(self: Manager, v: BodyView, receivedPose: Types.BodyPose?
 	v.mode = v.requested
 	return true
 end
+-- 街道展示根在本地逐帧收敛，保留本地受击动作和上一帧的位置、朝向。
+local function FollowStreetRoot(current: CFrame, target: CFrame, dt: number): CFrame
+	local seconds = math.clamp(dt, 0, 0.05)
+	local blend = 1 - math.exp(-StreetPositionResponse * seconds)
+	local delta = target.Position - current.Position
+	local positionRatio = math.min(blend, StreetCorrectionSpeed * seconds / math.max(delta.Magnitude, 1e-6))
+	local _, angle = (current.Rotation:Inverse() * target.Rotation):ToAxisAngle()
+	local turnRatio = math.min(blend, StreetTurnSpeed * seconds / math.max(angle, 1e-6))
+	return CFrame.new(current.Position + delta * positionRatio) * current.Rotation:Lerp(target.Rotation, turnRatio)
+end
+
 local function BeginFall(self: Manager,v: BodyView,fall: Types.GroundFall,late: boolean)
 	local cfg=Tuning.GetEffectiveConfig()
 	local cap=math.floor(if Input.TouchEnabled then cfg.Fall.MobileBodies else cfg.Fall.DesktopBodies)
 	local active=if self.tableView.dynamic then 1 else 0
 	for _,other in self.views do if other.fall and other.fall.active then active+=1 end end
 	local camera=workspace.CurrentCamera
-	local near=camera and (camera.CFrame.Position-fall.target.Position).Magnitude<=cfg.Fall.NearStuds
 	local root=assert(assert(v.visualModel).PrimaryPart)
+	local near=camera and math.min(
+		(camera.CFrame.Position-fall.target.Position).Magnitude,
+		(camera.CFrame.Position-root.CFrame.Position).Magnitude
+	)<=cfg.Fall.NearStuds
 	local settled=late or near~=true or workspace:GetServerTimeNow()-fall.started>cfg.Fall.PhysicsSeconds
 	local state=Fall.Begin(root,v.jointMap,fall,v.history or {},v.sampleDt or 0,cfg,self.fallEnabled and active<cap,settled)
 	v.fall,v.physicsMask=state,state.mask
@@ -716,7 +752,11 @@ function Manager.UpdateState(self: Manager, items: {[string]: Types.ItemView}, t
 end
 function Manager.TrackPrediction(self: Manager, id: string, sequence: number, prediction: HitRules.Prediction)
 	local v = self.views[id]
-	if v then v.predictionTokens[sequence] = prediction else prediction.resolved = true end
+	if v then
+		v.predictionTokens[sequence] = prediction
+	elseif prediction.targets == nil then
+		prediction.resolved = true
+	end
 end
 function Manager.SetEnabled(self: Manager, enabled: boolean)
 	if self.destroyed or self.enabled == enabled then return end
@@ -817,7 +857,7 @@ local function DrivePoolToss(item: Types.ItemView, now: number): ()
 	local model = item.model
 	if not toss or toss.kind == "Manual" or not player or toss.owner ~= player.UserId or not model or not model.Parent then return end
 	local root = model.PrimaryPart
-	if (root and root.Anchored) or model:GetAttribute("MotionState") == "ChutePile" then return end
+	if (root and root.Anchored) or model:GetAttribute("MotionState") == "ChutePile" or model:GetAttribute("CageContained") then return end
 	local duration = Physics.PoolTossSeconds
 	local elapsed = now - toss.started
 	if elapsed < duration then
@@ -840,6 +880,231 @@ local function DrivePoolToss(item: Types.ItemView, now: number): ()
 		end
 	end
 end
+local function IsSoftCageEnabled(container: Instance?): boolean
+	return container ~= nil and container:GetAttribute("SoftCageEnabled") == true
+end
+
+local function JointSettings(name: string): Physics.Joint
+	for key, candidate in Physics.Joints do
+		if string.find(name, key, 1, true) then
+			return candidate
+		end
+	end
+	return Physics.Joints.Shoulder
+end
+
+local function ApplyLocalCageContainment(model: Model, started: number, cageKind: string?): ()
+	if cageKind and model:GetAttribute("LocalCageKind") ~= cageKind then
+		model:SetAttribute("LocalCageKind", cageKind)
+	end
+	if model:GetAttribute("LocalCagePreContained") == started then return end
+	model:SetAttribute("LocalCagePreContained", started)
+	local manual = Physics.ManualThrow
+	local groundProps = PhysicalProperties.new(
+		manual.GroundDensity,
+		manual.GroundFriction,
+		manual.GroundElasticity,
+		manual.GroundFrictionWeight,
+		manual.GroundElasticityWeight
+	)
+	local damping = Physics.Cage.EntryHorizontalDamping
+	local maxHoriz = Physics.Cage.EntryMaxHorizontalSpeed
+	local jointScale = manual.GroundJointFrictionScale
+	for _, node in model:GetDescendants() do
+		if node:IsA("BallSocketConstraint") then
+			node.MaxFrictionTorque = JointSettings(node.Name).friction * jointScale
+		elseif node:IsA("BasePart") then
+			node.CollisionGroup = Physics.CageContainedGroup
+			if node.Name ~= "HumanoidRootPart" then
+				node.CustomPhysicalProperties = groundProps
+			end
+			if not node.Anchored then
+				local v = node.AssemblyLinearVelocity
+				local flat = Vector3.new(v.X, 0, v.Z) * damping
+				if flat.Magnitude > maxHoriz then
+					flat = flat.Unit * maxHoriz
+				end
+				node.AssemblyLinearVelocity = Vector3.new(flat.X, v.Y, flat.Z)
+			end
+		end
+	end
+end
+
+local function TryLocalCagePreContain(model: Model, started: number): ()
+	if model:GetAttribute("LocalCagePreContained") == started then return end
+	local contained = model:GetAttribute("CageContained") :: string?
+	if contained then
+		ApplyLocalCageContainment(model, started, contained)
+		return
+	end
+	local torso = model:FindFirstChild("UpperTorso")
+	if not torso or not torso:IsA("BasePart") then return end
+	local district = workspace:FindFirstChild("NeonContractDistrict")
+	if not district then return end
+
+	local entered: string? = nil
+	local pool = district:FindFirstChild("SoulHoldingPool")
+	local poolFloor = if pool then pool:FindFirstChild("PoolFloor") else nil
+	local poolWalls = if pool then pool:FindFirstChild("AirWalls") else nil
+	if poolFloor and poolFloor:IsA("BasePart") and IsSoftCageEnabled(poolWalls)
+		and CageGeometry.Contains(poolFloor.CFrame, poolFloor.Size, torso.Position, Physics.Cage.PoolWallInset)
+	then
+		entered = "Pool"
+	end
+	if not entered then
+		local autoLine = district:FindFirstChild("AutomationLine")
+		local landing = if autoLine then autoLine:FindFirstChild("FastChuteLanding") else nil
+		local dropZone = if landing then landing:FindFirstChild("DropZone") else nil
+		local chuteWalls = if landing then landing:FindFirstChild("AirWalls") else nil
+		if dropZone and dropZone:IsA("BasePart") and IsSoftCageEnabled(chuteWalls)
+			and CageGeometry.Contains(dropZone.CFrame, dropZone.Size, torso.Position, Physics.Cage.ChuteWallInset)
+		then
+			entered = "Chute"
+		end
+	end
+	if not entered then return end
+	ApplyLocalCageContainment(model, started, entered)
+end
+
+local function LocalRootPosition(): Vector3?
+	local localPlayer = Players.LocalPlayer
+	local character = if localPlayer then localPlayer.Character else nil
+	local root = if character then character:FindFirstChild("HumanoidRootPart") else nil
+	if root and root:IsA("BasePart") then
+		return root.Position
+	end
+	local okCam, camera = pcall(function(): Camera?
+		return workspace.CurrentCamera
+	end)
+	return if okCam and camera then camera.CFrame.Position else nil
+end
+
+local function BindLocalBaffles(self: Manager): ()
+	if self.baffleBound then return end
+	local district = workspace:FindFirstChild("NeonContractDistrict")
+	local autoLine = if district then district:FindFirstChild("AutomationLine") else nil
+	local baffles = if autoLine then autoLine:FindFirstChild("ChuteThrowBaffles") else nil
+	if not baffles then return end
+	self.baffleBound = true
+	for _, wall in baffles:GetChildren() do
+		if not wall:IsA("BasePart") then continue end
+		local conn = wall.Touched:Connect(function(other: BasePart): ()
+			if self.destroyed or not wall.CanCollide or not other.CanCollide then return end
+			local body = other:FindFirstAncestorOfClass("Model")
+			local id = if body then body:GetAttribute("ItemId") :: string? else nil
+			local item = if id then self.items[id] else nil
+			if not item or item.kind ~= "Body" or item.model ~= body then return end
+			if other.AssemblyLinearVelocity.Magnitude < Physics.Cage.ImpactMinSpeed then return end
+			local nowClock = os.clock()
+			local key = (id :: string) .. ":" .. wall.Name
+			if nowClock < (self.baffleCooldowns[key] or 0) then return end
+			local position = wall:GetClosestPointOnSurface(other.Position)
+			local rootPos = LocalRootPosition()
+			if not rootPos or (rootPos - position).Magnitude > Physics.Cage.ImpactRange then return end
+			self.baffleCooldowns[key] = nowClock + Physics.Cage.ImpactCooldown
+			CageImpactView.Play(wall, position)
+		end)
+		table.insert(self.baffleConnections, conn)
+	end
+end
+
+type CageSpec = { floor: BasePart, inset: number, parent: Instance }
+
+local function ActiveSoftCages(): { [string]: CageSpec }?
+	local district = workspace:FindFirstChild("NeonContractDistrict")
+	if not district then return nil end
+	local result: { [string]: CageSpec } = {}
+	local pool = district:FindFirstChild("SoulHoldingPool")
+	local poolFloor = if pool then pool:FindFirstChild("PoolFloor") else nil
+	local poolWalls = if pool then pool:FindFirstChild("AirWalls") else nil
+	if poolFloor and poolFloor:IsA("BasePart") and poolWalls and IsSoftCageEnabled(poolWalls) then
+		result.Pool = { floor = poolFloor, inset = Physics.Cage.PoolWallInset, parent = poolWalls }
+	end
+	local autoLine = district:FindFirstChild("AutomationLine")
+	local landing = if autoLine then autoLine:FindFirstChild("FastChuteLanding") else nil
+	local dropZone = if landing then landing:FindFirstChild("DropZone") else nil
+	local chuteWalls = if landing then landing:FindFirstChild("AirWalls") else nil
+	if dropZone and dropZone:IsA("BasePart") and chuteWalls and IsSoftCageEnabled(chuteWalls) then
+		result.Chute = { floor = dropZone, inset = Physics.Cage.ChuteWallInset, parent = chuteWalls }
+	end
+	return if next(result) ~= nil then result else nil
+end
+
+local function StepSoftCages(self: Manager, dt: number): ()
+	local cages = ActiveSoftCages()
+	local localPlayer = Players.LocalPlayer
+	local localUserId = if localPlayer then localPlayer.UserId else nil
+	local rootPos = LocalRootPosition()
+	local nowClock = os.clock()
+	for id, item in self.items do
+		local model = item.model
+		if item.kind ~= "Body" or not model or not model:IsDescendantOf(workspace) then
+			self.softCageState[id] = nil
+			continue
+		end
+		if item.location ~= "Thrown" and model:GetAttribute("LocalCageKind") ~= nil then
+			model:SetAttribute("LocalCageKind", nil)
+		end
+		if item.location ~= "Thrown" and item.location ~= "Pool" and item.location ~= "Chute" and item.location ~= "Ground" then
+			self.softCageState[id] = nil
+			continue
+		end
+		local cage = (model:GetAttribute("CageContained") :: string?)
+			or (if item.location == "Thrown" then model:GetAttribute("LocalCageKind") :: string? else nil)
+		local spec = if cage and cages then cages[cage] else nil
+		if not spec then
+			self.softCageState[id] = nil
+			continue
+		end
+		local torso = model:FindFirstChild("UpperTorso") or model.PrimaryPart
+		if not torso or not torso:IsA("BasePart") or torso.Anchored then
+			self.softCageState[id] = nil
+			continue
+		end
+		local state = self.softCageState[id]
+		if not state then
+			state = { prevPos = torso.Position, wallCooldowns = {} }
+			self.softCageState[id] = state
+		end
+		local ownerAttr = model:GetAttribute("PhysicsOwnerUserId")
+		local isOwner = localUserId ~= nil and (
+			ownerAttr == localUserId
+			or (item.location == "Thrown" and item.toss ~= nil and item.toss.owner == localUserId)
+		)
+		if isOwner then
+			local result = CageGeometry.ApplySoftBounceToModel(model, spec.floor.CFrame, spec.floor.Size, spec.inset)
+			if result and result.hitWall and result.hitPosition and result.hitNormal then
+				local wall = result.hitWall
+				if nowClock >= (state.wallCooldowns[wall] or 0)
+					and rootPos ~= nil
+					and (rootPos - result.hitPosition).Magnitude <= Physics.Cage.ImpactRange
+				then
+					state.wallCooldowns[wall] = nowClock + Physics.Cage.ImpactCooldown
+					CageImpactView.PlayAt(result.hitPosition, result.hitNormal, false, spec.parent)
+				end
+			end
+		else
+			local impact = CageGeometry.DetectSoftImpact(
+				spec.floor.CFrame,
+				spec.floor.Size,
+				spec.inset,
+				state.prevPos,
+				torso.Position,
+				torso.AssemblyLinearVelocity,
+				dt
+			)
+			if impact and nowClock >= (state.wallCooldowns[impact.wall] or 0)
+				and rootPos ~= nil
+				and (rootPos - impact.position).Magnitude <= Physics.Cage.ImpactRange
+			then
+				state.wallCooldowns[impact.wall] = nowClock + Physics.Cage.ImpactCooldown
+				CageImpactView.PlayAt(impact.position, impact.normal, false, spec.parent)
+			end
+		end
+		state.prevPos = torso.Position
+	end
+end
+
 local function DriveManualToss(self: Manager, item: Types.ItemView, now: number): ()
 	local toss = item.toss
 	local model = item.model
@@ -871,6 +1136,7 @@ local function DriveManualToss(self: Manager, item: Types.ItemView, now: number)
 			if part and part:IsA("BasePart") then
 				local conn = part.Touched:Connect(function(other: BasePart): ()
 					if not other.CanCollide or other:IsDescendantOf(model) then return end
+					if other.CollisionGroup == Physics.CageWallGroup and not model:GetAttribute("CageContained") then return end
 					if ownerCharacter and other:IsDescendantOf(ownerCharacter) then return end
 					local speed = part.AssemblyLinearVelocity.Magnitude
 					if speed < manualCfg.ImpactSoundMinSpeed then return end
@@ -888,18 +1154,22 @@ local function DriveManualToss(self: Manager, item: Types.ItemView, now: number)
 	if not player or toss.owner ~= player.UserId then return end
 	local root = model.PrimaryPart
 	if root and root.Anchored then return end
-	if model:GetAttribute("ManualTossLaunched") == toss.started then return end
-	model:SetAttribute("ManualTossLaunched", toss.started)
-	if now - toss.started > 0.35 then return end
-	local velocity = toss.velocity
-	local spin = toss.spin or Vector3.zero
-	if not velocity then return end
-	for _, part in model:GetDescendants() do
-		if part:IsA("BasePart") and not part.Anchored then
-			part.AssemblyLinearVelocity = velocity
-			part.AssemblyAngularVelocity = spin
+	if not model:GetAttribute("CageContained") and model:GetAttribute("ManualTossLaunched") ~= toss.started then
+		model:SetAttribute("ManualTossLaunched", toss.started)
+		if now - toss.started <= 0.35 then
+			local velocity = toss.velocity
+			local spin = toss.spin or Vector3.zero
+			if velocity then
+				for _, part in model:GetDescendants() do
+					if part:IsA("BasePart") and not part.Anchored then
+						part.AssemblyLinearVelocity = velocity
+						part.AssemblyAngularVelocity = spin
+					end
+				end
+			end
 		end
 	end
+	TryLocalCagePreContain(model, toss.started)
 end
 function Manager.Step(self: Manager, now: number, seconds: number, painting: boolean?)
 	if self.destroyed then return end
@@ -913,6 +1183,10 @@ function Manager.Step(self: Manager, now: number, seconds: number, painting: boo
 	for _,item in self.items do
 		DrivePoolToss(item, now)
 		DriveManualToss(self, item, now)
+	end
+	BindLocalBaffles(self)
+	StepSoftCages(self, dt)
+	for _,item in self.items do
 		local v = self.views[item.id]
 		if not v then continue end
 		if v.manualToss then
@@ -941,7 +1215,10 @@ function Manager.Step(self: Manager, now: number, seconds: number, painting: boo
 			if v.fall.sleepPose then continue end
 			if v.fall.active then
 				local camera=workspace.CurrentCamera
-				if available<=0 or not camera or (camera.CFrame.Position-v.fall.target.Position).Magnitude>cfg.Fall.NearStuds+4 then
+				if available<=0 or not camera or math.min(
+					(camera.CFrame.Position-v.fall.target.Position).Magnitude,
+					(camera.CFrame.Position-v.fall.root.CFrame.Position).Magnitude
+				)>cfg.Fall.NearStuds+4 then
 					Fall.StopPhysics(v.fall,v.jointMap)
 				else
 					available-=1
@@ -961,12 +1238,22 @@ function Manager.Step(self: Manager, now: number, seconds: number, painting: boo
 		end
 		local root = v.visualModel and v.visualModel.PrimaryPart
 		if not root or not v.rootTarget then v.dirty = true; continue end
-		root.CFrame = v.rootTarget.CFrame
+		root.CFrame = FollowStreetRoot(root.CFrame, v.rootTarget.CFrame, dt)
 		local rotations: {[string]: Vector3}?=nil
 		local shift=Vector3.zero
 		if self.impactEnabled and next(v.impacts) then rotations,shift=Impact.Step(v.impacts,now+dt,cfg) end
 		local legacy=if self.impactEnabled then nil else function(name: string) return self.hitView:Sample(v.id,name,now) end
-		Mixer.Commit(v.jointMap,v.sourceJoints,v.physicsMask,root.CFrame,self.contacts[v.id],rotations,shift,legacy,self.step,v.offsets,dt,cfg.Limits.AngularSpeed)
+		local source = v.authorityModel
+		local lookStart = source:GetAttribute("StreetLookStarted")
+		local yaw = v.streetLookYaw or 0
+		if source:GetAttribute("MotionState") == "LookAround" and typeof(lookStart) == "number" then
+			yaw = Mixer.StreetLookYaw(lookStart, now)
+		else
+			yaw *= math.exp(-16 * dt)
+			if math.abs(yaw) < 0.001 then yaw = 0 end
+		end
+		v.streetLookYaw = yaw
+		Mixer.Commit(v.jointMap,v.sourceJoints,v.physicsMask,root.CFrame,self.contacts[v.id],rotations,shift,legacy,self.step,v.offsets,dt,cfg.Limits.AngularSpeed,yaw)
 	end
 end
 function Manager.SyncPaintBatch(self: Manager): ()
@@ -1061,6 +1348,10 @@ function Manager.Destroy(self: Manager)
 	if self.destroyed then return end
 	self.destroyed = true
 	table.clear(self.lastPositions)
+	table.clear(self.softCageState)
+	table.clear(self.baffleCooldowns)
+	for _, conn in self.baffleConnections do conn:Disconnect() end
+	table.clear(self.baffleConnections)
 	for id in self.items do self:Unbind(id) end
 	for id in table.clone(self.manualImpacts) do ReleaseManualImpact(self, id) end
 	table.clear(self.retiredAt)

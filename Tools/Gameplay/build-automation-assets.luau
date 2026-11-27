@@ -4,10 +4,13 @@ assert(game.PlaceId == 110812537538556 and not game:GetService("RunService"):IsR
 
 local chuteOnly = ... == "ChuteOnly"
 local RS = game:GetService("ReplicatedStorage")
+local CageGeometry = require(RS.Scripts.Shared.CageGeometry)
+local Physics = require(RS.Scripts.Shared.PhysicsConfig)
 local district = workspace:WaitForChild("NeonContractDistrict")
 local streetUpgrade = district:WaitForChild("StreetUpgrade")
 local upperCompletion = district:WaitForChild("UpperStreetCompletion")
 local noodles = upperCompletion:WaitForChild("NewShop_Noodles")
+assert(not noodles:FindFirstChild("ChuteMouthVisual"), "This graybox builder is for a scene without the installed chute model")
 local bar5 = streetUpgrade:WaitForChild("BAR_5")
 local raisedDeck = district:WaitForChild("deck"):WaitForChild("Generated"):WaitForChild("Street"):WaitForChild("Raised Street Deck With Stair Void")
 
@@ -652,22 +655,14 @@ makeBox(coverModel, "HatchSeamX", Vector3.new(holeMinX + 0.3, noodlesFloorYMax -
 makeBox(coverModel, "HatchSeamZ", Vector3.new(chuteCenterX - 0.08, noodlesFloorYMax - 0.01, holeMinZ + 0.3), Vector3.new(chuteCenterX + 0.08, noodlesFloorYMax + 0.015, holeMaxZ - 0.3), COLORS.MetalDark, Enum.Material.Metal, false, 0)
 weldAllToRoot(coverModel, coverRoot)
 
--- 井口逻辑体积、站立带交互点，以及仅用于抛掷扫掠的三面挡板。
+-- 井口逻辑体积、站立带交互点，以及解锁后用于白膜物理导流的三面挡板。
 local chuteOpening = makePart(autoLine, "FastChuteOpening", Vector3.new(holeMaxX - holeMinX, 1, holeMaxZ - holeMinZ), CFrame.new(chuteCenterX, noodlesFloorYMax, chuteCenterZ), COLORS.NeonAmber, Enum.Material.Plastic, false, 1)
 chuteOpening.CastShadow = false
 makeAnchor(autoLine, "ChuteTopDropAnchor", "ChuteTopDrop", Vector3.new(chuteCenterX, noodlesFloorYMax + 0.4, standCenterZ), false)
 makeAnchor(autoLine, "ChutePromptAnchor", "ChutePrompt", Vector3.new(-53.6, noodlesFloorYMax + 1, standCenterZ), true)
 
-local baffles = ensureFolder(autoLine, "ChuteThrowBaffles")
-local function AddBaffle(name: string, minX: number, minZ: number, maxX: number, maxZ: number): ()
-	local baffle = makeBox(baffles, name, Vector3.new(minX, noodlesFloorYMax, minZ), Vector3.new(maxX, noodlesWallYMax - 0.3, maxZ), COLORS.MetalDark, Enum.Material.Plastic, false, 1)
-	baffle.CanQuery = true
-	baffle.CastShadow = false
-end
-local baffleWidth = 0.12
-AddBaffle("West", holeMinX, holeMinZ, holeMinX + baffleWidth, holeMaxZ)
-AddBaffle("East", holeMaxX - baffleWidth, holeMinZ, holeMaxX, holeMaxZ)
-AddBaffle("Back", holeMinX, holeMaxZ - baffleWidth, holeMaxX, holeMaxZ)
+CageGeometry.Build(autoLine, "ChuteThrowBaffles", CageGeometry.Baffles(chuteOpening.CFrame, chuteOpening.Size, noodlesWallYMax - 0.3))
+local baffles = autoLine:WaitForChild("ChuteThrowBaffles")
 
 -- 4.2 FastChuteLanding，24×16，南侧留取料通道。
 local landingCenterZ = -28.5
@@ -692,6 +687,7 @@ dropZone.CastShadow = false
 makeAnchor(landingModel, "LandingAnchor", "LandingPoint", Vector3.new(chuteCenterX, 1.15, landingCenterZ), false)
 makeAnchor(landingModel, "ChutePickupAnchor", "ChutePickup", Vector3.new(chuteCenterX, 1.8, landMaxZ + 0.4), true)
 weldAllToRoot(landingModel, landingRoot)
+CageGeometry.Build(landingModel, "AirWalls", CageGeometry.Walls(dropZone.CFrame, dropZone.Size, Physics.Cage.ChuteWallInset))
 
 local padsFolder = ensureFolder(autoLine, "UnlockPads")
 local a00Position = Vector3.new(-65.8, noodlesFloorYMax, standCenterZ)
@@ -729,7 +725,7 @@ makePlaque(brutePostModel, "StationPlaque", Vector3.new(5.6, 0.95, 0.22), CFrame
 makeWorkLight(brutePostModel, Vector3.new(-52.1, streetTopY + 4.8, -42.5), Color3.fromRGB(255, 140, 120), 0.9, 14)
 weldAllToRoot(brutePostModel, brutePostRoot)
 
--- 4.4 AutoRuneMachine (-19.0, 4.5, -27.0) + 出料断点垫 (-28.6, 1.0, -27.0)
+-- 4.4 AutoRuneMachine (-19.0, 4.5, -27.0)，出料排队点设在中间过渡位置
 local runeModel, runeRoot = makeRootedModel(autoLine, "AutoRuneMachine", Vector3.new(-19.0, 4.5, -27.0))
 makeBox(runeModel, "MachineBase", Vector3.new(-24.0, 0.0, -31.5), Vector3.new(-14.0, 1.2, -22.5), COLORS.SlateDark, Enum.Material.Slate, true, 0)
 makeBox(runeModel, "PedestalCore", Vector3.new(-23.2, 1.2, -30.8), Vector3.new(-14.8, 3.3, -23.2), COLORS.MetalDark, Enum.Material.Metal, true, 0)
@@ -744,20 +740,13 @@ for idx, emitterX in { -21.2, -19.0, -16.8 } do
 	makeCylinder(runeModel, "EngraverHead_" .. tostring(idx), 0.75, 1.1, Vector3.new(emitterX, 7.35, -27.0), COLORS.MetalDark, Enum.Material.Metal, false, 0)
 	makeCylinder(runeModel, "EngraverEmitter_" .. tostring(idx), 0.38, 0.45, Vector3.new(emitterX, 6.65, -27.0), COLORS.NeonCyan, Enum.Material.Neon, false, 0)
 end
-makePart(runeModel, "EjectSlide", Vector3.new(3.2, 0.35, 5.4), CFrame.new(-24.8, 2.2, -27.0) * CFrame.Angles(0, 0, math.rad(38)), COLORS.MetalTrim, Enum.Material.Metal, true, 0)
-makeBox(runeModel, "OutputBreakpointBase", Vector3.new(-32.8, 0.0, -31.2), Vector3.new(-24.4, 0.75, -22.8), COLORS.SlateDark, Enum.Material.Slate, true, 0)
-makeBox(runeModel, "OutputBreakpointDeck", Vector3.new(-32.4, 0.75, -30.8), Vector3.new(-24.8, 1.0, -23.2), COLORS.SlateMid, Enum.Material.SmoothPlastic, true, 0)
-makeBox(runeModel, "OutputBreakpointTrimN", Vector3.new(-32.6, 1.0, -31.0), Vector3.new(-24.6, 1.06, -30.8), COLORS.NeonCyan, Enum.Material.Neon, false, 0)
-makeBox(runeModel, "OutputBreakpointTrimS", Vector3.new(-32.6, 1.0, -23.2), Vector3.new(-24.6, 1.06, -23.0), COLORS.NeonCyan, Enum.Material.Neon, false, 0)
-
 makePlaque(runeModel, "StationPlaque", Vector3.new(8.2, 1.2, 0.22), CFrame.new(-19.0, 2.0, -22.38), "AUTO RUNE  /  2.0s", Enum.NormalId.Back, COLORS.NeonCyan)
-makePlaque(runeModel, "BreakpointPlaque", Vector3.new(6.0, 0.9, 0.20), CFrame.new(-28.6, 0.55, -22.68), "RUNE OUTPUT PAD", Enum.NormalId.Back, COLORS.NeonPurple)
 makeWorkLight(runeModel, Vector3.new(-19.0, 9.8, -22.0), Color3.fromRGB(165, 190, 255), 1.25, 22)
 
 makeAnchor(runeModel, "MachineCenterAnchor", "MachineCenter", Vector3.new(-19.0, 4.5, -27.0), false)
 makeAnchor(runeModel, "WorkBedAnchor", "WorkBed", Vector3.new(-19.0, 4.4, -27.0), false)
-makeAnchor(runeModel, "OutputPadAnchor", "OutputPad", Vector3.new(-28.6, 1.15, -27.0), false)
-makeAnchor(runeModel, "OutputPromptAnchor", "OutputPrompt", Vector3.new(-28.6, 1.8, -22.2), true)
+makeAnchor(runeModel, "OutputPadAnchor", "OutputPad", Vector3.new(-12, 4.15, -27.0), false)
+makeAnchor(runeModel, "OutputPromptAnchor", "OutputPrompt", Vector3.new(-12, 3.0, -22.2), true)
 makeAnchor(runeModel, "UnlockPadAnchor", "UnlockPad", Vector3.new(-19.0, 0.0, -19.0), false)
 weldAllToRoot(runeModel, runeRoot)
 
@@ -771,7 +760,12 @@ makeBox(smelterModel, "FeedRailLegE", Vector3.new(-7.4, 0.0, -29.2), Vector3.new
 for idx, rollerX in { -13.2, -11.6, -10.0, -8.4, -6.8 } do
 	makeBox(smelterModel, "FeedRoller_" .. tostring(idx), Vector3.new(rollerX - 0.18, 4.15, -29.2), Vector3.new(rollerX + 0.18, 4.24, -24.8), COLORS.NeonCyan, Enum.Material.Neon, false, 0)
 end
-makeAnchor(smelterModel, "FeedRailAnchor", "FeedRail", Vector3.new(-10.0, 4.35, -27.0), false)
+makeAnchor(runeModel, "TransferRampAnchor", "TransferRamp", Vector3.new(-16, 2.5, -27), false)
+makeAnchor(runeModel, "TransferRampTopAnchor", "TransferRampTop", Vector3.new(-14, 4.5, -27), false)
+local transferPass = makeAnchor(runeModel, "TransferPassAnchor", "TransferPass", Vector3.new(-12, 4.5, -27), false)
+local passLight = Instance.new("PointLight")
+passLight.Name, passLight.Enabled, passLight.Parent = "TransferPassLight", false, transferPass
+makeAnchor(smelterModel, "FurnaceInletAnchor", "FurnaceInlet", Vector3.new(-5, 4.5, -27), false)
 
 makeBox(smelterModel, "SmelterBase", Vector3.new(-6.0, 0.0, -31.5), Vector3.new(4.0, 1.3, -22.5), COLORS.SlateDark, Enum.Material.Slate, true, 0)
 makeBox(smelterModel, "FurnaceBody", Vector3.new(-5.4, 1.3, -31.0), Vector3.new(3.4, 7.6, -23.2), COLORS.MetalDark, Enum.Material.Metal, true, 0)

@@ -1,7 +1,7 @@
 -- R15 布娃娃模块：关节限位、自碰撞隔离、静态展示与肩扛物理切换
 --!strict
-local PhysicsService = game:GetService("PhysicsService")
 local Config = require(game:GetService("ReplicatedStorage").Scripts.Shared.PhysicsConfig)
+local GameConfig = require(game:GetService("ReplicatedStorage").Scripts.Shared.GameConfig)
 local Ragdoll = {}
 local Group = Config.BodyGroup
 local function JointSettings(name: string): Config.Joint
@@ -13,11 +13,12 @@ local function JointSettings(name: string): Config.Joint
 	end
 	return settings
 end
-function Ragdoll.Init(): ()
-	if not PhysicsService:IsCollisionGroupRegistered(Group) then
-		PhysicsService:RegisterCollisionGroup(Group)
+function Ragdoll.SetCageContained(model: Model, cage: string?): ()
+	local group = if cage then Config.CageContainedGroup else Group
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") then part.CollisionGroup = group end
 	end
-	PhysicsService:CollisionGroupSetCollidable(Group, Group, true)
+	model:SetAttribute("CageContained", cage)
 end
 function Ragdoll.Setup(model: Model): ()
 	if model:FindFirstChild("RagdollConstraints") then
@@ -82,11 +83,14 @@ function Ragdoll.SetMode(model: Model, mode: string, owner: Player?): ()
 	assert(humanoid)
 	local base = if model.PrimaryPart then model.PrimaryPart.CFrame else model:GetPivot()
 	model:SetAttribute("PhysicsMode", mode)
-	local loose, static = mode == "Loose" or mode == "Carried", mode == "Static"
+	local static = mode == "Static"
+	model:SetAttribute("PhysicsOwnerUserId", if not static and owner then owner.UserId else nil)
+	if model:GetAttribute("CageContained") then Ragdoll.SetCageContained(model, nil) end
+	local loose = mode == "Loose" or mode == "Carried"
 	-- Humanoid 的状态机每帧重写躯干碰撞；布娃娃状态由本模块完整接管。
 	humanoid.EvaluateStateMachine = mode == "Walking"
 	humanoid.PlatformStand, humanoid.AutoRotate = loose or static, not (loose or static)
-	humanoid.WalkSpeed = if mode == "Walking" then 7 else 0
+	humanoid.WalkSpeed = if mode == "Walking" then GameConfig.NpcStrollSpeed else 0
 	if loose then
 		humanoid:ChangeState(Enum.HumanoidStateType.Physics)
 	end
@@ -115,6 +119,7 @@ function Ragdoll.SetMode(model: Model, mode: string, owner: Player?): ()
 			v.UpperAngle = settings.cone * (if mode == "Carried" then Config.CarrySwingScale else 1)
 			v.MaxFrictionTorque = settings.friction
 		elseif v:IsA("BasePart") then
+			v.CollisionGroup = if mode == "Walking" then Config.WalkingNpcGroup else Group;
 			(v :: any).CustomPhysicalProperties = nil
 			if static then
 				v.Anchored = true
@@ -168,7 +173,7 @@ function Ragdoll.SetThrowPhysics(model: Model, inFlight: boolean): ()
 			manual.GroundFrictionWeight,
 			manual.GroundElasticityWeight
 		)
-	local frictionScale = if inFlight then manual.FlightFrictionScale else 1
+	local frictionScale = if inFlight then manual.FlightFrictionScale else manual.GroundJointFrictionScale
 	for _, v in model:GetDescendants() do
 		if v:IsA("BallSocketConstraint") then
 			v.MaxFrictionTorque = JointSettings(v.Name).friction * frictionScale

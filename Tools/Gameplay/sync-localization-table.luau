@@ -719,10 +719,10 @@ local entries: { Entry } = {
 	},
 	{
 		Key = "",
-		Source = "AUTO RUNE PAD",
+		Source = "AUTO RUNE OUTPUT",
 		Context = "",
 		Example = "",
-		Values = {["ar"] = "منصة الرون الآلية", ["de"] = "AUTO-RUNENFELD", ["es"] = "PLATAFORMA RÚNICA AUTO", ["fr"] = "SOCLE RUNIQUE AUTO", ["id"] = "ALAS RUNE OTOMATIS", ["it"] = "BASE RUNE AUTO", ["ja"] = "自動ルーン出庫パッド", ["ko"] = "자동 룬 출고 패드", ["pl"] = "AUTOM. PODEST RUN", ["pt"] = "BASE RÚNICA AUTO", ["ru"] = "ПЛОЩАДКА АВТОРУН", ["th"] = "แท่นรับร่างรูนอัตโนมัติ", ["tr"] = "OTO RÜN ALANI", ["vi"] = "BỆ BÙA TỰ ĐỘNG", ["zh-cn"] = "自动符文出料垫", ["zh-hans"] = "自动符文出料垫", ["zh-hant"] = "自動符文出料墊", ["zh-tw"] = "自動符文出料墊"},
+		Values = {["ar"] = "مخرج الرون الآلي", ["de"] = "AUTO-RUNENAUSGABE", ["es"] = "SALIDA RÚNICA AUTOMÁTICA", ["fr"] = "SORTIE RUNIQUE AUTO", ["id"] = "KELUARAN RUNE OTOMATIS", ["it"] = "USCITA RUNE AUTOMATICA", ["ja"] = "自動ルーン取り出し口", ["ko"] = "자동 룬 배출구", ["pl"] = "WYJŚCIE AUTO-RUN", ["pt"] = "SAÍDA RÚNICA AUTOMÁTICA", ["ru"] = "ВЫХОД АВТОРУН", ["th"] = "จุดรับร่างรูนอัตโนมัติ", ["tr"] = "OTOMATİK RÜN ÇIKIŞI", ["vi"] = "ĐẦU RA BÙA TỰ ĐỘNG", ["zh-cn"] = "自动符文出料口", ["zh-hans"] = "自动符文出料口", ["zh-hant"] = "自動符文出料口", ["zh-tw"] = "自動符文出料口"},
 	},
 	{
 		Key = "",
@@ -758,6 +758,13 @@ local entries: { Entry } = {
 		Context = "",
 		Example = "",
 		Values = {["ar"] = "جمع الجرعات الآلية", ["de"] = "AUTO-TRÄNKE EINSAMMELN", ["es"] = "RECOGER POCIONES AUTO", ["fr"] = "RÉCUPÉRER POTIONS AUTO", ["id"] = "KUMPULKAN RAMUAN AUTO", ["it"] = "RACCOGLI POZIONI AUTO", ["ja"] = "自動ポーションを回収", ["ko"] = "자동 포션 수령", ["pl"] = "ZBIERZ AUTO-MIKSTURY", ["pt"] = "COLETAR POÇÕES AUTO", ["ru"] = "ЗАБРАТЬ АВТОЗЕЛЬЯ", ["th"] = "รับยาอัตโนมัติ", ["tr"] = "OTO İKSİRLERİ TOPLA", ["vi"] = "NHẬN THUỐC TỰ ĐỘNG", ["zh-cn"] = "领取自动药水", ["zh-hans"] = "领取自动药水", ["zh-hant"] = "領取自動藥水", ["zh-tw"] = "領取自動藥水"},
+	},
+	{
+		Key = "",
+		Source = "HOLSTER YOUR WEAPON TO THROW",
+		Context = "",
+		Example = "",
+		Values = {["ar"] = "أعد سلاحك إلى الحقيبة للرمي", ["de"] = "STECK DEINE WAFFE WEG, UM ZU WERFEN", ["es"] = "GUARDA EL ARMA PARA LANZAR", ["fr"] = "RANGEZ VOTRE ARME POUR LANCER", ["id"] = "SIMPAN SENJATA UNTUK MELEMPAR", ["it"] = "RIPONI L’ARMA PER LANCIARE", ["ja"] = "投げるには武器をしまおう", ["ko"] = "던지려면 무기를 집어넣으세요", ["pl"] = "SCHOWAJ BROŃ, ABY RZUCIĆ", ["pt"] = "GUARDE A ARMA PARA ARREMESSAR", ["ru"] = "УБЕРИТЕ ОРУЖИЕ, ЧТОБЫ БРОСИТЬ", ["th"] = "เก็บอาวุธก่อนโยน", ["tr"] = "FIRLATMAK İÇİN SİLAHINI KALDIR", ["vi"] = "CẤT VŨ KHÍ ĐỂ NÉM", ["zh-cn"] = "收回武器即可抛掷", ["zh-hans"] = "收回武器即可抛掷", ["zh-hant"] = "收回武器即可拋擲", ["zh-tw"] = "收回武器即可拋擲"},
 	},
 	{
 		Key = "",

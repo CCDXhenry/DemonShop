@@ -7,6 +7,7 @@ local UserInputService = game:GetService("UserInputService")
 local Physics = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
 local Types = require(ReplicatedStorage.Scripts.Shared.GameTypes)
 local Net = require(ReplicatedStorage.Scripts.Shared.ProcessingNet)
+local PersonalRules = require(ReplicatedStorage.Scripts.Shared.PersonalUpgradeRules)
 local Arc = require(ReplicatedStorage.Scripts.Shared.ThrowArc)
 local Preview = require(script.Parent.ThrowAimPreview)
 local Config = Physics.ManualThrow
@@ -15,8 +16,9 @@ Controller.__index = Controller
 export type Host = {
 	TopBody: () -> Types.ItemView?,
 	CanAim: () -> boolean,
-	CanStore: (Vector3, Vector3?, boolean?) -> boolean,
+	CanStore: (Vector3, Vector3?, boolean?, string?) -> boolean,
 	ChuteBaffles: () -> Instance?,
+	CageTargets: (() -> { Preview.CageTarget })?,
 	Ignored: () -> { Instance },
 }
 export type Controller = typeof(setmetatable(
@@ -27,6 +29,7 @@ export type Controller = typeof(setmetatable(
 		knob: GuiObject?,
 		input: InputObject?,
 		inputConnection: RBXScriptConnection?,
+		equipConnection: RBXScriptConnection?,
 		stickConnection: RBXScriptConnection?,
 		gestureCharacter: Model?,
 		gestureId: string?,
@@ -64,6 +67,10 @@ function Controller.Cancel(self: Controller): ()
 	if self.inputConnection then
 		self.inputConnection:Disconnect()
 		self.inputConnection = nil
+	end
+	if self.equipConnection then
+		self.equipConnection:Disconnect()
+		self.equipConnection = nil
 	end
 	self.input = nil
 	self.gestureCharacter = nil
@@ -121,9 +128,7 @@ function Controller.AimDirection(self: Controller): Vector3?
 		end
 		return self.forward
 	end
-	local mouse = player:GetMouse()
-	local ray = camera:ViewportPointToRay(mouse.X, camera.ViewportSize.Y / 2)
-	return Arc.Horizontal(ray.Direction, self.forward)
+	return self.forward
 end
 
 function Controller.GestureMatches(self: Controller): boolean
@@ -141,16 +146,16 @@ function Controller.Update(self: Controller, now: number): ()
 	end
 	local direction = if self.input then self:AimDirection() else nil
 	local character = player.Character
-	local shoulder = character and character:FindFirstChild("UpperTorso")
 	local root = character and character:FindFirstChild("HumanoidRootPart")
-	local basis = if shoulder and shoulder:IsA("BasePart") then shoulder elseif root and root:IsA("BasePart") then root else nil
+	local basis = if root and root:IsA("BasePart") then root else nil
 	local top = if direction then self.host.TopBody() else nil
 	if direction and basis and top then
 		self.direction = direction
 		local origin = Arc.Origin(basis.CFrame, direction)
 		local ignored = self.host.Ignored()
 		table.insert(ignored, self.preview.model)
-		self.preview:Update(origin, direction, workspace.Gravity, self.host.CanStore, ignored, now, self.host.ChuteBaffles())
+		local cages = if self.host.CageTargets then self.host.CageTargets() else nil
+		self.preview:Update(origin, direction, workspace.Gravity, self.host.CanStore, ignored, now, self.host.ChuteBaffles(), cages)
 	else
 		self.preview:Hide()
 	end
@@ -167,8 +172,10 @@ function Controller.Begin(self: Controller, input: InputObject, useStick: boolea
 	if not top then
 		return true
 	end
+	local character = player.Character
+	if not character then return true end
 	self.input = input
-	self.gestureCharacter = player.Character
+	self.gestureCharacter = character
 	self.gestureId = top.id
 	self.gestureVersion = top.version
 	if useStick and self.stick then
@@ -183,6 +190,12 @@ function Controller.Begin(self: Controller, input: InputObject, useStick: boolea
 		end
 	end
 	self.inputConnection = input:GetPropertyChangedSignal("UserInputState"):Connect(OnInputState)
+	local function OnEquipped(child: Instance): ()
+		if self.input == input and child:IsA("Tool") and PersonalRules.WeaponLevel(child.Name) then
+			self:Cancel()
+		end
+	end
+	self.equipConnection = character.ChildAdded:Connect(OnEquipped)
 	return true
 end
 
@@ -251,6 +264,7 @@ function Controller.new(stick: Frame, host: Host): Controller
 		knob = knob,
 		input = nil,
 		inputConnection = nil,
+		equipConnection = nil,
 		stickConnection = nil :: RBXScriptConnection?,
 		gestureCharacter = nil,
 		gestureId = nil,

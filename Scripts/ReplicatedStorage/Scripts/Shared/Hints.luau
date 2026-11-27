@@ -38,9 +38,9 @@ local function ReadCarry(held: Types.ItemView?, stack: { Types.ItemView }?): Car
 	end
 	return load
 end
-function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?, potions: Potions?, stack: { Types.ItemView }?): GameTexts.Description
+function Hints.Next(snapshot: Types.Snapshot?, held: Types.ItemView?, potions: Potions?, stack: { Types.ItemView }?, weaponEquipped: boolean?): GameTexts.Description
 	local load = ReadCarry(held, stack)
-	if load.body then return Describe("ThrowAim") end
+	if load.body then return Describe(if weaponEquipped then "HolsterToThrow" else "ThrowAim") end
 	if potions and (potions.equipped or potions.stored > 0) then return Describe("TakePotion", { NumberExtension.FormatBigNumberAA(potions.reward or Config.PotionReward) }) end
 	if snapshot then
 		if snapshot.shelf > 0 then return Describe("PotionReady") end
@@ -57,7 +57,7 @@ function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.Ite
 	if target == "Pool" then
 		if load.unfinished then return Describe("StoreBody") end
 		if carrying then return Describe("PoolUnfinishedOnly") end
-		return if snapshot and snapshot.pool > 0 then Describe("TakeSharedBody") else Describe("PoolEmpty")
+		return if snapshot and snapshot.pool > 0 then Describe("FetchPool") else Describe("PoolEmpty")
 	elseif target == "Table" then
 		if snapshot and snapshot.painter and snapshot.painter ~= userId then return Describe("TableOtherPainter") end
 		if snapshot and snapshot.tableId then
@@ -86,9 +86,6 @@ function Hints.Action(target: string, snapshot: Types.Snapshot?, held: Types.Ite
 		if load.unfinished then return Describe("DepositBodies") end
 		if carrying then return Describe("ChuteUnfinishedOnly") end
 		return Describe("ChuteNeedsBody")
-	elseif target == "ChutePickup" then
-		if load.other then return Describe("HandsFullHint") end
-		return if snapshot and (snapshot.chuteQueue or 0) > 0 then Describe("TakeChuteBody") else Describe("ChuteEmpty")
 	elseif target == "AutoOutput" then
 		if load.other then return Describe("HandsFullHint") end
 		return if snapshot and (snapshot.autoPaintedQueue or 0) > 0 then Describe("TakeAutoRuneBody") else Describe("AutoOutputEmpty")

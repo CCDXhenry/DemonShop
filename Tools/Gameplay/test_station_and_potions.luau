@@ -635,14 +635,29 @@ do
 	local extra = pickUp('m7-over-capacity')
 	check(#m1:Carried(p1) == 1 and extra.holder == nil, 'T0 refuses a second white body')
 	m1.players[p1].levels.carryTool = 4
-	for i = 2, 15 do pickUp('m7-tier3-' .. i) end
+	local rapidFirst = pickUp('m7-tier3-2')
+	local rapidSecond = makeWorldBody('m7-tier3-3', 'Unpainted', 'Ground')
+	local beforeRapid = #m1:Carried(p1)
+	m1:OnRequest(p1, { action = 'Interact', target = rapidFirst.id, version = rapidFirst.version - 1 })
+	movePlayer(p1Root, rapidSecond.model.PrimaryPart.Position + Vector3.new(0, 0, 2))
+	B.now += 0.05
+	m1:OnRequest(p1, { action = 'Interact', target = rapidSecond.id, version = rapidSecond.version })
+	check(#m1:Carried(p1) == beforeRapid + 1 and rapidSecond.holder == p1, 'rapid pickup of a different body succeeds even after a duplicate')
+	for i = 4, 15 do pickUp('m7-tier3-' .. i) end
 	check(#m1:Carried(p1) == 8 and m1.players[p1].carryOverflowCount == 7, 'T3 stores seven virtual bodies after eight visible')
 	local top = m1:Carried(p1)[1]
+	local weapon = p1Char:FindFirstChild('W01_RustyPan')
+	check(weapon ~= nil, 'pickup and stack preserve the equipped weapon')
+	local previousThrow = m1.players[p1].lastThrow
+	sendM1(p1, {action = 'Throw', target = top.id, version = top.version, direction = Vector3.zAxis})
+	check(top.holder == p1 and m1.players[p1].lastThrow == previousThrow, 'armed throw keeps the body and cooldown')
+	B.UnequipTools(p1Char:FindFirstChildOfClass('Humanoid'))
 	sendM1(p1, {action = 'Throw', target = top.id, version = top.version, direction = Vector3.zero})
 	check(top.holder == p1 and top.poolToss == nil, 'invalid throw keeps the top body in hand')
 	B.now += 1
 	sendM1(p1, {action = 'Throw', target = top.id, version = top.version, direction = Vector3.zAxis})
 	check(top.holder == nil and #m1:Carried(p1) == 8 and m1.players[p1].carryOverflowCount == 6, 'throw removes one logical body and replenishes the visible slot')
+	check(weapon.Parent == p1Bp, 'replenishing the shoulder stack keeps the weapon holstered')
 	movePlayer(p1Root, stationPositions.Pool + Vector3.new(0, 0, 4))
 	sendM1(p1, {action = 'Interact', target = 'Pool', version = m1.stationVersions.Pool})
 	check(#m1:Carried(p1) == 0 and m1.players[p1].carryOverflowCount == 0 and m1:PoolCount() == 14, 'one pool request deposits the full remaining load')
@@ -701,11 +716,53 @@ do
 	check(#m1.pool == 11 and m1.poolOverflowCount == 0 and m1:PoolCount() == 11, 'SettleThrown keeps 11th body in pool without overflow destroy')
 	check(thrownBody.model.Parent ~= nil and m1.items[thrownBody.id] == thrownBody and thrownBody.model:GetAttribute('PhysicsMode') == 'Loose', 'SettleThrown keeps body as live Loose ragdoll')
 
-	-- 取出 1 具
+	-- 池锚点只存入。按 ID 拾取非队首白膜，保留队首给画符台。
+	local poolHead = m1.pool[1]
+	m1.poolOverflowCount = 1
+	m1:Changed()
 	sendM1(p1, { action = 'Interact', target = 'Pool', version = m1.stationVersions.Pool })
-	check(m1:PoolCount() == 10 and #m1.pool == 10 and m1.poolOverflowCount == 0, 'taking from pool decrements pool list directly')
+	check(m1:PoolCount() == 12 and #m1:Carried(p1) == 0, 'stocked Pool anchor cannot take a body')
+	local pickup = { action = 'Interact', target = thrownBody.id, version = thrownBody.version }
+	local pickupRange = Config.InteractionRange + (Config.PickupServerRangeBuffer or 0)
+	movePlayer(p1Root, thrownBody.model.PrimaryPart.Position + Vector3.new(0, 0, pickupRange + 1))
+	sendM1(p1, pickup)
+	check(m1:PoolCount() == 12 and #m1:Carried(p1) == 0, 'out-of-range pickup leaves the pool intact')
+	movePlayer(p1Root, thrownBody.model.PrimaryPart.Position + Vector3.new(0, 0, Config.InteractionRange + 1))
+	thrownBody.poolToss = { kind = 'Pool', from = CFrame.identity, target = CFrame.identity, started = B.now, owner = p1.UserId }
+	sendM1(p1, pickup)
+	check(m1:PoolCount() == 12 and #m1:Carried(p1) == 0, 'in-flight pool deposit is unavailable until settled')
+	thrownBody.poolToss = nil
+	local poolVersion = m1.stationVersions.Pool
+	B.occluded = true
+	sendM1(p1, pickup)
+	B.occluded = false
 	local carriedFromPool = m1:Carried(p1)[1]
-	check(carriedFromPool ~= nil, 'player carries body taken from pool')
+	check(carriedFromPool == thrownBody and m1.pool[1] == poolHead and not table.find(m1.pool, thrownBody.id), 'occluded pickup within server range buffer removes only the chosen body')
+	check(m1:PoolCount() == 11 and m1.stationVersions.Pool > poolVersion, 'specific pool pickup updates count and station version')
+	local replenishedPoolId = m1.pool[#m1.pool]
+	local replenishedPoolItem = m1.items[replenishedPoolId]
+	check(m1.poolOverflowCount == 0 and #m1.pool == 11 and replenishedPoolItem and replenishedPoolItem.location == 'Pool', 'pool overflow materializes after successful pickup')
+	movePlayer(p2Root, thrownBody.model.PrimaryPart.Position + Vector3.new(0, 0, 3))
+	sendM1(p2, pickup)
+	check(m1:PoolCount() == 11 and #m1:Carried(p2) == 0, 'second player cannot pick up the same body with a stale version')
+	-- 即使 PrimaryPart 超过容差，UpperTorso 在容差内且存在遮挡时仍可拾取
+	local torsoReachBody = makeWorldBody('m1-torso-reach', 'Unpainted', 'Ground')
+	torsoReachBody.model.PrimaryPart.Position = stationPositions.Pool + Vector3.new(0, 0, pickupRange + 3)
+	torsoReachBody.model.PrimaryPart.CFrame = CFrame.new(torsoReachBody.model.PrimaryPart.Position)
+	torsoReachBody.model.UpperTorso.Position = stationPositions.Pool + Vector3.new(0, 0, Config.InteractionRange + 1)
+	torsoReachBody.model.UpperTorso.CFrame = CFrame.new(torsoReachBody.model.UpperTorso.Position)
+	movePlayer(p2Root, stationPositions.Pool)
+	B.occluded = true
+	sendM1(p2, { action = 'Interact', target = torsoReachBody.id, version = torsoReachBody.version })
+	B.occluded = false
+	check(#m1:Carried(p2) == 1 and m1:Carried(p2)[1] == torsoReachBody, 'occluded pickup succeeds when UpperTorso is within pickup range buffer')
+	m1:ReleasePlayer(p2)
+	m1.items[torsoReachBody.id] = nil
+	torsoReachBody.model:Destroy()
+	-- 清理本用例额外补出的白膜，继续原有的画符台与滚落回归。
+	table.remove(m1.pool)
+	m1.items[replenishedPoolId] = nil
+	replenishedPoolItem.model:Destroy()
 
 	-- 另一名玩家从工作台取料
 	movePlayer(p2Root, stationPositions.Table + Vector3.new(0, 0, 3))
@@ -899,6 +956,7 @@ do
 	check(clientCarried[1].id == b3.id and serverCarried[1].id == b3.id, 'top carried body matches highest carryOrder on both peers')
 	check(clientCarried[2].id == b2.id and clientCarried[3].id == b1.id, 'remaining carried stack order matches carryOrder descending')
 
+	B.UnequipTools(tp.Character:FindFirstChildOfClass('Humanoid'))
 	table.clear(B.notices)
 	B.now += 1
 	m2:OnRequest(tp, {

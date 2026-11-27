@@ -15,6 +15,7 @@ local Sound = require(Shared:WaitForChild("GameSoundTool"))
 local UIManager = require(script.Parent.UIManager)
 local GameScreenGuiManager = require(script.Parent.UIManager.GameScreenGuiManager)
 local Hints = require(Shared:WaitForChild("Hints"))
+local WorldInteractionRules = require(Shared.WorldInteractionRules)
 local Rotation = require(Shared.PaintRotation)
 local Surface = require(Shared.PaintSurface)
 local Curve = require(Shared.CurvedSurface)
@@ -28,6 +29,7 @@ local CharacterPresentation = require(script.Parent.CharacterPresentation)
 local HitPresentation = require(script.Parent.HitPresentation)
 local HitRules = require(Shared.HitFeedbackRules)
 local Physics = require(Shared.PhysicsConfig)
+local FixedCamera = require(Shared:WaitForChild("FixedCamera"))
 local PaintCamera = require(script.Parent.PaintCamera)
 local PaintBrush = require(script.Parent.PaintBrushContact)
 local VisualUpload = require(script.Parent.VisualUpload)
@@ -130,12 +132,14 @@ export type Client = typeof(setmetatable(
 		completeFlash: { id: string, started: number, batch: { string }? }?,
 		flipFlash: { id: string, started: number, batch: { string }? }?,
 		initialized: boolean,
+		closeCameraHideWatch: (() -> ())?,
 		throw: ManualThrow.Controller?,
 		touchJump: TouchJumpController.Controller?,
 	},
 	Client
 ))
 local district = workspace:WaitForChild("NeonContractDistrict")
+FixedCamera.HideAll(district)
 local tableModel = district:WaitForChild("RuneBodyTable")
 local tablePlacement = tableModel:WaitForChild("BodyPlacementAnchor") :: BasePart
 local tableInteract = tableModel:WaitForChild("TransferStartAnchor") :: BasePart
@@ -174,7 +178,6 @@ end
 local autoLine = district:FindFirstChild("AutomationLine")
 local chutePrompt = OptionalPart(autoLine, "ChutePromptAnchor")
 local chuteDropZone = OptionalPart(autoLine, "FastChuteLanding", "DropZone")
-local chutePickup = OptionalPart(autoLine, "FastChuteLanding", "ChutePickupAnchor")
 local autoOutputPrompt = OptionalPart(autoLine, "AutoRuneMachine", "OutputPromptAnchor")
 local autoShelfPickup = OptionalPart(autoLine, "AutoSmelterMachine", "AutoPotionRack", "AutoShelfPickupAnchor")
 local autoRuneMachine = if autoLine then autoLine:FindFirstChild("AutoRuneMachine") else nil
@@ -183,10 +186,6 @@ local padsFolder = if autoLine then autoLine:FindFirstChild("UnlockPads") else n
 if chutePrompt then
 	interactionAnchors.Chute = chutePrompt
 	positions.Chute = chutePrompt.Position
-end
-if chutePickup then
-	interactionAnchors.ChutePickup = chutePickup
-	positions.ChutePickup = chutePickup.Position
 end
 if autoOutputPrompt then
 	interactionAnchors.AutoOutput = autoOutputPrompt
@@ -310,6 +309,7 @@ function Client.new(): Client
 			catchHardwareOrigin = false,
 			completeFlash = nil,
 			flipFlash = nil,
+			closeCameraHideWatch = nil,
 			initialized = false,
 			throw = nil,
 			touchJump = nil,
@@ -350,6 +350,14 @@ function Client.Held(self: Client): Types.ItemView?
 		end
 	end
 	return nil
+end
+function Client.ShoulderOccupied(self: Client): boolean
+	for _, item in self.items do
+		if item.holder == player.UserId and item.kind ~= "Body" then
+			return true
+		end
+	end
+	return false
 end
 local function StackCount(tool: Instance): number
 	local count = tool:GetAttribute("StackCount")
@@ -598,20 +606,113 @@ function Client.EnterView(self: Client, id: string, session: string, frames: Typ
 		self.touchGuiEnabled = touchGui.Enabled
 		touchGui.Enabled = false
 	end
-	local count = 1 + #(batch or {})
-	local viewport = camera.ViewportSize
-	self.paintCamera:Enter(Rotation.CameraPose(tablePlacement.Position, count), Rotation.BatchCameraFov(count, viewport.X / math.max(viewport.Y, 1)))
+	self.paintCamera:EnterMarker(tableModel, Rotation.CameraPose(tablePlacement.Position, 1), 45)
 	HidePlayersForPaint(self)
 	self.ui:SetPainting(true)
 end
 function Client.CancelHitFeedback(self: Client): ()
 	for sequence, prediction in self.hitState.pending do
-		if not prediction.resolved then self.bodies:Reject(prediction.target,player.UserId,sequence); prediction.resolved=true end
+		if not prediction.resolved then
+			if prediction.targets then
+				for targetId in prediction.targets do
+					self.bodies:Reject(targetId, player.UserId, sequence)
+				end
+			else
+				self.bodies:Reject(prediction.target, player.UserId, sequence)
+			end
+			prediction.resolved = true
+		end
 	end
 	self.hitView:ResetCamera()
 end
+local function BodyVisualPosition(self: Client, item: Types.ItemView): (Vector3?, Vector3?)
+	local authPart = if item.model then item.model.PrimaryPart else nil
+	local authPos = if authPart then authPart.Position else nil
+	local visPart = if self.bodies and self.bodies.GetVisualPart then self.bodies:GetVisualPart(item.id, "HumanoidRootPart") else nil
+	local visPos = if visPart then visPart.Position else authPos
+	return visPos, authPos
+end
+local function NearestStreetBodyDebug(self: Client, pose: CFrame): string
+	local bestId: string? = nil
+	local bestVisDist = math.huge
+	local bestAuthDist = math.huge
+	local bestDot = 0
+	for _, item in self.items do
+		if item.kind == "Body" and item.location == "Street" and item.hits < Config.StunHits and item.model and item.model.PrimaryPart then
+			local visPos, authPos = BodyVisualPosition(self, item)
+			if visPos then
+				local delta = visPos - pose.Position
+				local dist = delta.Magnitude
+				if dist < bestVisDist then
+					bestId = item.id
+					bestVisDist = dist
+					bestAuthDist = if authPos then (authPos - pose.Position).Magnitude else dist
+					bestDot = if dist > 0.1 then pose.LookVector:Dot(delta.Unit) else 1
+				end
+			end
+		end
+	end
+	if not bestId then
+		return "nearest=none"
+	end
+	return string.format("nearest=%s visDist=%.2f authDist=%.2f dot=%.2f", bestId, bestVisDist, bestAuthDist, bestDot)
+end
+local function SelectHitTargets(self: Client, level: number, tier: GameData.WeaponConfig, pose: CFrame, now: number): { Types.ItemView }
+	if tier.shape == "Single" then
+		local best: Types.ItemView? = nil
+		local distance = tier.range
+		for _, item in self.items do
+			if item.kind == "Body" and item.location == "Street" and item.hits < Config.StunHits and item.model and item.model.PrimaryPart then
+				local visPos = BodyVisualPosition(self, item)
+				if visPos then
+					local delta = visPos - pose.Position
+					if delta.Magnitude <= distance and (delta.Magnitude < 0.1 or pose.LookVector:Dot(delta.Unit) > -0.1) then
+						distance = delta.Magnitude
+						best = item
+					end
+				end
+			end
+		end
+		local combo = if self.attackTarget and now < self.comboEnds then self.items[self.attackTarget] else nil
+		if combo and combo.kind == "Body" and combo.hits < Config.StunHits and combo.location == "Street" and combo.model and combo.model.PrimaryPart then
+			local visPos = BodyVisualPosition(self, combo)
+			if visPos then
+				local delta = visPos - pose.Position
+				if delta.Magnitude <= tier.range and (delta.Magnitude < 0.1 or pose.LookVector:Dot(delta.Unit) > -0.1) then
+					best = combo
+				end
+			end
+		end
+		self.attackTarget = if best then best.id else nil
+		self.comboEnds = now + Config.AttackComboSeconds
+		return if best then { best } else {}
+	end
+	self.attackTarget = nil
+	type Candidate = { item: Types.ItemView, distance: number }
+	local candidates: { Candidate } = {}
+	for _, item in self.items do
+		if item.kind == "Body" and item.location == "Street" and item.hits < Config.StunHits and item.model and item.model.PrimaryPart then
+			local visPos = BodyVisualPosition(self, item)
+			if visPos and PersonalRules.InWeaponArea(level, pose, visPos) then
+				table.insert(candidates, { item = item, distance = (visPos - pose.Position).Magnitude })
+			end
+		end
+	end
+	table.sort(candidates, function(a: Candidate, b: Candidate): boolean
+		if a.distance == b.distance then
+			return a.item.id < b.item.id
+		end
+		return a.distance < b.distance
+	end)
+	local matched: { Types.ItemView } = {}
+	local count = math.min(#candidates, tier.targets)
+	for index = 1, count do
+		table.insert(matched, candidates[index].item)
+	end
+	return matched
+end
 function Client.HitFeedback(self: Client, now: number, final: boolean, upgrade: boolean): ()
-	if now-self.lastAttack>Config.HitFeedbackWindow or self.paintId or self:Held() then return end
+	if now-self.lastAttack>Config.HitFeedbackWindow or self.paintId or self:ShoulderOccupied() then return end
 	local character=player.Character
 	local humanoid=character and character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health<=0 or not character or not PersonalRules.FindWeapon(character) then return end
@@ -625,27 +726,106 @@ function Client.UpdateHits(self: Client, now: number): ()
 	local character=player.Character
 	local humanoid=character and character:FindFirstChildOfClass("Humanoid")
 	local root=character and character:FindFirstChild("HumanoidRootPart")
-	if self.paintId or self:Held() or not humanoid or humanoid.Health<=0 or not character or not PersonalRules.FindWeapon(character) then
+	if self.paintId or self:ShoulderOccupied() or not humanoid or humanoid.Health<=0 or not character or not PersonalRules.FindWeapon(character) then
 		self:CancelHitFeedback()
 	else
 		for sequence, prediction in self.hitState.pending do
 			if prediction.resolved or prediction.played or now<prediction.due then continue end
+			if prediction.deferred then
+				local weapon = PersonalRules.FindWeapon(character)
+				local level = if weapon then PersonalRules.WeaponLevel(weapon.Name) else nil
+				if not weapon or not level or (prediction.weaponLevel ~= nil and level ~= prediction.weaponLevel)
+					or now > prediction.expires or not root or not root:IsA("BasePart")
+				then
+					if Config.DebugAttackLog then
+						local reason = if now > prediction.expires then "expired" elseif not weapon or not level then "no_weapon" elseif not root or not root:IsA("BasePart") then "no_root" else "weapon_changed"
+						print(string.format("[Attack][Client] Cancel seq=%d reason=%s", sequence, reason))
+					end
+					prediction.played = false
+					prediction.resolved = true
+					continue
+				end
+				prediction.played = true
+				local pose = root.CFrame
+				local tier = PersonalRules.GetWeaponTier(level)
+				local matched = SelectHitTargets(self, level, tier, pose, now)
+				if tier.shape ~= "Single" then
+					self.hitView:WeaponEffect(tier.model, pose, tier.range, tier.width)
+				end
+				local hitIds: { string } = {}
+				for _, item in matched do
+					table.insert(hitIds, item.id)
+				end
+				HitRules.SetTargets(self.hitState, sequence, hitIds)
+				if Config.DebugAttackLog then
+					local summary = if #matched > 0 then table.concat(hitIds, ",") else NearestStreetBodyDebug(self, pose)
+					print(string.format("[Attack][Client] HitFrame seq=%d weapon=%s(lv=%d,%s) range=%.1f hits=%d %s",
+						sequence, tier.model, level, tier.shape, tier.range, #matched, summary))
+				end
+				for _, item in matched do
+					if self.bodies.TrackPrediction then
+						self.bodies:TrackPrediction(item.id, sequence, prediction)
+					end
+					local visPos = BodyVisualPosition(self, item)
+					local bodyPos = visPos or (item.model.PrimaryPart :: BasePart).Position
+					local direction = pose.LookVector
+					if tier.shape == "Slam" then
+						local delta = pose.Position - bodyPos
+						local horizontal = Vector3.new(delta.X, 0, delta.Z)
+						if horizontal.Magnitude > 0.01 then
+							direction = horizontal.Unit
+						end
+					end
+					local torso = if self.bodies.GetVisualPart then self.bodies:GetVisualPart(item.id, "UpperTorso") else nil
+					if not torso then
+						local found = item.model:FindFirstChild("UpperTorso")
+						if found and found:IsA("BasePart") then
+							torso = found
+						end
+					end
+					local position = if torso then torso.Position - direction * torso.Size.Z * 0.5 else bodyPos
+					local hp = PersonalRules.RemainingNpcHp(item.hp, item.hits, tier.damage)
+					local hits = math.min(Config.StunHits - 1, Config.StunHits - math.ceil(hp / Config.BruteDamage))
+					if not self.bodies:Hit(item.id, player.UserId, sequence, item.version + 1, hits, direction, position, now, false, true) then
+						self.hitView:Play(item.id, item.model, hits, direction, now)
+					end
+					if not self.bodies.pureModel then
+						self.hitView:Burst(item.id, position, direction, false, now)
+					end
+				end
+				if #matched > 0 then
+					self:HitFeedback(now, false, false)
+				end
+				Net.FireRequest({
+					action = "Attack",
+					target = hitIds[1],
+					targets = if #hitIds > 0 then hitIds else nil,
+					attackPose = pose,
+					attackSequence = sequence,
+				})
+				continue
+			end
 			local id=HitRules.TakePrediction(self.hitState,sequence,now)
 			local item=if id then self.items[id] else nil
 			if not id or not item or item.kind~="Body" or item.location~="Street" or item.hits>=Config.StunHits
 				or not item.model or not item.model.Parent or not item.model.PrimaryPart or not root or not root:IsA("BasePart") then
 				prediction.played=false; prediction.resolved=true; continue
 			end
-			local delta=item.model.PrimaryPart.Position-root.Position
-			if delta.Magnitude>=Config.AttackRange or (delta.Magnitude>0.1 and root.CFrame.LookVector:Dot(delta.Unit)<=-0.1) then
-				prediction.played=false; prediction.resolved=true; continue
-			end
-			local torso=item.model:FindFirstChild("UpperTorso")
-			local position=item.model.PrimaryPart.Position
-			if torso and torso:IsA("BasePart") then position=torso.Position-root.CFrame.LookVector*torso.Size.Z*0.5 end
 			local weapon = PersonalRules.FindWeapon(character)
 			local level = if weapon then PersonalRules.WeaponLevel(weapon.Name) or 1 else 1
-			local hp = PersonalRules.RemainingNpcHp(item.hp, item.hits, PersonalRules.GetWeaponTier(level).damage)
+			local tier = PersonalRules.GetWeaponTier(level)
+			local visPos = BodyVisualPosition(self, item) or item.model.PrimaryPart.Position
+			local delta=visPos-root.Position
+			if delta.Magnitude>tier.range or (delta.Magnitude>0.1 and root.CFrame.LookVector:Dot(delta.Unit)<=-0.1) then
+				prediction.played=false; prediction.resolved=true; continue
+			end
+			local torso = if self.bodies.GetVisualPart then self.bodies:GetVisualPart(id, "UpperTorso") else nil
+			if not torso then
+				local found = item.model:FindFirstChild("UpperTorso")
+				if found and found:IsA("BasePart") then torso = found end
+			end
+			local position = if torso then torso.Position - root.CFrame.LookVector * torso.Size.Z * 0.5 else visPos
+			local hp = PersonalRules.RemainingNpcHp(item.hp, item.hits, tier.damage)
 			local hits = math.min(Config.StunHits - 1, Config.StunHits - math.ceil(hp / Config.BruteDamage))
 			if not self.bodies:Hit(id,player.UserId,sequence,item.version+1,hits,root.CFrame.LookVector,position,now,false,true) then
 				self.hitView:Play(id,item.model,hits,root.CFrame.LookVector,now)
@@ -675,11 +855,16 @@ function Client.OnHit(self: Client, notice: Types.Notice): ()
 	if not self.bodies:AcceptNotice(id,version,hits,started) then return end
 	local localActor=notice.actor==player.UserId
 	local prediction=if localActor and notice.attackSequence then self.hitState.pending[notice.attackSequence] else nil
-	if prediction and prediction.retired and prediction.target==id and hits<Config.StunHits then return end
-	if prediction and prediction.target~=id and notice.attackSequence then self.bodies:Reject(prediction.target,player.UserId,notice.attackSequence) end
+	local predictedTarget = prediction ~= nil and HitRules.MatchesTarget(prediction, id)
+	if prediction and prediction.retired and predictedTarget and hits<Config.StunHits then return end
+	if prediction and not predictedTarget and not prediction.targets and notice.attackSequence then self.bodies:Reject(prediction.target,player.UserId,notice.attackSequence) end
 	local previous= self.hitState.versions[id] or 0
 	local replay=HitRules.Confirm(self.hitState,id,version,if localActor then notice.attackSequence else nil)
 	if version<=previous then return end
+	if Config.DebugAttackLog and localActor then
+		print(string.format("[Attack][Client] HitConfirm seq=%s id=%s hp=%s/%s hits=%d replay=%s",
+			tostring(notice.attackSequence), id, tostring(notice.hp), tostring(notice.maxHp), hits, tostring(replay)))
+	end
 	-- 正确目标修正现有脉冲；地面交接由含落点的权威 ItemView 启动。
 	local final=hits>=Config.StunHits
 	if final then self.hitView:Remove(id) end
@@ -693,12 +878,19 @@ function Client.OnHit(self: Client, notice: Types.Notice): ()
 	end
 	if localActor and notice.attackSequence==self.attackSequence then
 		if replay then self:HitFeedback(now,final,false)
-		elseif final then self.hitView:UpgradeBurst(id); self:HitFeedback(now,true,true) end
+		elseif final then
+			self.hitView:UpgradeBurst(id)
+			if not prediction or not prediction.finalFeedbackPlayed then
+				self:HitFeedback(now,true,true)
+				if prediction then prediction.finalFeedbackPlayed = true end
+			end
+		end
 	end
 end
 function Client.OnNotice(self: Client, notice: Types.Notice): ()
 	if notice.kind=="Hit" then self:OnHit(notice); return end
 	if notice.kind == "WeaponEffect" and notice.weaponLevel and notice.attackPose and notice.started then
+		if notice.actor == player.UserId then return end
 		local age = workspace:GetServerTimeNow() - notice.started
 		if age >= 0 and age < 0.4 then
 			local weapon = PersonalRules.GetWeaponTier(notice.weaponLevel)
@@ -708,7 +900,18 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 	end
 	if notice.kind=="AttackResult" and notice.attackSequence then
 		local pending=self.hitState.pending[notice.attackSequence]
-		if pending and notice.hit~=true then self.bodies:Reject(pending.target,player.UserId,notice.attackSequence) end
+		if Config.DebugAttackLog then
+			print(string.format("[Attack][Client] Result seq=%d hit=%s", notice.attackSequence, tostring(notice.hit == true)))
+		end
+		if pending and notice.hit~=true then
+			if pending.targets then
+				for targetId in pending.targets do
+					self.bodies:Reject(targetId,player.UserId,notice.attackSequence)
+				end
+			else
+				self.bodies:Reject(pending.target,player.UserId,notice.attackSequence)
+			end
+		end
 		HitRules.Result(self.hitState,notice.attackSequence,notice.hit==true)
 		return
 	end
@@ -1002,7 +1205,7 @@ end
 function Client.Attack(self: Client, inputTime: number?): ()
 	local now = workspace:GetServerTimeNow()
 	if self.worldInteraction and self.worldInteraction:IsInputBlocked() then return end
-	if self.paintId or self:Held() then return end
+	if self.paintId or self:ShoulderOccupied() then return end
 	local character = player.Character
 	local weapon = PersonalRules.FindWeapon(character)
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
@@ -1019,35 +1222,13 @@ function Client.Attack(self: Client, inputTime: number?): ()
 	self.lastAttack = now
 	self.characterView:Swing(player.UserId, now, tier.slashAnim)
 	PlayWeaponSlashSound(tier, root.Position)
-	if tier.shape ~= "Single" then
-		self.attackTarget = nil
-		self.attackSequence += 1
-		Net.FireRequest({action = "Attack", attackSequence = self.attackSequence})
-		return
-	end
-	local best: Types.ItemView? = nil
-	local distance = tier.range
-	for _, item in self.items do
-		if item.kind == "Body" and item.location == "Street" and item.hits < Config.StunHits and item.model and item.model.PrimaryPart then
-			local delta = item.model.PrimaryPart.Position - root.Position
-			if delta.Magnitude < distance and (delta.Magnitude < 0.1 or root.CFrame.LookVector:Dot(delta.Unit) > -0.1) then
-				distance = delta.Magnitude
-				best = item
-			end
-		end
-	end
-	local combo = if self.attackTarget and now < self.comboEnds then self.items[self.attackTarget] else nil
-	if combo and combo.kind == "Body" and combo.hits < Config.StunHits and combo.location == "Street" and combo.model and combo.model.PrimaryPart then
-		local delta = combo.model.PrimaryPart.Position - root.Position
-		if delta.Magnitude < Config.AttackRange and (delta.Magnitude < 0.1 or root.CFrame.LookVector:Dot(delta.Unit) > -0.1) then best = combo end
-	end
-	self.attackTarget = if best then best.id else nil
-	self.comboEnds = now + Config.AttackComboSeconds
 	self.attackSequence += 1
-	local started=inputTime or now
-	HitRules.Begin(self.hitState,self.attackSequence,if best then best.id else nil,started+Config.AttackWindup,now+Config.HitPredictionLifetime)
-	if best then self.bodies:TrackPrediction(best.id,self.attackSequence,self.hitState.pending[self.attackSequence]) end
-	Net.FireRequest({ action = "Attack", target = if best then best.id else nil, version = if best then best.version else nil, attackSequence=self.attackSequence })
+	local started = inputTime or now
+	HitRules.Begin(self.hitState, self.attackSequence, nil, started + Config.AttackWindup, now + Config.HitPredictionLifetime, true, level)
+	if Config.DebugAttackLog then
+		print(string.format("[Attack][Client] Swing seq=%d weapon=%s(lv=%d,%s) cooldown=%.2f windup=%.2f",
+			self.attackSequence, tier.model, level, tier.shape, cooldown, Config.AttackWindup))
+	end
 end
 local function PaintControl(anchor: Vector2, pointer: Vector2, viewport: Vector2): Vector2
 	return Rotation.Velocity(pointer - anchor, viewport)
@@ -1482,6 +1663,14 @@ function Client.Update(self: Client, dt: number): ()
 	end
 	local carried = self:Carried()
 	local held = self:Held()
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	local alive = humanoid ~= nil and humanoid.Health > 0
+	local weaponEquipped = PersonalRules.FindWeapon(character) ~= nil
+	local carryingBody = #carried > 0
+	local canAttack = alive and weaponEquipped and not self:ShoulderOccupied()
+	local canThrow = alive and carryingBody and not weaponEquipped
+	local windowOpen = UIManager.HasShowingWindow()
 	local focused = if self.attackTarget then self.items[self.attackTarget] else nil
 	local head = focused and self.bodies:GetVisualPart(focused.id,"Head")
 	local targetGui = UIManager.GetTargetGuiManager()
@@ -1495,14 +1684,13 @@ function Client.Update(self: Client, dt: number): ()
 	targetGui:Refresh({
 		id = focused and focused.id,
 		adornee = if head and head:IsA("BasePart") then head else nil,
-		visible = not self.paintId and not held and focused ~= nil and focused.location == "Street" and focused.hits < Config.StunHits,
+		visible = not self.paintId and canAttack and focused ~= nil and focused.location == "Street" and focused.hits < Config.StunHits,
 		hits = if focused then focused.hits else 0,
 		hp = focused and focused.hp,
 		maxHp = focused and focused.maxHp,
 		touch = UserInputService.TouchEnabled,
 	})
-	local carryingBody = #carried > 0
-	self.ui:Refresh({painting=self.paintId~=nil,hasTarget=false,windowOpen=UIManager.HasShowingWindow(),carryingBody=carryingBody})
+	self.ui:Refresh({painting=self.paintId~=nil,hasTarget=false,windowOpen=windowOpen,canAttack=canAttack,canThrow=canThrow})
 	if self.paintId then
 		SyncHiddenPlayers(self)
 		self:Text("HintText", { textId = if Config.PaintRotationEnabled then "Painting" else "PaintingFlat" })
@@ -1511,7 +1699,6 @@ function Client.Update(self: Client, dt: number): ()
 	if self.paintCamera.follow ~= nil then
 		return
 	end
-	local character = player.Character
 	local hrp = character and character:FindFirstChild("HumanoidRootPart")
 	self.target = nil
 	self.nearTable = false
@@ -1534,7 +1721,7 @@ function Client.Update(self: Client, dt: number): ()
 		for _, item in self.items do
 			local model = item.model
 			local rootPart = model and model.PrimaryPart
-			if rootPart and (item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits)) and (item.kind == "Body" or not carryingBody) then
+			if rootPart and not item.holder and WorldInteractionRules.IsPickupLocation(item) and (item.kind == "Body" or not carryingBody) then
 				local distance = (hrp.Position - rootPart.Position).Magnitude
 				if distance < best then
 					best = distance
@@ -1550,8 +1737,8 @@ function Client.Update(self: Client, dt: number): ()
 		Sound.Play("PotionPickup", positions.Shelf)
 	end
 	self.lastPotionCount = potions.stored
-	self:Text("HintText", if target then Hints.Action(target, snapshot, held, player.UserId, potions, carried) else Hints.Next(snapshot, held, potions, carried));
-	self.ui:Refresh({painting=false,hasTarget=target~=nil,windowOpen=UIManager.HasShowingWindow(),carryingBody=#carried>0})
+	self:Text("HintText", if target then Hints.Action(target, snapshot, held, player.UserId, potions, carried) else Hints.Next(snapshot, held, potions, carried, weaponEquipped))
+	self.ui:Refresh({painting=false,hasTarget=target~=nil,windowOpen=windowOpen,canAttack=canAttack,canThrow=canThrow})
 end
 function Client.OnInput(self: Client, input: InputObject, processed: boolean): ()
 	if self.visualClosing then return end
@@ -1576,7 +1763,7 @@ function Client.OnInput(self: Client, input: InputObject, processed: boolean): (
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		self:TakeTable()
 	elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
-		if self.throw and self.throw:OnMouseBegan(input) then
+		if not PersonalRules.FindWeapon(player.Character) and self.throw and self.throw:OnMouseBegan(input) then
 			return
 		end
 		-- 先记录输入时间，原生提示仲裁占用的帧计入本地前摇。
@@ -1696,7 +1883,7 @@ function Client.UpdateAutomationViews(self: Client, snapshot: Types.Snapshot?): 
 	if padsFolder then
 		for _, child in padsFolder:GetChildren() do
 			if child:IsA("Model") then
-				local state = AutomationRules.SyncPad(child, unlocked, coins, { skipText = true })
+				AutomationRules.SyncPad(child, unlocked, coins)
 				local facilityId = child:GetAttribute("FacilityId")
 				if typeof(facilityId) == "number" and facilityId >= 1 and facilityId % 1 == 0 then
 					local guiAnchor = child:FindFirstChild("GuiAnchor")
@@ -1715,10 +1902,6 @@ function Client.UpdateAutomationViews(self: Client, snapshot: Types.Snapshot?): 
 						local descSource = AutomationRules.DescribeDesc(facilityId)
 						if descLabel and descLabel:IsA("TextLabel") and descSource then
 							self.padTexts:BindSource(descLabel, descSource)
-						end
-						local prereqLabel = card:FindFirstChild("PrereqText")
-						if prereqLabel and prereqLabel:IsA("TextLabel") then
-							self.padTexts:Bind(prereqLabel, AutomationRules.DescribePrereq(facilityId, state))
 						end
 						local priceFrame = card:FindFirstChild("PriceFrame")
 						local priceLabel = if priceFrame then priceFrame:FindFirstChild("PriceText") else nil
@@ -1785,6 +1968,10 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 	end
 	self.initialized = true
 	if not self.scope.alive then self.scope=Lifecycle.new() end
+	if self.closeCameraHideWatch then
+		self.closeCameraHideWatch()
+	end
+	self.closeCameraHideWatch = FixedCamera.WatchAndHide(district)
 	self.ui:Init(gui)
 	local modal = gui:FindFirstChild("ModalButton")
 	self.touchJump = TouchJumpController.new(self.ui:GetJumpButton(), function(): boolean
@@ -1814,7 +2001,8 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 			CanAim = function(): boolean
 				local character = player.Character
 				local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-				if not self.initialized or self.paintId ~= nil or not humanoid or humanoid.Health <= 0 then
+				if not self.initialized or self.paintId ~= nil or not humanoid or humanoid.Health <= 0
+					or PersonalRules.FindWeapon(character) then
 					return false
 				end
 				if UIManager.HasShowingWindow() then
@@ -1829,22 +2017,38 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 				end
 				return true
 			end,
-			CanStore = function(position: Vector3, _normal: Vector3?, _hitBaffle: boolean?): boolean
+			CanStore = function(position: Vector3, _normal: Vector3?, _hitBaffle: boolean?, hitCageKind: string?): boolean
 				local top = self:Carried()[1]
 				local snapshot = self.snapshot
 				if not top or top.stage == "Painted" or not snapshot then
 					return false
 				end
+				local unlockedA00 = snapshot.unlockedFacilities ~= nil and snapshot.unlockedFacilities[GameData.FacilityId.FastChute] == true
+				if hitCageKind == "Pool" or (unlockedA00 and hitCageKind == "Chute") then
+					return true
+				end
 				local inPool = ThrowArc.InsidePoolStrict(poolFloor.CFrame, poolFloor.Size, position, Physics.PoolStackHeight)
 				local inChute = if chuteDropZone
 					then ThrowArc.InsideChuteLanding(chuteDropZone.CFrame, chuteDropZone.Size, position, Physics.ChuteStackHeight)
 					else false
-				local unlockedA00 = snapshot.unlockedFacilities ~= nil and snapshot.unlockedFacilities[GameData.FacilityId.FastChute] == true
 				local kind = ThrowArc.CanStoreThrow(unlockedA00, inPool, inChute, false, snapshot.pool, nil)
 				return kind == "Pool" or kind == "Chute"
 			end,
 			ChuteBaffles = function(): Instance?
-				return nil
+				local snapshot = self.snapshot
+				if not snapshot or not snapshot.unlockedFacilities or not snapshot.unlockedFacilities[GameData.FacilityId.FastChute] then return nil end
+				return if autoLine then autoLine:FindFirstChild("ChuteThrowBaffles") else nil
+			end,
+			CageTargets = function()
+				local list = {
+					{ kind = "Pool", frame = poolFloor.CFrame, size = poolFloor.Size, inset = Physics.Cage.PoolWallInset },
+				}
+				local snapshot = self.snapshot
+				local unlockedA00 = snapshot ~= nil and snapshot.unlockedFacilities ~= nil and snapshot.unlockedFacilities[GameData.FacilityId.FastChute] == true
+				if unlockedA00 and chuteDropZone then
+					table.insert(list, { kind = "Chute", frame = chuteDropZone.CFrame, size = chuteDropZone.Size, inset = Physics.Cage.ChuteWallInset })
+				end
+				return list
 			end,
 			Ignored = function(): { Instance }
 				local list: { Instance } = {}
@@ -1951,7 +2155,7 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		local now=workspace:GetServerTimeNow()
 		local character=player.Character
 		local humanoid=character and character:FindFirstChildOfClass("Humanoid")
-		local enabled=not self.paintId and not self:Held() and humanoid~=nil and humanoid.Health>0 and character~=nil and PersonalRules.FindWeapon(character)~=nil
+		local enabled=not self.paintId and not self:ShoulderOccupied() and humanoid~=nil and humanoid.Health>0 and character~=nil and PersonalRules.FindWeapon(character)~=nil
 		self.hitView:UpdateCamera(now,enabled)
 		self.hitView:UpdateEffects(now)
 	end)
@@ -1995,6 +2199,10 @@ function Client.Destroy(self: Client): ()
 	if self.closePersonalShop then
 		self.closePersonalShop()
 		self.closePersonalShop = nil
+	end
+	if self.closeCameraHideWatch then
+		self.closeCameraHideWatch()
+		self.closeCameraHideWatch = nil
 	end
 	self.scope:Destroy()
 	self.potionShelf:Destroy()

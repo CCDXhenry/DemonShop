@@ -45,10 +45,9 @@ local function equipSale(owner)
 end
 local ok,result=pcall(function()
  for _=1,8 do local body=item('Body');manager:Pool(a);check(body.location=='Pool','pool deposit') end
- local overflow=item('Body');manager:Pool(a);check(#manager.pool==8 and overflow.holder==a,'full pool preserves carried material')
- overflow.holder=nil;manager.items[overflow.id]=nil;overflow.model:Destroy()
- local oldest=manager.pool[1];manager:Pool(a);check(manager:Held(a).id==oldest and #manager.pool==7,'FIFO pickup')
- manager:Table(a);check(manager.tableId==oldest and manager.paint.player==a,'carried body enters table')
+ local oldest=manager.pool[1]
+ check(not manager:Pool(a) and #manager.pool==8 and manager:Held(a)==nil,'pool anchor only accepts deposits')
+ manager:Table(a);check(manager.tableId==oldest and manager.paint.player==a and #manager.pool==7,'table can still fetch the first pooled body')
  local token=manager.paint.token;manager:Table(b);check(manager.paint.player==a,'second painter cannot seize occupied table')
  local body=manager.items[oldest];body.progress=.42
  manager:EndPaint(a);check(a.Character:FindFirstChild("W01_RustyPan")~=nil,"leaving paint re-equips initial weapon");manager:Table(b);check(manager.paint.player==b and body.progress==.42,'interrupted painting retains progress for handoff')

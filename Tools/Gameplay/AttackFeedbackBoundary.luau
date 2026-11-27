@@ -2,14 +2,25 @@
 local B={now=10,notices={},broadcasts={},hits=0}
 B.workspace={GetServerTimeNow=function() return B.now end}
 B.task={wait=function() end}
-B.Net={FireNotify=function(_,notice) table.insert(B.notices,notice) end,Broadcast=function(notice) table.insert(B.broadcasts,notice) end}
-B.NPC={Hit=function(item, direction, damage, travel)
-	B.hitDirection, B.hitTravel = direction, travel
+B.Net={
+	FireNotify=function(_,notice) table.insert(B.notices,notice) end,
+	Broadcast=function(notice) table.insert(B.broadcasts,notice) end,
+	FireRequest=function(request) B.request = request end,
+}
+B.NPC={Hit=function(item, direction, damage, travel, attackerPosition)
+	B.hitDirection, B.hitTravel, B.attackerPosition = direction, travel, attackerPosition
 	item.maxHp = 30
 	item.hp = math.max(0, (item.hp or (30 - item.hits * 10)) - (damage or 10))
 	item.hits = 3 - math.ceil(item.hp / 10)
 	item.version+=1; B.hits+=1
 end}
+B.workspace.Gravity = 196.2
+B.Ground = { ThrowRotation = function() return require('@lune/roblox').CFrame.identity end }
+B.Carry = {
+	BeginManualToss = function(item, _, _, _, _, _, restoreTool)
+		B.tossed, B.restoreTool = item, restoreTool
+	end,
+}
 B.player={UserId=1}
 B.healthHits={}
 B.UIManager={GetTargetGuiManager=function()

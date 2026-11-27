@@ -4,6 +4,15 @@ local Adapter = require(script.Parent.JointAdapter)
 local Spring = require(script.Parent.Spring)
 local Contact = require(script.Parent.SoftContact)
 local Mixer = {}
+local LookHeadAngle = math.rad(40)
+local LookWaistScale = 0.16
+local LookHalfPeriod = 0.72
+
+function Mixer.StreetLookYaw(signedStart: number, now: number): number
+	local age = math.max(0, now - math.abs(signedStart))
+	local direction = if signedStart < 0 then -1 else 1
+	return math.sin(age / LookHalfPeriod * math.pi) * LookHeadAngle * direction
+end
 local order={"Root","Waist","Neck","LeftShoulder","RightShoulder","LeftElbow","RightElbow","LeftWrist","RightWrist",
 	"LeftHip","RightHip","LeftKnee","RightKnee","LeftAnkle","RightAnkle"}
 local function Rotation(v: Vector3): CFrame
@@ -26,7 +35,7 @@ function Mixer.Offset(space: CFrame, contact: Vector3, impact: Vector3, shift: V
 end
 function Mixer.Commit(joints: Adapter.Map, sources: Adapter.Map, mask: {[string]: boolean}, root: CFrame,
 	contact: Contact.State?, impacts: {[string]: Vector3}?, shift: Vector3, legacy: ((string)->CFrame?)?, step: number,
-	history: {[string]: CFrame}, dt: number, speedLimit: number)
+	history: {[string]: CFrame}, dt: number, speedLimit: number, lookYaw: number?)
 	for _,name in order do
 		local source,joint=sources[name],joints[name]
 		mask[name]=not Adapter.IsKinematic(source)
@@ -39,6 +48,11 @@ function Mixer.Commit(joints: Adapter.Map, sources: Adapter.Map, mask: {[string]
 			local mixed=Mixer.Offset(space,if spring then spring.Position else Vector3.zero,hit or Vector3.zero,
 				if name=="Root" then shift else Vector3.zero,joint)
 			offset=if offset then mixed*offset else mixed
+		end
+		if lookYaw and lookYaw ~= 0 and (name == "Neck" or name == "Waist") then
+			local axis = source.c0:VectorToObjectSpace(Vector3.yAxis)
+			local look = CFrame.fromAxisAngle(axis, lookYaw * (if name == "Neck" then 1 else LookWaistScale))
+			offset = if offset then offset * look else look
 		end
 		if not legacy and (offset or history[name]) then
 			local previous=history[name] or CFrame.identity

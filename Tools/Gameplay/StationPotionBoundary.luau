@@ -178,6 +178,9 @@ function B.BuildDistrict(ranges)
 	local poolPickup = makePart(pool, 'PickupPointAnchor', Vector3.new(-20, 2, 0))
 	attachPrompt(poolPickup, ranges.Pool)
 	makePart(pool, 'PoolFloor', Vector3.new(-20, 0, 0), Vector3.new(12, 1, 12))
+	local poolWalls = Instance.new('Folder')
+	poolWalls.Name, poolWalls.Parent = 'AirWalls', pool
+	makePart(poolWalls, 'West', Vector3.new(-26.5, 7.5, 0), Vector3.new(1, 16, 12))
 
 	local tableFolder = Instance.new('Folder')
 	tableFolder.Name = 'RuneBodyTable'
@@ -240,6 +243,12 @@ function B.BuildDistrict(ranges)
 	local opening = makePart(autoLine, 'FastChuteOpening', Vector3.new(-58.8, 21.397, -28.75), Vector3.new(18, 1, 13.5))
 	opening.CanCollide = false
 	opening.CanQuery = false
+	local baffles = Instance.new('Folder')
+	baffles.Name, baffles.Parent = 'ChuteThrowBaffles', autoLine
+	for _, name in { 'West', 'East', 'Back' } do
+		local wall = makePart(baffles, name, Vector3.new(-58.8, 28.5, -28.75))
+		wall.CanCollide, wall.CanQuery = false, false
+	end
 	makePart(autoLine, 'ChuteTopDropAnchor', Vector3.new(-58.8, 21.797, -37.25))
 	local chutePrompt = makePart(autoLine, 'ChutePromptAnchor', Vector3.new(-53.6, 22.397, -37.25))
 	attachPrompt(chutePrompt, ranges.Chute or 8)
@@ -249,6 +258,9 @@ function B.BuildDistrict(ranges)
 	landing.Parent = autoLine
 	local dropZone = makePart(landing, 'DropZone', Vector3.new(-58.8, 1.0, -28.5), Vector3.new(24, 1.4, 16))
 	dropZone.CanCollide = false
+	local landingWalls = Instance.new('Folder')
+	landingWalls.Name, landingWalls.Parent = 'AirWalls', landing
+	makePart(landingWalls, 'West', Vector3.new(-71.3, 8.3, -28.5), Vector3.new(1, 16, 16))
 	makePart(landing, 'LandingAnchor', Vector3.new(-58.8, 1.15, -28.5))
 	local chutePickup = makePart(landing, 'ChutePickupAnchor', Vector3.new(-58.8, 1.8, -20.1))
 	attachPrompt(chutePickup, ranges.ChutePickup or 8)
@@ -257,14 +269,19 @@ function B.BuildDistrict(ranges)
 	autoRune.Name = 'AutoRuneMachine'
 	autoRune.Parent = autoLine
 	makePart(autoRune, 'WorkBedAnchor', Vector3.new(-19.0, 4.4, -27.0))
-	makePart(autoRune, 'OutputPadAnchor', Vector3.new(-28.6, 1.15, -27.0))
-	local outputPrompt = makePart(autoRune, 'OutputPromptAnchor', Vector3.new(-28.6, 1.8, -22.2))
+	makePart(autoRune, 'OutputPadAnchor', Vector3.new(-12, 4.25, -27.0))
+	local outputPrompt = makePart(autoRune, 'OutputPromptAnchor', Vector3.new(-12, 3.0, -22.2))
 	attachPrompt(outputPrompt, ranges.AutoOutput or 8)
 
 	local autoSmelter = Instance.new('Model')
 	autoSmelter.Name = 'AutoSmelterMachine'
 	autoSmelter.Parent = autoLine
-	makePart(autoSmelter, 'FeedRailAnchor', Vector3.new(-10.0, 4.35, -27.0))
+	makePart(autoRune, 'TransferRampAnchor', Vector3.new(-16, 2.5, -27))
+	makePart(autoRune, 'TransferRampTopAnchor', Vector3.new(-14, 4.5, -27))
+	local pass = makePart(autoRune, 'TransferPassAnchor', Vector3.new(-12, 4.5, -27))
+	local passLight = Instance.new('PointLight')
+	passLight.Name, passLight.Enabled, passLight.Parent = 'TransferPassLight', false, pass
+	makePart(autoSmelter, 'FurnaceInletAnchor', Vector3.new(-5, 4.5, -27))
 	makePart(autoSmelter, 'MachineCenterAnchor', Vector3.new(-1.0, 4.5, -27.0))
 	local autoRack = Instance.new('Model')
 	autoRack.Name = 'AutoPotionRack'
@@ -376,10 +393,14 @@ B.workspace = {
 		end
 		return B.extraWorld[name]
 	end,
-	Raycast = function(_, origin, direction, _params)
-		if B.occluded then
+	Raycast = function(_, origin, direction, params)
+		local occluder = if B.occluded then B.wallPart else B.cageOccluder
+		if occluder then
+			for _, excluded in (params and params.FilterDescendantsInstances or {}) do
+				if occluder == excluded or occluder:IsDescendantOf(excluded) then return nil end
+			end
 			return {
-				Instance = B.wallPart,
+				Instance = occluder,
 				Position = origin + direction * 0.5,
 				Normal = if direction.Magnitude > 0 then -direction.Unit else Vector3.yAxis,
 			}
@@ -676,6 +697,8 @@ B.Info = {
 B.NPC = {
 	StopMotion = function() end,
 	Update = function() end,
+	StepCrowd = function() end,
+	ResetCrowd = function() end,
 	Hit = function(item)
 		item.hits += 1
 		item.version += 1
@@ -687,6 +710,9 @@ B.NPC = {
 }
 
 B.Ragdoll = {
+	SetCageContained = function(model, cage)
+		model:SetAttribute('CageContained', cage)
+	end,
 	Init = function() end,
 	Setup = function() end,
 	SetMode = function() end,
@@ -709,14 +735,18 @@ B.Door = {
 }
 
 B.Carry = {
+	Contain = function(item, cage)
+		B.Ragdoll.SetCageContained(item.model, cage)
+	end,
 	Take = function(item, player)
 		local char = player.Character
 		local hum = char and char:FindFirstChildOfClass('Humanoid')
-		if hum then
+		if hum and item.kind ~= "Body" then
 			B.UnequipTools(hum)
 		end
 		item.holder = player
 		item.location = 'Carried'
+		item.model:SetAttribute('CageContained', nil)
 		item.version += 1
 		return true
 	end,
@@ -732,6 +762,7 @@ B.Carry = {
 	ReleaseIntoChute = function(item, pose)
 		item.holder = nil
 		B.PivotTo(item.model, pose)
+		B.Carry.Contain(item, 'Chute')
 		item.poolToss = nil
 		item.model:SetAttribute('PhysicsMode', 'Loose')
 	end,
@@ -746,6 +777,7 @@ B.Carry = {
 		item.model:SetAttribute('MotionState', 'Pool')
 	end,
 	FinishPool = function(item)
+		B.Carry.Contain(item, 'Pool')
 		item.fall = nil
 		item.poolToss = nil
 		item.location = 'Pool'
@@ -757,6 +789,7 @@ B.Carry = {
 		item.version += 1
 	end,
 	FinishChute = function(item)
+		B.Carry.Contain(item, 'Chute')
 		item.fall = nil
 		item.poolToss = nil
 		item.location = 'Chute'
@@ -767,7 +800,8 @@ B.Carry = {
 		item.model:SetAttribute('MotionState', 'ChutePile')
 		item.version += 1
 	end,
-	FinishGround = function(item)
+	FinishGround = function(item, keepCage)
+		if not keepCage then item.model:SetAttribute('CageContained', nil) end
 		item.fall = nil
 		item.poolToss = nil
 		item.location = 'Ground'

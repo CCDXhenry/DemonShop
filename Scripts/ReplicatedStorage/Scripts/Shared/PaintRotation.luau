@@ -59,9 +59,9 @@ function Rotation.TablePose(position: Vector3): CFrame
 end
 
 function Rotation.CameraPose(position: Vector3, count: number?): CFrame
-	-- 正上方。画面右侧朝世界 -X，画面上方朝世界 +Z（台子远处、牌子在画面下方）。
-	local eye = position + Vector3.yAxis * Rotation.BatchCameraHeight(count or 1)
-	return CFrame.fromMatrix(eye, -Vector3.xAxis, Vector3.zAxis)
+	-- 斜视机位读 GameConfig.PaintCameraTilt 导出的 Offset / Right / Up，视线落在台面锚点。
+	local eye = position + Config.PaintCameraOffset * Rotation.BatchCameraHeight(count or 1)
+	return CFrame.fromMatrix(eye, Config.PaintCameraRight, Config.PaintCameraUp)
 end
 
 function Rotation.Distance(from: CFrame, to: CFrame): number

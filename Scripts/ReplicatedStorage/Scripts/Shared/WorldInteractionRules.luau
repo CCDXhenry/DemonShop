@@ -5,7 +5,7 @@ local GameData = require(script.Parent.GameData)
 local Types = require(script.Parent.GameTypes)
 local GameTexts = require(script.Parent.GameTexts)
 local Rules = {}
-export type Action = { target: string, version: number, action: GameTexts.TextId, object: GameTexts.TextId, signature: string }
+export type Action = { target: string, version: number, action: GameTexts.TextId, object: GameTexts.TextId, signature: string, instant: boolean }
 export type Potions = { stored: number, equipped: boolean }
 type CarryLoad = { unfinished: boolean, painted: boolean, body: boolean, other: boolean }
 local function ReadCarry(held: Types.ItemView?, stack: { Types.ItemView }?): CarryLoad
@@ -35,6 +35,11 @@ local function ReadCarry(held: Types.ItemView?, stack: { Types.ItemView }?): Car
 	end
 	return load
 end
+function Rules.IsPickupLocation(item: Types.ItemView): boolean
+	return item.location == "Ground"
+		or (item.location == "Street" and item.hits >= Config.StunHits)
+		or (item.kind == "Body" and item.toss == nil and (item.location == "Pool" or item.location == "Chute"))
+end
 function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[string]: Types.ItemView}, held: Types.ItemView?, potions: Potions?, stack: { Types.ItemView }?): Action?
 	if not snapshot then return nil end
 	local action: GameTexts.TextId? = nil
@@ -44,8 +49,7 @@ function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[strin
 	local carrying = load.body or load.other or held ~= nil
 	if target == "Pool" then
 		object = "PromptPool"
-		if load.unfinished then action = "StoreBody"
-		elseif not carrying and snapshot.pool > 0 then action = "TakeSharedBody" end
+		if load.unfinished then action = "StoreBody" end
 	elseif target == "Table" then
 		object = "PromptTable"
 		if not snapshot.painter then
@@ -71,8 +75,7 @@ function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[strin
 		object = "PromptChute"
 		if snapshot.unlockedFacilities and snapshot.unlockedFacilities[GameData.FacilityId.FastChute] and load.unfinished then action = "DepositBodies" end
 	elseif target == "ChutePickup" then
-		object = "PromptChuteLanding"
-		if not load.other and (snapshot.chuteQueue or 0) > 0 then action = "TakeChuteBody" end
+		return nil
 	elseif target == "AutoOutput" then
 		object = "PromptAutoOutput"
 		if not load.other and (snapshot.autoPaintedQueue or 0) > 0 then action = "TakeAutoRuneBody" end
@@ -81,7 +84,7 @@ function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[strin
 		if not load.body and (snapshot.autoShelfCount or 0) > 0 then action = "CollectAutoPotion" end
 	else
 		local item = items[target]
-		local reachable = item and not item.holder and (item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits))
+		local reachable = item and not item.holder and Rules.IsPickupLocation(item)
 		if reachable and item then
 			if item.kind == "Body" and not load.other then
 				version = item.version
@@ -97,6 +100,6 @@ function Rules.Resolve(target: string, snapshot: Types.Snapshot?, items: {[strin
 	if not action or not version then return nil end
 	local tableItem = if target == "Table" and snapshot.tableId then items[snapshot.tableId] else nil
 	local signature = table.concat({target, tostring(version), action, if held then held.id else "", tostring(if held then held.version else 0), tostring(if tableItem then tableItem.version else 0), tostring(if target == "Table" then snapshot.stationVersions.Pool else 0), if potions and (potions.equipped or potions.stored > 0) then "1" else "0"}, ":")
-	return {target=target, version=version, action=action, object=object, signature=signature}
+	return {target=target, version=version, action=action, object=object, signature=signature, instant=action == "PromptPickUp" and object == "PromptBody"}
 end
 return Rules

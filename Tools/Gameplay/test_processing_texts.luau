@@ -30,7 +30,7 @@ Check(Hints.Next(nil, nil, storedPotions).textId, "TakePotion")
 for _,case in {
 	{"Pool",Snapshot({pool=20}),raw,"StoreBody"},
 	{"Pool",nil,potion,"PoolUnfinishedOnly"},{"Pool",nil,painted,"PoolUnfinishedOnly"},
-	{"Pool",nil,raw,"StoreBody"},{"Pool",Snapshot({pool=1}),nil,"TakeSharedBody"},{"Pool",nil,nil,"PoolEmpty"},
+	{"Pool",nil,raw,"StoreBody"},{"Pool",Snapshot({pool=1}),nil,"FetchPool"},{"Pool",nil,nil,"PoolEmpty"},
 	{"Table",Snapshot({painter=2}),raw,"TableOtherPainter"},{"Table",Snapshot({painter=1}),raw,"PlaceBody"},
 	{"Table",Snapshot({tableId="t",items={{id="t",stage="Painted"}}}),raw,"TableOccupied"},{"Table",nil,potion,"TableNeedsBody"},
 	{"Table",Snapshot({tableId="t",items={{id="t",stage="Painting"}}}),raw,"ContinuePainting"},
@@ -46,8 +46,6 @@ for _,case in {
 	{"Chute",Snapshot({unlockedFacilities={[1]=true}}),raw,"DepositBodies"},
 	{"Chute",Snapshot({unlockedFacilities={[1]=true}}),painted,"ChuteUnfinishedOnly"},
 	{"Chute",Snapshot({unlockedFacilities={[1]=true}}),nil,"ChuteNeedsBody"},
-	{"ChutePickup",Snapshot({chuteQueue=1}),nil,"TakeChuteBody"},
-	{"ChutePickup",Snapshot({chuteQueue=0}),nil,"ChuteEmpty"},
 	{"AutoOutput",Snapshot({autoPaintedQueue=1}),nil,"TakeAutoRuneBody"},
 	{"AutoOutput",Snapshot({autoPaintedQueue=0}),nil,"AutoOutputEmpty"},
 	{"AutoShelf",Snapshot({autoShelfCount=2}),nil,"CollectAutoPotion"},
@@ -58,6 +56,7 @@ Check(Hints.Next(Snapshot({autoShelfCount=3}),nil).textId,"CollectAutoPotion")
 Check(Hints.Action("Pool",nil,nil,1,nil,{painted,raw}).textId,"StoreBody")
 Check(Hints.Action("Altar",nil,raw,1,nil,{raw,painted}).textId,"InsertRuneBody")
 Check(Hints.Next(nil,nil,nil,{painted,raw}).textId,"ThrowAim")
+Check(Hints.Next(nil,nil,nil,{painted,raw},true).textId,"HolsterToThrow")
 Check(Hints.Next(nil,nil,equippedPotions).args[1],"237")
 Check(Hints.Action("Sigil",nil,nil,1,equippedPotions).args[1],"237")
 Check(Hints.Next(nil,nil).args,nil)

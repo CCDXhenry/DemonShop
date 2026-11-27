@@ -86,15 +86,18 @@ Check(view.attack == nil, "respawn releases old track")
 view:Swing(1, 5)
 view.carriers[1] = true
 view:Apply(5)
-Check(view.attack == nil, "carry interrupts attack")
+Check(view.attack and view.attack.track.IsPlaying, "starting carry keeps the current swing")
+Check(view.attack.track.Priority == Roblox.Enum.AnimationPriority.Action2, "swing overrides carry pose when both tracks are playing")
 Check(view.carry and view.carry.track and view.carry.track.IsPlaying, "carrying loads and plays carry animation")
 Check(view.carry.track.Priority == Roblox.Enum.AnimationPriority.Action and view.carry.track.Looped, "carry track is looping action")
 plays = Boundary.plays
 view:Swing(1, 6)
-Check(Boundary.plays == plays, "carry blocks prediction")
+Check(Boundary.plays == plays + 1 and view.attack.track.Priority == Roblox.Enum.AnimationPriority.Action2, "can swing while carrying")
 view.carriers[1] = nil
 view:Apply(6)
 Check(view.carry == nil, "releasing carry stops and clears carry track")
+Check(view.attack.track.Priority == Roblox.Enum.AnimationPriority.Action, "releasing carry restores normal swing priority")
+view:StopSwing()
 Boundary.failLoad = true
 local ok = pcall(function() view:Swing(1, 7) end)
 Check(ok and view.attack.track == nil, "unavailable animation does not block request caller")

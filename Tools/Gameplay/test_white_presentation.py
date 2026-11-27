@@ -39,7 +39,7 @@ for name,marker,dependencies in (
     if name == "ImpactReaction":
         imports += "\nlocal GameConfig={StunHits=3}"
     module(name,CLIENT,marker,roblox+"\n"+imports)
-module("WhiteBodyPresentationManager", CLIENT, "local Manager =", """
+module("WhiteBodyPresentationManager", CLIENT, "local StreetPositionResponse", """
 local B=require('./Boundary')
 local workspace,RunService=B.world,B.run
 local Adapter=require('./JointAdapter')
@@ -49,6 +49,8 @@ local Mixer=require('./PoseMixer')
 local Contact=require('./SoftContact')
 local Fall=require('./LocalRagdoll')
 local ManualThrow=require('./ManualThrowPresentation')
+local CageGeometry={Contains=function() return false end,ApplySoftBounceToModel=function() return nil end,DetectSoftImpact=function() return nil end}
+local CageImpactView={Play=function() end,PlayAt=function() end}
 local Sound={Play=function() end}
 local Physics=require('./PhysicsConfig')
 local Input={TouchEnabled=false}
@@ -105,6 +107,7 @@ local Vector2=R.Vector2
 local Random={new=function() return {} end}
 local Config=require('./PhysicsConfig')
 local GameConfig={PaintLiePitch=math.pi/2}
+local PersonalRules={FindWeapon=function(container) return container:FindFirstChild("W01_RustyPan") end}
 local ThrowArc=require('./ThrowArc')
 local NPC={StopMotion=function() end}
 local Scene=require('./AltarScene')
@@ -131,6 +134,7 @@ local Ragdoll={SetThrowPhysics=function() end,LimitVelocity=function() end,SetMo
 end}
 """, [
     ("humanoid:UnequipTools()", "B.unequip(humanoid)"),
+    ("humanoid:EquipTool(weapon)", "B.equip(humanoid, weapon)"),
     ("support.AssemblyLinearVelocity", "Vector3.zero"),
     ("torso.AssemblyMass", "1"),
     ("item.model:GetPivot()", "GetPivot(item.model)"),

@@ -24,7 +24,11 @@ local function part(parent, name, size, frame)
 	value.Name, value.Size, value.CFrame, value.Parent = name, size, frame, parent
 	return value
 end
-B.unequip = function() end
+B.unequip = function(humanoid)
+	local weapon = humanoid.Parent:FindFirstChild("W01_RustyPan")
+	if weapon then weapon.Parent = B.backpack end
+end
+B.equip = function(humanoid, weapon) weapon.Parent = humanoid.Parent end
 B.now = 1
 local character = R.Instance.new("Model")
 local size = V.new(2, 1.6, 1)
@@ -32,7 +36,10 @@ part(character, "HumanoidRootPart", size, F.identity)
 local shoulder = part(character, "UpperTorso", size, F.new(0, 4, 0))
 local humanoid = R.Instance.new("Humanoid")
 humanoid.Health, humanoid.Parent = 100, character
-local player = {Character=character, FindFirstChild=function() return nil end}
+B.backpack = R.Instance.new("Backpack")
+local tool = R.Instance.new("Tool")
+tool.Name, tool.Parent = "W01_RustyPan", character
+local player = {Character=character, FindFirstChild=function(_, name) return if name == "Backpack" then B.backpack else nil end}
 local function take(layer)
 	local model = R.Instance.new("Model")
 	local from = F.new(0, 0, -4) * F.Angles(math.pi / 2, 0, 0)
@@ -63,6 +70,7 @@ for layer = 0, 31 do
 		check(position.Z >= previous.Z and position.Z <= Physics.ShoulderOffset.Z + stackConfig.BackLimit + 1e-4, "bounded rear offset")
 	end
 end
+check(tool.Parent == character, "picking up and stacking bodies keeps the equipped weapon")
 local top = items[32]
 local limit = Physics.ShoulderOffset.Y + stackConfig.SecondGap + stackConfig.ThirdGap + stackConfig.NextGap / (1 - stackConfig.GapDecay)
 check(top.carryBaseOffset.Position.Y < limit, "32 bodies stay below the height limit")
@@ -119,6 +127,11 @@ shoulder.Size = size * 1.5
 local scaled = take(1)
 local offset = (Physics.ShoulderOffset + V.new(stackConfig.SideOffset, stackConfig.SecondGap, stackConfig.BackStep)) * 1.5
 check(sameFrame(scaled.carryBaseOffset, F.new(offset) * F.Angles(0, stackConfig.Yaw, 0) * Physics.ShoulderRotation), "layer scales with the player's torso")
-Carry.Detach(scaled)
+tool.Parent = B.backpack
+Carry.Static(scaled, F.identity)
+check(tool.Parent == B.backpack, "station drop-off leaves a holstered weapon in the backpack")
+local dropped = take(0)
+Carry.Detach(dropped)
+check(tool.Parent == B.backpack, "detaching the last body does not auto-equip the weapon")
 check(not shoulder:FindFirstChild("WhiteBodyShoulder"), "all shoulder attachments released")
 print("PASS", count, "carry stack assertions")

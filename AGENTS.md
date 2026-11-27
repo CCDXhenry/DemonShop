@@ -8,6 +8,7 @@
 - 明确要求优质模型、UI、VFX：`.agents/skills/quality-instance-workflow/SKILL.md`。
 - 音频：`.agents/skills/roblox-audio-workflow/SKILL.md`。
 - 录屏：`.agents/skills/roblox-obs-capture/SKILL.md`。优先 Studio MCP 录像，不可用或失败再用 OBS。普通 MCP 截图不因此改走 OBS。
+- 分析报告速览与核对：`.agents/skills/review-report-digest/SKILL.md`。手动总结并实证核对 `每日代码分析报告/` 与 `每周架构分析报告/`，支持本地 `.cache/` 忽略/暂缓记忆。
 - 公共资产库：`.agents/skills/rdk-reuse/SKILL.md` / `.agents/skills/rdk-capture/SKILL.md`（Junction 联接至 `../Roblox-Development-Kit`）。新建通用模块（UI 动效、物理、网络、角色、VFX、音频、交互等）前，先读取 `../Roblox-Development-Kit/CATALOG.json`；命中时使用 `rdk-reuse` 评估并适配接入。
 
 脚本只编辑本地文件，经现有 Script Sync 同步，不通过 MCP 覆写源码，不引入 Rojo。持久实例只在 Edit 模式修改。未明确要求不启动 Play。

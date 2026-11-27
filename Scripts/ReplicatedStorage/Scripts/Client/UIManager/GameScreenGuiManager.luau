@@ -21,7 +21,8 @@ export type DisplayState = {
 	painting: boolean,
 	hasTarget: boolean,
 	windowOpen: boolean?,
-	carryingBody: boolean?,
+	canAttack: boolean?,
+	canThrow: boolean?,
 }
 export type Manager = typeof(setmetatable(
 	{} :: {
@@ -40,7 +41,8 @@ export type Manager = typeof(setmetatable(
 		throwStick: Frame?,
 		jumpControlButton: ImageButton?,
 		attackButton: ImageButton?,
-		carryingBody: boolean,
+		canAttack: boolean,
+		canThrow: boolean,
 		painting: boolean,
 		windowOpen: boolean,
 		brushCursor: boolean,
@@ -70,7 +72,8 @@ function Manager.new(): Manager
 			attackButton = nil,
 			painting = false,
 			windowOpen = false,
-			carryingBody = false,
+			canAttack = false,
+			canThrow = false,
 			brushCursor = false,
 			savedMouseIcon = nil,
 		},
@@ -104,10 +107,10 @@ function Manager.RefreshTouchVisibility(self: Manager): ()
 		self.touchJump.Visible = show
 	end
 	if self.touchAttack then
-		self.touchAttack.Visible = show and not self.carryingBody
+		self.touchAttack.Visible = show and self.canAttack
 	end
 	if self.throwStick then
-		self.throwStick.Visible = show and self.carryingBody
+		self.throwStick.Visible = show and self.canThrow
 	end
 	if self.touchSprint then
 		self.touchSprint.Visible = show
@@ -119,7 +122,8 @@ function Manager.Refresh(self: Manager, state: DisplayState): ()
 	end
 	self.painting = state.painting
 	self.windowOpen = state.windowOpen == true
-	self.carryingBody = state.carryingBody == true
+	self.canAttack = state.canAttack == true
+	self.canThrow = state.canThrow == true
 	if not state.painting or GuiService.MenuIsOpen then
 		self:ApplyBrushCursor(false)
 	end
@@ -292,7 +296,7 @@ function Manager.Destroy(self: Manager): ()
 	self.gui, self.root, self.paintFrame, self.fill = nil, nil, nil, nil
 	self.touchControls, self.touchJump, self.touchAttack, self.touchSprint, self.throwStick = nil, nil, nil, nil, nil
 	self.jumpControlButton, self.attackButton = nil, nil
-	self.painting, self.windowOpen, self.carryingBody = false, false, false
+	self.painting, self.windowOpen, self.canAttack, self.canThrow = false, false, false, false
 	self.owned = false
 	table.clear(self.labels)
 	table.clear(self.buttons)

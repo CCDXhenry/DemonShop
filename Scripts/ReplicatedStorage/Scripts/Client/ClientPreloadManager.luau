@@ -213,6 +213,7 @@ local function CreateConfiguredAnimations(): { Animation }
 		Config.BodyCarryAnimation,
 		Config.IdleAnimation,
 		Config.WalkAnimation,
+		Config.NpcRunAnimation,
 	}
 	for _, animationId in baseIds do
 		AddOwnedAnimation(animationId)

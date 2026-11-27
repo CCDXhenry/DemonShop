@@ -1,6 +1,5 @@
 -- 用街区支撑面和躯干扫掠决定地面交互根，保留 R15 供原生提示与旧版搬运使用。
 --!strict
-local PhysicsService = game:GetService("PhysicsService")
 local Shared = game:GetService("ReplicatedStorage").Scripts.Shared
 local Physics = require(Shared.PhysicsConfig)
 local Types = require(Shared.GameTypes)
@@ -12,15 +11,6 @@ local ThrowSupportTolerance = 0.35
 local ThrowBacktrackStep = 0.75
 local ThrowSupportDepth = Physics.ManualThrow.WallFloorProbeStuds
 function Ground.Init()
-	for _,group in {Physics.FallGroup, Physics.SceneryGroup} do
-		if not PhysicsService:IsCollisionGroupRegistered(group) then PhysicsService:RegisterCollisionGroup(group) end
-	end
-	for _,group in PhysicsService:GetRegisteredCollisionGroups() do
-		local name = group.name
-		PhysicsService:CollisionGroupSetCollidable(Physics.SceneryGroup,name,PhysicsService:CollisionGroupsAreCollidable("Default",name))
-		PhysicsService:CollisionGroupSetCollidable(Physics.FallGroup,name,false)
-	end
-	PhysicsService:CollisionGroupSetCollidable(Physics.FallGroup,Physics.SceneryGroup,true)
 	for _,part in Scene.District:GetDescendants() do
 		if part:IsA("BasePart") and part.Anchored and part.CanCollide and part.CollisionGroup=="Default" then
 			part.CollisionGroup=Physics.SceneryGroup

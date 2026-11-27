@@ -1,66 +1,82 @@
--- 工作台镜头：可取消的进出过渡、重入保护和角色复活后的相机归还
+-- 工作台镜头：基于公共 FixedCamera 的可取消进出过渡、重入保护、运行期热调和角色复活后的相机归还
 --!strict
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
+local FixedCamera = require(ReplicatedStorage.Scripts.Shared.FixedCamera)
+
 local Controller = {}
 Controller.__index = Controller
-type Saved = { camera: Camera, kind: Enum.CameraType, subject: Instance?, pose: CFrame, fov: number }
+export type Saved = FixedCamera.SavedCameraState
 type TossFollow = { started: number, ends: number, duration: number, origin: CFrame, focus: Vector3, target: () -> Vector3? }
 export type Controller = typeof(setmetatable({} :: {
-	saved: Saved?, tween: Tween?, completed: RBXScriptConnection?, ready: boolean,
+	core: FixedCamera.Controller,
+	saved: Saved?,
+	ready: boolean,
 	follow: TossFollow?,
 }, Controller))
+
 function Controller.new(): Controller
-	return setmetatable({saved=nil,tween=nil,completed=nil,ready=false}, Controller)
+	local holder: { owner: Controller? } = { owner = nil }
+	local core = FixedCamera.CreateController({
+		defaultFov = 45,
+		defaultDuration = Config.PaintCameraSeconds,
+		enableHotReload = true,
+		onReadyChanged = function(ready: boolean): ()
+			if holder.owner then
+				holder.owner.ready = ready
+			end
+		end,
+		onRestored = function(): ()
+			if holder.owner then
+				holder.owner.saved = nil
+				holder.owner.ready = false
+			end
+		end,
+	})
+	local self = setmetatable({
+		core = core,
+		saved = nil :: Saved?,
+		ready = false,
+		follow = nil :: TossFollow?,
+	}, Controller)
+	holder.owner = self
+	return self
 end
+
 function Controller.Cancel(self: Controller): ()
 	self.follow = nil
-	if self.completed then self.completed:Disconnect(); self.completed = nil end
-	if self.tween then self.tween:Cancel(); self.tween:Destroy(); self.tween = nil end
+	self.core:Cancel()
 end
+
 function Controller.Restore(self: Controller): ()
-	self:Cancel()
-	local saved = self.saved
-	self.saved, self.ready = nil, false
-	if not saved or workspace.CurrentCamera ~= saved.camera then return end
-	local character = Players.LocalPlayer.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	saved.camera.CFrame = saved.pose
-	saved.camera.FieldOfView = saved.fov
-	saved.camera.CameraSubject = humanoid or saved.subject
-	saved.camera.CameraType = saved.kind
+	self.follow = nil
+	self.core:Restore()
+	self.saved = self.core.saved
+	self.ready = self.core.ready
 end
+
 function Controller.Enter(self: Controller, pose: CFrame, fov: number?): ()
-	self:Restore()
-	local camera = workspace.CurrentCamera
-	if not camera then return end
-	self.saved = {camera=camera,kind=camera.CameraType,subject=camera.CameraSubject,pose=camera.CFrame,fov=camera.FieldOfView}
-	camera.CameraType = Enum.CameraType.Scriptable
-	local tween = TweenService:Create(camera,TweenInfo.new(Config.PaintCameraSeconds,Enum.EasingStyle.Quad,Enum.EasingDirection.InOut),{CFrame=pose,FieldOfView=fov or 45})
-	self.tween = tween
-	self.completed = tween.Completed:Connect(function(state: Enum.PlaybackState): ()
-		if state == Enum.PlaybackState.Completed then self.ready = true end
-		self:Cancel()
-	end)
-	tween:Play()
+	self.follow = nil
+	self.core:EnterPose(pose, fov or 45, Config.PaintCameraSeconds)
+	self.saved = self.core.saved
+	self.ready = self.core.ready
 end
+
+function Controller.EnterMarker(self: Controller, target: Instance?, fallbackPose: CFrame?, fallbackFov: number?): ()
+	self.follow = nil
+	self.core:Enter(target, fallbackPose, fallbackFov or 45, Config.PaintCameraSeconds)
+	self.saved = self.core.saved
+	self.ready = self.core.ready
+end
+
 function Controller.Exit(self: Controller, immediate: boolean?): ()
-	self:Cancel()
-	self.ready = false
-	local saved = self.saved
-	if not saved then return end
-	local character = Players.LocalPlayer.Character
-	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-	if immediate or not humanoid or humanoid.Health <= 0 or workspace.CurrentCamera ~= saved.camera then self:Restore(); return end
-	local tween = TweenService:Create(saved.camera,TweenInfo.new(Config.PaintCameraSeconds,Enum.EasingStyle.Quad,Enum.EasingDirection.InOut),{CFrame=saved.pose,FieldOfView=saved.fov})
-	self.tween = tween
-	self.completed = tween.Completed:Connect(function(state: Enum.PlaybackState): ()
-		if state == Enum.PlaybackState.Completed then self:Restore() end
-	end)
-	tween:Play()
+	self.follow = nil
+	self.core:Exit(immediate)
+	self.saved = self.core.saved
+	self.ready = self.core.ready
 end
+
 function Controller.FollowToss(self: Controller, ends: number, target: () -> Vector3?): ()
 	local saved = self.saved
 	local focus = target()
@@ -69,8 +85,9 @@ function Controller.FollowToss(self: Controller, ends: number, target: () -> Vec
 		self:Exit()
 		return
 	end
-	self:Cancel()
-	self.ready = false
+	self.follow = nil
+	self.core:Suspend()
+	self.ready = self.core.ready
 	self.follow = {
 		started = now,
 		ends = ends,
@@ -80,9 +97,12 @@ function Controller.FollowToss(self: Controller, ends: number, target: () -> Vec
 		target = target,
 	}
 end
+
 function Controller.StepToss(self: Controller, now: number, dt: number): ()
 	local follow, saved = self.follow, self.saved
-	if not follow or not saved then return end
+	if not follow or not saved then
+		return
+	end
 	local character = Players.LocalPlayer.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if workspace.CurrentCamera ~= saved.camera or not humanoid or humanoid.Health <= 0 then
@@ -105,5 +125,9 @@ function Controller.StepToss(self: Controller, now: number, dt: number): ()
 		else saved.camera.CFrame.Rotation + camPos
 	saved.camera.CFrame = saved.camera.CFrame:Lerp(goal, 1 - math.exp(-12 * math.max(dt, 0)))
 end
-function Controller.Destroy(self: Controller): () self:Restore() end
+
+function Controller.Destroy(self: Controller): ()
+	self:Restore()
+end
+
 return Controller

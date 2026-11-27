@@ -17,12 +17,36 @@ local function ValidOrientation(value: unknown): boolean
 	if typeof(value) ~= "CFrame" or value.Position.Magnitude > 0.00001 then return false end
 	return BodyPose.IsFiniteFrame(value)
 end
+local function ValidWorldCFrame(value: unknown): boolean
+	if value == nil then return true end
+	if typeof(value) ~= "CFrame" then return false end
+	local frame = value :: CFrame
+	for _, n in { frame:GetComponents() } do
+		if n ~= n or math.abs(n) == math.huge then return false end
+	end
+	if frame.Position.Magnitude > 100000 then return false end
+	local x, y, z = frame.XVector, frame.YVector, frame.ZVector
+	return math.abs(x.Magnitude - 1) < 0.01 and math.abs(y.Magnitude - 1) < 0.01 and math.abs(z.Magnitude - 1) < 0.01
+end
 function Net.Validate(value: unknown): boolean
 	if typeof(value) ~= "table" then
 		return false
 	end
 	local r = value :: { [string]: unknown }
 	if r.attackSequence ~= nil and (not Surface.IsFinite(r.attackSequence) or (r.attackSequence :: number) < 1 or (r.attackSequence :: number) % 1 ~= 0 or (r.attackSequence :: number) > 9007199254740991) then return false end
+	if not ValidWorldCFrame(r.attackPose) then return false end
+	if r.targets ~= nil then
+		if typeof(r.targets) ~= "table" then return false end
+		local list = r.targets :: { unknown }
+		if #list > 32 then return false end
+		local count = 0
+		for index, entry in list do
+			count += 1
+			if count > 32 or typeof(index) ~= "number" or index % 1 ~= 0 or index < 1 or index > #list then return false end
+			if typeof(entry) ~= "string" or #entry == 0 or #entry > 80 then return false end
+		end
+		if count ~= #list then return false end
+	end
 	if r.bodyPose~=nil and not BodyPose.ValidateWire(r.bodyPose) then return false end
 	if typeof(r.action) ~= "string" or #r.action > 24 then
 		return false

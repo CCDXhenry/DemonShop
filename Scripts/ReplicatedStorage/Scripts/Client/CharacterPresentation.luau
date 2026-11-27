@@ -125,7 +125,7 @@ function Presentation.Swing(self: Presentation, userId: number, _started: number
 	local tool = PersonalRules.FindWeapon(character)
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not character or not tool or not tool:IsA("Tool") or not humanoid or humanoid.Health <= 0
-		or self.carriers[userId] or player:GetAttribute("Painting") == true then return end
+		or player:GetAttribute("Painting") == true then return end
 	local resolvedAnimId: string
 	if animationId and animationId ~= "" then
 		resolvedAnimId = animationId
@@ -185,7 +185,6 @@ function Presentation.Swing(self: Presentation, userId: number, _started: number
 			attack.failedLoads[resolvedAnimId] = true
 			warn("[Weapon] 无法加载武器挥击动画", result)
 		else
-			result.Priority = Enum.AnimationPriority.Action
 			result.Looped = false
 			attack.tracks[resolvedAnimId] = result
 			track = result
@@ -197,6 +196,7 @@ function Presentation.Swing(self: Presentation, userId: number, _started: number
 	attack.activeAnimationId = resolvedAnimId
 	attack.track = track
 	if track then
+		track.Priority = if self.carriers[userId] then Enum.AnimationPriority.Action2 else Enum.AnimationPriority.Action
 		attack.stopStarted, attack.stopEnds = nil, nil
 		track:AdjustSpeed(1)
 		track:Play(Config.WeaponAnimationFade)
@@ -226,13 +226,19 @@ function Presentation.Apply(self: Presentation, now: number): ()
 	local localChar = localPlayer.Character
 	local localHumanoid = localChar and localChar:FindFirstChildOfClass("Humanoid")
 	local isCarrier = self.carriers[localPlayer.UserId] == true
+	local swing = attack and attack.track
+	if swing and swing.IsPlaying then
+		-- 搬运状态也可能在挥击过程中改变，重叠关节由挥击优先控制。
+		local priority = if isCarrier then Enum.AnimationPriority.Action2 else Enum.AnimationPriority.Action
+		if swing.Priority ~= priority then swing.Priority = priority end
+	end
 	if isCarrier and localChar and localHumanoid and localHumanoid.Health > 0 then
 		self:StartCarry(localChar, localHumanoid)
 	else
 		if self.carry then self:StopCarry() end
 	end
 	if attack and (localChar ~= attack.character or attack.tool.Parent ~= attack.character
-		or attack.humanoid.Health <= 0 or isCarrier) then self:StopSwing() end
+		or attack.humanoid.Health <= 0) then self:StopSwing() end
 	for player, cached in self.characters do
 		if not player.Parent or player.Character ~= cached.model then
 			cached.added:Disconnect()

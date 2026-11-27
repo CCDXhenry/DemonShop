@@ -3,10 +3,12 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Physics = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
 local Arc = require(ReplicatedStorage.Scripts.Shared.ThrowArc)
+local CageGeometry = require(ReplicatedStorage.Scripts.Shared.CageGeometry)
 local ModelTemplates = require(ReplicatedStorage.Scripts.Shared.ModelTemplates)
 local Config = Physics.ManualThrow
 local Preview = {}
 Preview.__index = Preview
+export type CageTarget = { kind: string, frame: CFrame, size: Vector3, inset: number }
 type BeamArc = { beam: Beam, first: Attachment, finish: Attachment }
 export type Preview = typeof(setmetatable(
 	{} :: {
@@ -36,21 +38,56 @@ function Preview.Hide(self: Preview): ()
 	self.nextTrace = 0
 end
 
-function Preview.Update(self: Preview, origin: Vector3, direction: Vector3, gravity: number, legalAt: (Vector3, Vector3?, boolean?) -> boolean, ignored: { Instance }, now: number, baffles: Instance?): ()
+function Preview.Update(self: Preview, origin: Vector3, direction: Vector3, gravity: number, legalAt: (Vector3, Vector3?, boolean?, string?) -> boolean, ignored: { Instance }, now: number, baffles: Instance?, cages: { CageTarget }?): ()
 	local velocity = Arc.LaunchVelocity(direction, gravity)
 	if self.origin == origin and self.velocity == velocity and self.gravity == gravity and self.baffles == baffles and now < self.nextTrace then
 		return
 	end
 	self.params.FilterDescendantsInstances = ignored
 	self.baffleParams.FilterDescendantsInstances = if baffles then { baffles } else {}
+	local bestCageKind: string? = nil
+	local bestCage: CageTarget? = nil
 	local function Cast(frame: CFrame, size: Vector3, delta: Vector3): RaycastResult?
 		local solid = workspace:Blockcast(frame, size, delta, self.params)
 		local baffle = if baffles then workspace:Blockcast(frame, size, delta, self.baffleParams) else nil
-		return Arc.FirstHit(solid, baffle)
+		local best = Arc.FirstHit(solid, baffle)
+		local bestDistance = if best then best.Distance else math.huge
+		bestCageKind = nil
+		bestCage = nil
+		if cages then
+			for _, cage in cages do
+				local dist, pos, norm = CageGeometry.IntersectInnerWall(cage.frame, cage.size, cage.inset, frame.Position, delta)
+				if dist and pos and norm and dist < bestDistance then
+					bestDistance = dist
+					bestCageKind = cage.kind
+					bestCage = cage
+					best = {
+						Distance = dist,
+						Position = pos,
+						Normal = norm,
+						Instance = workspace.Terrain,
+						Material = Enum.Material.Air,
+					} :: any
+				end
+			end
+		end
+		return best
 	end
 	local duration, landing, surface, normal, hit = Arc.Sweep(origin, velocity, gravity, Config.PreviewStepSeconds, Config.PreviewDurationSeconds, Config.SweepSize, Cast)
-	local hitBaffle = hit ~= nil and baffles ~= nil and hit:IsDescendantOf(baffles)
-	local legal = if surface then legalAt(surface, normal, hitBaffle) else false
+	local hitBaffle = hit ~= nil and baffles ~= nil and bestCageKind == nil and hit:IsDescendantOf(baffles)
+	local ringSurface, ringNormal = surface, normal
+	if bestCage and surface then
+		local innerX, innerZ = CageGeometry.InnerHalfSize(bestCage.size, bestCage.inset)
+		local localHit = bestCage.frame:PointToObjectSpace(surface)
+		local clamped = Vector3.new(
+			math.clamp(localHit.X, -math.max(0, innerX - 0.2), math.max(0, innerX - 0.2)),
+			bestCage.size.Y * 0.5,
+			math.clamp(localHit.Z, -math.max(0, innerZ - 0.2), math.max(0, innerZ - 0.2))
+		)
+		ringSurface = bestCage.frame:PointToWorldSpace(clamped)
+		ringNormal = bestCage.frame.UpVector
+	end
+	local legal = if ringSurface then legalAt(ringSurface, ringNormal, hitBaffle, bestCageKind) else false
 	self.origin, self.velocity, self.gravity, self.baffles, self.legal = origin, velocity, gravity, baffles, legal
 	self.nextTrace = now + Config.RefreshIntervalSeconds
 	local color = if legal then Config.LegalColor else Config.WarningColor
@@ -68,10 +105,10 @@ function Preview.Update(self: Preview, origin: Vector3, direction: Vector3, grav
 		arc.beam.Enabled = span > 0
 	end
 	local ending = if self.arcs[2].beam.Enabled then self.arcs[2] else self.arcs[1]
-	if surface and normal then
-		local frame = Arc.RingCFrame(surface, normal)
+	if ringSurface and ringNormal then
+		local frame = Arc.RingCFrame(ringSurface, ringNormal)
 		self.disc.CFrame = frame
-		if ending.beam.Enabled then
+		if ending.beam.Enabled and not bestCage then
 			local finish = ending.finish.WorldCFrame
 			ending.finish.WorldCFrame = finish.Rotation + frame.Position
 		end
@@ -124,6 +161,8 @@ function Preview.new(): Preview
 	params.RespectCanCollide = true
 	local baffleParams = RaycastParams.new()
 	baffleParams.FilterType = Enum.RaycastFilterType.Include
+	baffleParams.CollisionGroup = Physics.BodyGroup
+	baffleParams.RespectCanCollide = true
 	local self = setmetatable({
 		model = model,
 		arcs = arcs,

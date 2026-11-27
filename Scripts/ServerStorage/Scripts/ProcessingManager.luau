@@ -18,6 +18,7 @@ local NPC = require(script.Parent.NPC)
 local Carry = require(script.Parent.Carry)
 local Ragdoll = require(script.Parent.Ragdoll)
 local Ground = require(script.Parent.GroundAuthority)
+local CollisionGroups = require(script.Parent.CollisionGroups)
 local Physics = require(Shared.PhysicsConfig)
 local Door = require(script.Parent.Door)
 local Painting = require(script.Parent.Painting)
@@ -28,6 +29,7 @@ local BodyPose = require(Shared.PaintBodyPose)
 local PaintRotation = require(Shared.PaintRotation)
 local CurvedSurface = require(Shared.CurvedSurface)
 local ThrowArc = require(Shared.ThrowArc)
+local CageGeometry = require(Shared.CageGeometry)
 local AutomationRules = require(Shared.AutomationRules)
 local AutoRunePattern = require(Shared.AutoRunePattern)
 local AutomationAgents = require(script.Parent.AutomationAgents)
@@ -49,6 +51,7 @@ type PlayerRecord = {
 	lastAttack: number,
 	lastThrow: number,
 	lastRequest: number,
+	lastRequestPickedUpBody: boolean?,
 	lastSync: number,
 	lastUpgrade: number,
 	carryOverflowCount: number,
@@ -98,6 +101,7 @@ export type Manager = typeof(setmetatable(
 		autoRuneCursor: number,
 		autoRuneVisualQueue: { { id: string, segments: { Types.VisualSegment }, revision: number } },
 		autoSmelterItemId: string?,
+		autoTransfer: { startedAt: number, origin: CFrame, fromOutput: boolean }?,
 		autoSmelterEnds: number,
 		autoShelfCount: number,
 		autoShelfVisible: { string },
@@ -113,6 +117,7 @@ export type Manager = typeof(setmetatable(
 		revision: number,
 		nextSpawn: number,
 		nextUpdate: number,
+		nextCrowdStep: number,
 		nextToolbarOrder: number,
 	},
 	Manager
@@ -157,6 +162,7 @@ function Manager.new(data: PlayerData?): Manager
 		autoRuneCursor = 0,
 		autoRuneVisualQueue = {},
 		autoSmelterItemId = nil,
+		autoTransfer = nil,
 		autoSmelterEnds = 0,
 		autoShelfCount = 0,
 		autoShelfVisible = {},
@@ -182,6 +188,7 @@ function Manager.new(data: PlayerData?): Manager
 		revision = 0,
 		nextSpawn = 0,
 		nextUpdate = 0,
+		nextCrowdStep = 0,
 		nextToolbarOrder = 0,
 	}, Manager)
 end
@@ -493,6 +500,7 @@ function Manager.IsNearPad(self: Manager, player: Player, facilityId: number): b
 end
 local function HideFacilityDescendant(descendant: Instance): (() -> ())?
 	if descendant:IsA("BasePart") then
+		if descendant.CollisionGroup == Physics.CageWallGroup then return nil end
 		local transparency = descendant.Transparency
 		local canCollide = descendant.CanCollide
 		local canQuery = descendant.CanQuery
@@ -528,6 +536,7 @@ local function HideFacilityDescendant(descendant: Instance): (() -> ())?
 	return nil
 end
 function Manager.InitFacilityWorldState(self: Manager): ()
+	Scene.SetChuteBarriersEnabled(self:IsFacilityUnlocked(FacilityId.FastChute))
 	for facilityId, model in FacilityModels do
 		if model and not self:IsFacilityUnlocked(facilityId) then
 			local restoreDescendants = {}
@@ -572,6 +581,7 @@ function Manager.ApplyFacilityWorldState(self: Manager, facilityId: number): ()
 		model:SetAttribute("Unlocked", true)
 	end
 	if facilityId == FacilityId.FastChute then
+		Scene.SetChuteBarriersEnabled(true)
 		local cover = Scene.FastChuteCover
 		if cover then
 			cover:SetAttribute("Unlocked", true)
@@ -642,6 +652,66 @@ function Manager.StepAutomationAgents(self: Manager, now: number): boolean
 	local state = self:EnsureAgents()
 	return AutomationAgents.Step(state, now)
 end
+local function BeginAutoTransfer(self: Manager, item: Types.Item?, now: number): ()
+	self.autoSmelterItemId = if item then item.id else HttpService:GenerateGUID(false)
+	local fromOutput = item == nil or item.location == "AutoOutput"
+	local origin = Scene.AutoOutputPose(1)
+	if item then
+		origin = item.model:GetPivot()
+		item.location = "AutoSmelter"
+		item.stage = "Painted"
+		item.progress = 1
+		item.streetSlot = false
+		item.version += 1
+		MarkAutoPaintedAppearance(item)
+	end
+	self.autoTransfer = { startedAt = now, origin = origin, fromOutput = fromOutput }
+end
+local function AdvanceAutoTransfer(self: Manager, now: number): boolean
+	local transfer = self.autoTransfer
+	if not transfer then return false end
+	local elapsed = math.max(0, now - transfer.startedAt)
+	local toPass = if transfer.fromOutput then Config.AutoTransferAlignSeconds else Config.AutoTransferToPassSeconds
+	local lightEnd = toPass + Config.AutoTransferLightSeconds
+	local arrival = lightEnd + Config.AutoTransferToFurnaceSeconds
+	local ramp, rampTop, pass, inlet = Scene.AutoTransferPoses()
+	local furnace = Scene.AutoSmelterPose()
+	local pose = furnace
+	if elapsed < toPass then
+		local alpha = elapsed / toPass
+		if transfer.fromOutput then
+			pose = transfer.origin:Lerp(pass, alpha)
+		elseif alpha < 0.5 then
+			pose = transfer.origin:Lerp(ramp, alpha * 2)
+		else
+			local riseLength = (rampTop.Position - ramp.Position).Magnitude
+			local flatLength = (pass.Position - rampTop.Position).Magnitude
+			local distance = (alpha * 2 - 1) * (riseLength + flatLength)
+			pose = if distance < riseLength then ramp:Lerp(rampTop, distance / riseLength)
+				else rampTop:Lerp(pass, if flatLength > 0 then (distance - riseLength) / flatLength else 1)
+		end
+	elseif elapsed < lightEnd then
+		pose = pass
+	elseif elapsed < arrival then
+		local alpha = (elapsed - lightEnd) / Config.AutoTransferToFurnaceSeconds
+		pose = if alpha < 0.8 then pass:Lerp(inlet, alpha / 0.8) else inlet:Lerp(furnace, (alpha - 0.8) / 0.2)
+	end
+	Scene.SetAutoTransferLight(elapsed >= toPass and elapsed < lightEnd)
+	local id = self.autoSmelterItemId
+	local item = if id then self.items[id] else nil
+	if item then
+		local model = item.model
+		model:PivotTo(pose)
+	end
+	if elapsed < arrival then return false end
+	self.autoTransfer = nil
+	self.autoSmelterEnds = transfer.startedAt + arrival + Config.AutoSmelterSeconds
+	if item then
+		item.stage = "Converting"
+		item.version += 1
+	end
+	return true
+end
 function Manager.StepAutomation(self: Manager, now: number): boolean
 	local changed = false
 	if self:IsFacilityUnlocked(GameData.FacilityId.AutoRune) then
@@ -653,7 +723,11 @@ function Manager.StepAutomation(self: Manager, now: number): boolean
 			self.autoRuneSegments = nil
 			self.autoRuneCursor = 0
 			local doneItem = self.items[doneId]
-			if doneItem then
+			if doneItem and self:IsFacilityUnlocked(FacilityId.AutoSmelter)
+				and self.autoSmelterItemId == nil and self:AutoPaintedCount() == 0
+			then
+				BeginAutoTransfer(self, doneItem, now)
+			elseif doneItem then
 				self:PushAutoPaintedItem(doneItem)
 			elseif #self.autoPaintedVisible < Config.AutoQueueVisibleLimit then
 				local created = self:SpawnAutoPaintedBody()
@@ -695,7 +769,8 @@ function Manager.StepAutomation(self: Manager, now: number): boolean
 		end
 	end
 	if self:IsFacilityUnlocked(GameData.FacilityId.AutoSmelter) then
-		if self.autoSmelterItemId ~= nil and now >= self.autoSmelterEnds then
+		changed = AdvanceAutoTransfer(self, now) or changed
+		if self.autoSmelterItemId ~= nil and self.autoTransfer == nil and now >= self.autoSmelterEnds then
 			local doneId = self.autoSmelterItemId
 			self.autoSmelterItemId = nil
 			self.autoSmelterEnds = 0
@@ -713,17 +788,11 @@ function Manager.StepAutomation(self: Manager, now: number): boolean
 			if nextItem then
 				table.remove(self.autoPaintedVisible, 1)
 				self:ReplenishAutoPaintedVisible()
-				self.autoSmelterItemId = nextItem.id
-				self.autoSmelterEnds = now + Config.AutoSmelterSeconds
-				nextItem.location = "AutoSmelter"
-				nextItem.stage = "Converting"
-				nextItem.version += 1
-				Carry.Static(nextItem, Scene.AutoSmelterPose(), false)
+				BeginAutoTransfer(self, nextItem, now)
 				changed = true
 			elseif self.autoPaintedOverflowCount > 0 then
 				self.autoPaintedOverflowCount -= 1
-				self.autoSmelterItemId = HttpService:GenerateGUID(false)
-				self.autoSmelterEnds = now + Config.AutoSmelterSeconds
+				BeginAutoTransfer(self, nil, now)
 				changed = true
 			end
 		end
@@ -1002,10 +1071,6 @@ function Manager.Restack(self: Manager, player: Player): ()
 		table.insert(bottomUp, stack[index])
 	end
 	Carry.Restack(bottomUp)
-	local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-	if humanoid and humanoid.Health > 0 then
-		humanoid:UnequipTools()
-	end
 end
 function Manager.Root(_self: Manager, player: Player): BasePart?
 	local character = player.Character
@@ -1015,6 +1080,62 @@ function Manager.Root(_self: Manager, player: Player): BasePart?
 		return root
 	end
 	return nil
+end
+function Manager.CanReachItem(self: Manager, player: Player, item: Types.Item, range: number): boolean
+	local playerRoot = self:Root(player)
+	local itemRoot = item.model.PrimaryPart
+	if not playerRoot or not itemRoot then
+		return false
+	end
+	local distance = (playerRoot.Position - itemRoot.Position).Magnitude
+	local torso = item.model:FindFirstChild("UpperTorso")
+	if torso and torso:IsA("BasePart") then
+		distance = math.min(distance, (playerRoot.Position - torso.Position).Magnitude)
+	end
+	return distance <= range
+end
+function Manager.PickUpItem(self: Manager, player: Player, id: string, version: number?): boolean
+	local item = self.items[id]
+	if not item or item.version ~= version then
+		self:Tell(player, "ItemChanged")
+		return false
+	end
+	local isBody = item.kind == "Body"
+	if item.holder then
+		self:Tell(player, "ItemUnavailable")
+		return false
+	end
+	if (isBody and self:ShoulderOccupied(player)) or (not isBody and (self:CarryCount(player) > 0 or self:Held(player))) then
+		self:Tell(player, "HandsFull")
+		return false
+	end
+
+	local location = item.location
+	local queue: { string }? = nil
+	if isBody and location == "Pool" then
+		queue = self.pool
+	elseif isBody and location == "Chute" then
+		queue = self.chuteVisible
+	end
+	local queueIndex = if queue and not item.poolToss then table.find(queue, id) else nil
+	local reachable = queueIndex ~= nil or location == "Ground" or (location == "Street" and item.hits >= Config.StunHits)
+	local pickupRange = Config.InteractionRange + (Config.PickupServerRangeBuffer or 0)
+	if not reachable or not self:CanReachItem(player, item, pickupRange) then
+		self:Tell(player, "ItemUnavailable")
+		return false
+	end
+	if not isBody then return Carry.Take(item, player) end
+	if not self:TakeBody(player, item) then return false end
+	if queue and queueIndex then
+		table.remove(queue, queueIndex)
+		if location == "Pool" then
+			self:ReplenishPoolVisible()
+		else
+			self.chuteTakeSerial += 1
+			self:ReplenishChuteVisible()
+		end
+	end
+	return true
 end
 function Manager.Near(self: Manager, player: Player, position: Vector3, range: number, target: Model?, ignored: Instance?): boolean
 	local root = self:Root(player)
@@ -1327,21 +1448,6 @@ function Manager.Pool(self: Manager, player: Player): boolean
 	elseif #stack > 0 or self:ShoulderOccupied(player) then
 		self:Tell(player, "StoreUnfinished")
 		return false
-	elseif self:PoolCount() > 0 then
-		while #self.pool > 0 and self.items[self.pool[1]] == nil do
-			table.remove(self.pool, 1)
-		end
-		if #self.pool == 0 then
-			self:ReplenishPoolVisible()
-		end
-		local id = self.pool[1]
-		local item = if id then self.items[id] else nil
-		if item and self:TakeBody(player, item) then
-			table.remove(self.pool, 1)
-			self:ReplenishPoolVisible()
-			return true
-		end
-		return false
 	else
 		self:Tell(player, "PoolIsEmpty")
 		return false
@@ -1648,24 +1754,6 @@ function Manager.Chute(self: Manager, player: Player): boolean
 	self:StepAutomation(workspace:GetServerTimeNow())
 	return true
 end
-function Manager.ChutePickup(self: Manager, player: Player): boolean
-	if self:ShoulderOccupied(player) then
-		self:Tell(player, "HandsFull")
-		return false
-	end
-	local item = self:PeekChuteItem()
-	if not item then
-		self:Tell(player, "ChuteEmpty")
-		return false
-	end
-	if self:TakeBody(player, item) then
-		table.remove(self.chuteVisible, 1)
-		self.chuteTakeSerial += 1
-		self:ReplenishChuteVisible()
-		return true
-	end
-	return false
-end
 function Manager.AutoOutput(self: Manager, player: Player): boolean
 	if self:ShoulderOccupied(player) then
 		self:Tell(player, "HandsFull")
@@ -1789,9 +1877,21 @@ function Manager.Attack(self: Manager, player: Player, request: Types.Request): 
 	local function OnResult(hit: boolean): ()
 		Net.FireNotify(player, {kind = "AttackResult", attackSequence = request.attackSequence, hit = hit})
 	end
+	local function LogAttack(fmt: string, ...: any): ()
+		if Config.DebugAttackLog then
+			print(string.format("[Attack][Server] " .. fmt, ...))
+		end
+	end
+	local actorName = player.Name or tostring(player.UserId)
+	local seqText = tostring(request.attackSequence)
 	local record = self.players[player]
 	local root = self:Root(player)
-	if not record or record.closing or not root or self:Held(player) or (self.paint and self.paint.player == player) then
+	if not record or record.closing or self.closing or not root or self:ShoulderOccupied(player) or (self.paint and self.paint.player == player) then
+		local reason = if not record or record.closing or self.closing then "inactive_or_closing"
+			elseif not root then "no_root"
+			elseif self:ShoulderOccupied(player) then "shoulder_occupied"
+			else "painting"
+		LogAttack("Reject player=%s seq=%s reason=%s", actorName, seqText, reason)
 		OnResult(false)
 		return
 	end
@@ -1799,80 +1899,101 @@ function Manager.Attack(self: Manager, player: Player, request: Types.Request): 
 	local level = record.levels.weapon
 	local tier = PersonalRules.GetWeaponTier(level)
 	local weapon = character and character:FindFirstChild(tier.model)
-	if not weapon or not weapon:IsA("Tool") then OnResult(false); return end
+	if not weapon or not weapon:IsA("Tool") then
+		LogAttack("Reject player=%s seq=%s reason=weapon_mismatch expected=%s", actorName, seqText, tier.model)
+		OnResult(false)
+		return
+	end
 	local now = workspace:GetServerTimeNow()
 	local cooldown = if tier.attackCooldown > 0 then tier.attackCooldown else Config.AttackCooldown
-	if now - record.lastAttack < math.max(0, cooldown - Config.AttackCooldownTolerance) then
+	local requiredCooldown = math.max(0, cooldown - Config.AttackCooldownTolerance)
+	if now - record.lastAttack < requiredCooldown then
+		LogAttack("Reject player=%s seq=%s reason=cooldown dt=%.3f need=%.3f", actorName, seqText, now - record.lastAttack, requiredCooldown)
 		OnResult(false)
 		return
 	end
 	record.lastAttack = now
 	Net.Broadcast({kind = "Swing", actor = player.UserId, weaponLevel = level, started = now})
-	self.scope:Spawn(function(): ()
-		task.wait(Config.AttackWindup)
-		local currentRoot = self:Root(player)
-		if not currentRoot or self.players[player] ~= record or record.closing or self.closing or self:Held(player)
-			or (self.paint and self.paint.player == player) or player.Character ~= character or weapon.Parent ~= character
-			or record.levels.weapon ~= level then
-			OnResult(false)
-			return
+	local pose = request.attackPose or root.CFrame
+	if tier.shape ~= "Single" then
+		Net.Broadcast({kind = "WeaponEffect", actor = player.UserId, weaponLevel = level, attackPose = pose, started = now})
+	end
+	local reported: { string } = {}
+	if request.targets and #request.targets > 0 then
+		reported = request.targets
+	elseif request.target then
+		reported = { request.target }
+	end
+	local maxRange = tier.range + (Config.AttackServerRangeBuffer or 12)
+	local seen: { [string]: boolean } = {}
+	type Candidate = {item: Types.Item, part: BasePart, distance: number}
+	local accepted: {Candidate} = {}
+	for _, targetId in reported do
+		if #accepted >= tier.targets then
+			LogAttack("Reject target=%s seq=%s reason=target_limit limit=%d", targetId, seqText, tier.targets)
+			break
 		end
-		local pose = currentRoot.CFrame
-		type Candidate = {item: Types.Item, position: Vector3, distance: number}
-		local candidates: {Candidate} = {}
-		local function Consider(item: Types.Item, range: number): ()
-			if item.kind ~= "Body" or item.location ~= "Street" or item.hits >= Config.StunHits then return end
-			local part = item.model.PrimaryPart
-			if not part then return end
-			local position = part.Position
-			if tier.shape ~= "Single" and not PersonalRules.InWeaponArea(level, pose, position) then return end
-			-- 范围攻击可穿过其他 NPC，仍由场景碰撞件阻挡。
-			local ignored = if tier.shape ~= "Single" then self.runtime else nil
-			if not self:Near(player, position, range, item.model, ignored) then return end
-			table.insert(candidates, {item = item, position = position, distance = (position - pose.Position).Magnitude})
+		if seen[targetId] then
+			continue
 		end
-		if tier.shape == "Single" then
-			local item = if request.target then self.items[request.target] else nil
-			if item and item.version == request.version then Consider(item, Config.AttackServerRange) end
-		else
-			-- 贯穿带末端的角点也可命中，Near 同时负责检查遮挡。
-			local range = if tier.shape == "Line" then math.sqrt(tier.range ^ 2 + ((tier.width or 5) / 2) ^ 2 + 25) + 0.001 else tier.range + 0.001
-			for _, item in self.items do Consider(item, range) end
-			table.sort(candidates, function(a, b)
-				if a.distance == b.distance then return a.item.id < b.item.id end
-				return a.distance < b.distance
-			end)
-			Net.Broadcast({kind = "WeaponEffect", actor = player.UserId, weaponLevel = level, attackPose = pose, started = workspace:GetServerTimeNow()})
+		seen[targetId] = true
+		local item = self.items[targetId]
+		if not item then
+			LogAttack("Reject target=%s seq=%s reason=missing_item", targetId, seqText)
+			continue
 		end
-		local count = math.min(#candidates, tier.targets)
-		for index = 1, count do
-			local candidate = candidates[index]
-			local item, position = candidate.item, candidate.position
-			local direction = pose.LookVector
-			local travel: number? = nil
-			if tier.shape == "Slam" then
-				local delta = pose.Position - position
-				local horizontal = Vector3.new(delta.X, 0, delta.Z)
-				if horizontal.Magnitude > 0.01 then direction = horizontal.Unit end
-				travel = math.max(0, horizontal.Magnitude - 3)
+		if item.kind ~= "Body" or item.location ~= "Street" or item.hits >= Config.StunHits then
+			LogAttack("Reject target=%s seq=%s reason=invalid_state kind=%s loc=%s hits=%d", targetId, seqText, item.kind, item.location, item.hits)
+			continue
+		end
+		local part = item.model.PrimaryPart
+		if not part then
+			LogAttack("Reject target=%s seq=%s reason=no_primary_part", targetId, seqText)
+			continue
+		end
+		local dist = (part.Position - root.Position).Magnitude
+		if dist > maxRange then
+			LogAttack("Reject target=%s seq=%s reason=out_of_range dist=%.2f max=%.2f weapon=%s", targetId, seqText, dist, maxRange, tier.model)
+			continue
+		end
+		table.insert(accepted, {item = item, part = part, distance = dist})
+	end
+	for index, candidate in accepted do
+		local item = candidate.item
+		local part = candidate.part
+		local position = part.Position
+		local direction = pose.LookVector
+		local travel: number? = nil
+		if tier.shape == "Slam" then
+			local delta = pose.Position - position
+			local horizontal = Vector3.new(delta.X, 0, delta.Z)
+			if horizontal.Magnitude > 0.01 then direction = horizontal.Unit end
+			travel = math.max(0, horizontal.Magnitude - 3)
+		end
+		local torso = item.model:FindFirstChild("UpperTorso")
+		if torso and torso:IsA("BasePart") then position = torso.Position - direction * torso.Size.Z * 0.5 end
+		local hpBefore = item.hp or (Config.StreetNpcMaxHp - item.hits * Config.BruteDamage)
+		NPC.Hit(item, direction, tier.damage, travel, pose.Position)
+		local hpAfter = item.hp or 0
+		LogAttack("Hit player=%s seq=%s weapon=%s target=%s dist=%.2f/%.2f hp=%d->%d hits=%d/%d",
+			actorName, seqText, tier.model, item.id, candidate.distance, maxRange, hpBefore, hpAfter, item.hits, Config.StunHits)
+		Net.Broadcast({kind = "Hit", actor = player.UserId, attackSequence = request.attackSequence,
+			id = item.id, version = item.version, hits = item.hits, hp = item.hp, maxHp = item.maxHp,
+			started = now, direction = direction, position = position})
+		if index == 1 then
+			if item.hits >= Config.StunHits then
+				self:Tell(player, "StunnedCarry")
+			else
+				self:Tell(player, "HitCount", {NumberExtension.FormatBigNumberAA(item.hits), NumberExtension.FormatBigNumberAA(Config.StunHits)})
 			end
-			local torso = item.model:FindFirstChild("UpperTorso")
-			if torso and torso:IsA("BasePart") then position = torso.Position - direction * torso.Size.Z * 0.5 end
-			NPC.Hit(item, direction, tier.damage, travel)
-			Net.Broadcast({kind = "Hit", actor = player.UserId, attackSequence = if index == 1 then request.attackSequence else nil,
-				id = item.id, version = item.version, hits = item.hits, hp = item.hp, maxHp = item.maxHp,
-				started = workspace:GetServerTimeNow(), direction = direction, position = position})
-			if index == 1 then
-				if item.hits >= Config.StunHits then
-					self:Tell(player, "StunnedCarry")
-				else
-					self:Tell(player, "HitCount", {NumberExtension.FormatBigNumberAA(item.hits), NumberExtension.FormatBigNumberAA(Config.StunHits)})
-				end
-			end
 		end
-		OnResult(count > 0)
-		if count > 0 then self:Changed() end
-	end)
+	end
+	OnResult(#accepted > 0)
+	if #accepted > 0 then
+		self:Changed()
+	else
+		LogAttack("Miss player=%s seq=%s weapon=%s reported=%d", actorName, seqText, tier.model, #reported)
+	end
 end
 function Manager.Paint(self: Manager, player: Player, request: Types.Request): ()
 	local session = self.paint
@@ -1970,13 +2091,15 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 		self:StepAutomation(workspace:GetServerTimeNow())
 		return
 	end
-	Carry.FinishGround(item)
+	local cage = item.model:GetAttribute("CageContained") :: string?
+	Carry.FinishGround(item, cage ~= nil and Scene.CageRetains(cage, position))
 end
-function Manager.SweepThrow(origin: Vector3, velocity: Vector3, ignored: { Instance }, _canEnterChute: boolean, model: Model, rotation: CFrame): (number, Vector3, Vector3?)
+function Manager.SweepThrow(origin: Vector3, velocity: Vector3, ignored: { Instance }, canEnterChute: boolean, model: Model, rotation: CFrame): (number, Vector3, Vector3?)
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Exclude
 	params.FilterDescendantsInstances = ignored
 	params.RespectCanCollide = true
+	if canEnterChute then params.CollisionGroup = Physics.BodyGroup end
 	local throwConfig = Physics.ManualThrow
 	local offset, bounds = Ground.ThrowBounds(model)
 	local box = rotation * CFrame.new(offset)
@@ -2001,7 +2124,7 @@ function Manager.Throw(self: Manager, player: Player, request: Types.Request): (
 	end
 	local root = self:Root(player)
 	local character = player.Character
-	if not root or not character then
+	if not root or not character or PersonalRules.FindWeapon(character) then
 		return
 	end
 	local stack = self:Carried(player)
@@ -2019,9 +2142,7 @@ function Manager.Throw(self: Manager, player: Player, request: Types.Request): (
 		return
 	end
 	local direction = flat.Unit
-	local shoulder = character:FindFirstChild("UpperTorso")
-	local basis = if shoulder and shoulder:IsA("BasePart") then shoulder.CFrame else root.CFrame
-	local origin = ThrowArc.Origin(basis, direction)
+	local origin = ThrowArc.Origin(root.CFrame, direction)
 	local velocity = ThrowArc.LaunchVelocity(direction, workspace.Gravity)
 	if velocity.Magnitude < 0.001 then
 		return
@@ -2031,7 +2152,7 @@ function Manager.Throw(self: Manager, player: Player, request: Types.Request): (
 	local duration = Physics.ManualThrow.PreviewDurationSeconds
 	local target = CFrame.new(origin) * rotation
 	record.lastThrow = now
-	Carry.BeginManualToss(top, target, velocity, duration, target, player, not self:HasOtherBodies(player, top), nil, nil, canEnterChute)
+	Carry.BeginManualToss(top, target, velocity, duration, target, player, false, nil, nil, canEnterChute)
 	self:Restack(player)
 	self:Changed()
 end
@@ -2179,17 +2300,22 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 		self:Throw(player, request)
 		return
 	end
-	if now - record.lastRequest < 0.12 then
+	local target = request.target
+	local pickupItem = if request.action == "Interact" and target then self.items[target] else nil
+	local bodyPickup = pickupItem ~= nil and pickupItem.kind == "Body" and pickupItem.holder == nil
+		and pickupItem.version == request.version
+	-- 仅成功拾取后允许同一节流窗口内继续点按其他白膜；无效请求仍走通用节流。
+	if now - record.lastRequest < 0.12 and not (record.lastRequestPickedUpBody and bodyPickup) then
 		return
 	end
 	record.lastRequest = now
+	record.lastRequestPickedUpBody = nil
 	if self.paint and self.paint.player == player then
 		if request.session ~= self.paint.token then
 			return
 		end
 		return
 	end
-	local target = request.target
 	local changed = false
 	if request.action == "UnlockFacility" then
 		local facilityId = request.facilityId or (if target then tonumber(target) else nil)
@@ -2221,9 +2347,6 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 		if Scene.ChutePrompt then
 			positions.Chute = Scene.ChutePrompt.Position
 		end
-		if Scene.ChutePickup then
-			positions.ChutePickup = Scene.ChutePickup.Position
-		end
 		if Scene.AutoRuneOutputPrompt then
 			positions.AutoOutput = Scene.AutoRuneOutputPrompt.Position
 		end
@@ -2250,8 +2373,6 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 				changed = self:Shelf(player)
 			elseif target == "Chute" then
 				changed = self:Chute(player)
-			elseif target == "ChutePickup" then
-				changed = self:ChutePickup(player)
 			elseif target == "AutoOutput" then
 				changed = self:AutoOutput(player)
 			elseif target == "AutoShelf" then
@@ -2260,22 +2381,9 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 				changed = self:Submit(player)
 			end
 		else
-			local item = self.items[target]
-			if not item or item.version ~= request.version then
-				self:Tell(player, "ItemChanged")
-			elseif item.kind ~= "Body" and (self:CarryCount(player) > 0 or self:Held(player) ~= nil) then
-				self:Tell(player, "HandsFull")
-			elseif item.kind == "Body" and self:ShoulderOccupied(player) then
-				self:Tell(player, "HandsFull")
-			elseif item.location == "Ground" or (item.location == "Street" and item.hits >= Config.StunHits) then
-				local root=item.model.PrimaryPart
-				if root and self:Near(player,root.Position,Config.InteractionRange,item.model) then
-					changed = if item.kind == "Body" then self:TakeBody(player, item) else Carry.Take(item, player)
-				else
-					self:Tell(player,"ItemUnavailable")
-				end
-			else
-				self:Tell(player, "ItemUnavailable")
+			changed = self:PickUpItem(player, target, request.version)
+			if changed and bodyPickup then
+				record.lastRequestPickedUpBody = true
 			end
 		end
 	end
@@ -2488,11 +2596,40 @@ function Manager.Update(self: Manager): ()
 			local function OnSettled(settled: Types.Item): ()
 				self:SettleThrown(settled)
 			end
-			if Carry.AdvanceManualToss(item, now, OnSettled) then
+			if Carry.AdvanceManualToss(item, now, OnSettled, self:IsFacilityUnlocked(FacilityId.FastChute)) then
 				changedMotion = true
 			end
 		elseif item.poolToss and Carry.AdvancePoolToss(item, now) then
 			changedMotion = true
+		elseif item.kind == "Body" and item.model.Parent and item.poolToss == nil
+			and not item.fall and item.model:GetAttribute("PhysicsMode") == "Loose"
+			and (item.location == "Ground" or item.location == "Pool" or item.location == "Chute")
+		then
+			local torso = item.model:FindFirstChild("UpperTorso")
+			if torso and torso:IsA("BasePart") then
+				local cage = item.model:GetAttribute("CageContained") :: string?
+				if item.location == "Ground" then
+					if cage and not Scene.CageRetains(cage, torso.Position) then
+						Ragdoll.SetCageContained(item.model, nil)
+						cage = nil
+					elseif not cage then
+						local entered = Scene.CageAt(torso.Position, self:IsFacilityUnlocked(FacilityId.FastChute))
+						if entered then
+							Carry.Contain(item, entered)
+							cage = entered
+						end
+					end
+				end
+				if cage and Scene.IsSoftCageEnabled(cage) then
+					local ownerId = item.model:GetAttribute("PhysicsOwnerUserId")
+					if typeof(ownerId) ~= "number" or Players:GetPlayerByUserId(ownerId) == nil then
+						local floor = Scene.CageFloor(cage)
+						if floor then
+							CageGeometry.ApplySoftBounceToModel(item.model, floor.CFrame, floor.Size, Scene.CageInset(cage))
+						end
+					end
+				end
+			end
 		end
 	end
 	if Manager.StepAutomation and self:StepAutomation(now) then
@@ -2500,6 +2637,49 @@ function Manager.Update(self: Manager): ()
 	end
 	if Manager.StepAutomationAgents and self:StepAutomationAgents(now) then
 		changedMotion = true
+	end
+	if NPC and NPC.StepCrowd and now >= self.nextCrowdStep then
+		local interval = Config.NpcCrowdStepInterval or 0.05
+		local prevStep = self.nextCrowdStep
+		local stepDt = if prevStep > 0 then math.clamp(now - prevStep + interval, interval, 0.2) else interval
+		self.nextCrowdStep = now + interval
+		local obstacles: { { id: string, position: Vector3, velocity: Vector3, radius: number, locked: boolean } } = {}
+		local obsRadius = Config.NpcDynamicObstacleRadius or 2.0
+		if self.players then
+			for player in self.players do
+				local character = player.Character
+				local root = if character then character:FindFirstChild("HumanoidRootPart") else nil
+				if root and root:IsA("BasePart") then
+					local okVel, rawVel = pcall(function(): Vector3
+						return root.AssemblyLinearVelocity
+					end)
+					local vel = if okVel and typeof(rawVel) == "Vector3" then rawVel else Vector3.zero
+					table.insert(obstacles, {
+						id = "p:" .. tostring(player.UserId),
+						position = root.Position,
+						velocity = Vector3.new(vel.X, 0, vel.Z),
+						radius = obsRadius,
+						locked = false,
+					})
+				end
+			end
+		end
+		if self.agents and self.agents.brutes then
+			for id, brute in self.agents.brutes do
+				if brute.root and brute.root.Parent then
+					local moving = brute.motionState == "Walk" or brute.motionState == "Carry"
+					local vel = if moving then brute.facing * Config.BruteWalkSpeed else Vector3.zero
+					table.insert(obstacles, {
+						id = "b:" .. id,
+						position = brute.root.Position,
+						velocity = vel,
+						radius = obsRadius,
+						locked = not moving,
+					})
+				end
+			end
+		end
+		NPC.StepCrowd(self.items, obstacles, now, stepDt)
 	end
 	if now < self.nextUpdate then
 		if changedMotion then
@@ -2527,7 +2707,9 @@ function Manager.Update(self: Manager): ()
 			bodies += 1
 		end
 		if item.kind == "Body" then
-			NPC.Update(item, now)
+			if NPC and not NPC.StepCrowd then
+				NPC.Update(item, now)
+			end
 			if (item.location == "Pool" or item.location == "Chute") and item.poolToss == nil then
 				Ragdoll.LimitVelocity(item.model)
 			elseif item.hits >= Config.StunHits and not item.fall then
@@ -2644,17 +2826,42 @@ function Manager.Update(self: Manager): ()
 end
 function Manager.Close(self: Manager): ()
 	self.closing = true
+	Scene.SetAutoTransferLight(false)
 	for player in self.players do self:RemovePlayer(player) end
 end
+function Manager.BindThrowBarriers(self: Manager): ()
+	local function Bind(folder: Instance?, kind: string?): ()
+		if not folder then return end
+		local isBaffle = kind == nil
+		if not isBaffle then
+			folder:SetAttribute("SoftCageEnabled", kind == "Pool")
+		end
+		for _, wall in folder:GetChildren() do
+			if not wall:IsA("BasePart") then continue end
+			wall.CollisionGroup = if isBaffle then Physics.ChuteBaffleGroup else Physics.CageWallGroup
+			wall.CanCollide = false
+			wall.CanQuery = false
+			wall.CanTouch = false
+			if isBaffle then
+				wall.CustomPhysicalProperties = PhysicalProperties.new(1, 0.12, 0.05, 4, 4)
+			end
+		end
+	end
+	Bind(Scene.PoolAirWalls, "Pool")
+	Bind(Scene.ChuteAirWalls, "Chute")
+	Bind(Scene.ChuteBaffles, nil)
+end
+
 function Manager.Init(self: Manager): ()
 	if self.initialized then
 		return
 	end
 	self.initialized = true
+	CollisionGroups.Init()
+	self:BindThrowBarriers()
 	self:InitFacilityWorldState()
 	self.runtime.Parent = workspace
 	self.scope:Own(self.runtime)
-	Ragdoll.Init()
 	if Physics.GroundRootEnabled then Ground.Init() end
 	Door.Init(self.scope)
 	self.scope:Connect(Net.ConnectRequest(function(player: Player, request: Types.Request): ()
@@ -2705,6 +2912,9 @@ function Manager.Destroy(self: Manager): ()
 	if self.agents then
 		AutomationAgents.Destroy(self.agents)
 		self.agents = nil
+	end
+	if NPC and NPC.ResetCrowd then
+		NPC.ResetCrowd()
 	end
 	self.scope:Destroy()
 end

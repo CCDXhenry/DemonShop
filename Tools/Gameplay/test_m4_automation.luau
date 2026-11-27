@@ -6,6 +6,9 @@ local Config = require('./GameConfig')
 local NumberExtension = require('./NumberExtension')
 local GameData = require('./GameData')
 local F = GameData.FacilityId
+local baselineAgentSpeed = 20
+local bruteWindowScale = math.max(1, baselineAgentSpeed / Config.BruteWalkSpeed)
+local clerkWindowScale = math.max(1, baselineAgentSpeed / Config.AutoClerkWalkSpeed)
 local Scene = require('./StationScene')
 local Manager = require('./StationProcessingManager')
 local Replication = require('./StationReplication')
@@ -259,7 +262,7 @@ do
 	check(b1.targetId ~= nil and b2.targetId ~= nil and b1.targetId ~= b2.targetId, 'Brute1 and Brute2 lock distinct targets via interlock table')
 	check(manager.agents.targetLocks[tA.id] ~= nil and manager.agents.targetLocks[tB.id] ~= nil, 'targetLocks tracks both distinct claims')
 
-	stepSeconds(manager, 16.0, 0.1)
+	stepSeconds(manager, 16.0 * bruteWindowScale, 0.1)
 	check(manager:ChuteCount() == 2 and manager:PoolCount() == 0, 'both Brutes deposit their distinct targets into chuteQueue cleanly')
 	manager:Destroy()
 end
@@ -307,8 +310,12 @@ do
 		return produced, duration / math.max(1, produced)
 	end
 
+	-- 固定旧节拍基准，仅在本段比较单双打手吞吐量。
+	local walkSpeed = Config.BruteWalkSpeed
+	Config.BruteWalkSpeed = baselineAgentSpeed
 	local singleCount, singleSecPerBody = simulateThroughput(false)
 	local dualCount, dualSecPerBody = simulateThroughput(true)
+	Config.BruteWalkSpeed = walkSpeed
 	check(singleCount >= 3 and singleSecPerBody >= 9.0 and singleSecPerBody <= 15.0,
 		'single Brute cadence matches ~12s/person (got ' .. string.format('%.2fs/body, count=%d', singleSecPerBody, singleCount) .. ')')
 	check(dualCount >= 6 and dualSecPerBody >= 4.0 and dualSecPerBody <= 8.0 and dualCount >= singleCount * 1.7,
@@ -420,7 +427,7 @@ do
 
 	local sawZeroRack = false
 	local sawReturnedIdle = false
-	for _ = 1, 150 do
+	for _ = 1, math.ceil(150 * clerkWindowScale) do
 		B.now += 0.1
 		manager:Update()
 		if manager:AutoShelfCount() == 0 and #manager.autoShelfVisible == 0 and clerk.state == 'GoToSigil' then
@@ -463,7 +470,7 @@ do
 	check(manager:TryUnlockFacility(pActive1, F.AutoSmelter), 'unlock A04 for full pipeline')
 
 	makeStreetBody(manager, Vector3.new(-35, 23.0, -60), 0)
-	stepSeconds(manager, 26.0, 0.1)
+	stepSeconds(manager, 26.0 * math.max(bruteWindowScale, clerkWindowScale), 0.1)
 	check(coinsEarned[pActive1] == 5 * Config.PotionReward and coinsEarned[pActive2] == 10 * Config.PotionReward,
 		'full A00->A01->A03->A04->A05 pipeline applies personal payout for one street NPC')
 	check(manager:ShelfCount() == 5 and manager:PoolCount() == 2,

@@ -252,9 +252,35 @@ map.Waist.drive.Enabled=false
 Mixer.Commit(cloneMap,map,mask,F.identity,c,r,V.zero,nil,2,offsets,1/60,22)
 check(mask.Waist and joint.submissions==0 and offsets.Waist==nil,"physical takeover excludes drive")
 map.Waist.drive.Enabled=true
+local lookStart = 10
+check(Mixer.StreetLookYaw(lookStart, lookStart) == 0, "look starts at rest")
+local right = Mixer.StreetLookYaw(lookStart, 10.36)
+local left = Mixer.StreetLookYaw(lookStart, 11.08)
+check(right > math.rad(35) and left < -math.rad(35), "look reaches both sides")
+check(math.abs(Mixer.StreetLookYaw(-lookStart, 10.36) + right) < 1e-6, "replicated start carries direction")
+Mixer.Commit(cloneMap,map,mask,F.identity,nil,nil,V.zero,nil,3,offsets,0.1,22,right)
+local _, neckAngle = (cloneMap.Neck.drive.Transform * cloneMap.Neck.base:Inverse()):ToAxisAngle()
+local _, waistAngle = (cloneMap.Waist.drive.Transform * cloneMap.Waist.base:Inverse()):ToAxisAngle()
+check(neckAngle > math.rad(35) and waistAngle > 0 and waistAngle < neckAngle, "look layers on neck and waist")
+Mixer.Commit(cloneMap,map,mask,F.identity,nil,nil,V.zero,nil,4,offsets,0.1,22,0)
+check(cloneMap.Neck.drive.Transform == cloneMap.Neck.base, "look releases the neck")
 local managed=Manager.new(tableView,hit,function() end)
 item.model,item.location,item.hits,item.version=model,"Street",0,5
 managed:Bind(item)
+managed:SetLayer("SoftContact",false)
+local visualRoot=assert(managed:GetVisualModel("body").PrimaryPart)
+local sourceRoot=assert(model.PrimaryPart)
+local baseFrame=sourceRoot.CFrame
+sourceRoot.CFrame = (baseFrame + V.xAxis * 3.5) * F.Angles(0, math.pi / 2, 0)
+local beforeCorrection=visualRoot.CFrame
+managed:Step(0, 1/60)
+local renderedStep=(visualRoot.CFrame.Position-beforeCorrection.Position).Magnitude
+local _,renderedTurn=(beforeCorrection.Rotation:Inverse()*visualRoot.CFrame.Rotation):ToAxisAngle()
+check(renderedStep>0 and renderedStep<0.5 and renderedTurn<math.rad(12),"street root follows corrections within client frame budget")
+for frame=2,35 do managed:Step(frame/60,1/60) end
+check((visualRoot.CFrame.Position-sourceRoot.CFrame.Position).Magnitude<0.01,"street root converges to stationary authority")
+sourceRoot.CFrame=baseFrame
+for frame=36,70 do managed:Step(frame/60,1/60) end
 local function mh(seq,version,h,at,replay)
 	return managed:Hit("body",1,seq,version,h,V.zAxis,V.yAxis,at,true,replay)
 end

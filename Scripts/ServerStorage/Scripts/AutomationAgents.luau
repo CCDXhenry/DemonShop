@@ -913,7 +913,7 @@ local function StepBrute(host: Host, state: State, agent: BruteAgent, now: numbe
 								slashTrack:Play(Config.WeaponAnimationFade)
 							end)
 						end
-						NPC.Hit(targetItem, hitDir, Config.BruteDamage)
+						NPC.Hit(targetItem, hitDir, Config.BruteDamage, nil, agent.floorPos)
 						local torso = targetItem.model:FindFirstChild("UpperTorso")
 						local hitPos = targetRoot.Position
 						if torso and torso:IsA("BasePart") then

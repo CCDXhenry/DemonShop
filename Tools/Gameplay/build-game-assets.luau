@@ -2,6 +2,83 @@
 assert(not game:GetService("RunService"):IsRunning(), "Edit mode required")
 local RS, SS = game:GetService("ReplicatedStorage"), game:GetService("ServerStorage")
 local shopAssetJson, coinsOnly, hitMaskJson = ...
+-- 区域配置独立入口，允许策划在 Edit 中保留手工布局。
+local function BuildStreetWalkZones(): Folder
+ assert(game.PlaceId == 110812537538556, "DemonShop Edit required")
+ local district = workspace:WaitForChild("NeonContractDistrict")
+ local existing = district:FindFirstChild("StreetWalkZones")
+ assert(not existing or existing:IsA("Folder"), "StreetWalkZones must be a Folder")
+ if existing and existing:IsA("Folder") then
+  for _, child in existing:GetChildren() do
+   if child:IsA("BasePart") then return existing end
+  end
+ end
+ local zones = existing :: Folder? or Instance.new("Folder")
+ zones.Name = "StreetWalkZones"
+ local function Zone(name: string, x0: number, x1: number, z0: number, z1: number): ()
+  local part = Instance.new("Part")
+  part.Name = name
+  part.Size = Vector3.new(x1 - x0, 0.25, z1 - z0)
+  part.Position = Vector3.new((x0 + x1) / 2, 20.08, (z0 + z1) / 2)
+  part.Anchored = true
+  part.CanCollide = false
+  part.CanQuery = false
+  part.CanTouch = false
+  part.CastShadow = false
+  part.Transparency = 1
+  part.Parent = zones
+ end
+ Zone("Zone_1", -80, -68, -74, -60)
+ Zone("Zone_2", -68, 80, -74, -53)
+ zones.Parent = district
+ return zones
+end
+if ... == "StreetWalkZonesOnly" then return BuildStreetWalkZones():GetFullName() end
+local function BuildStreetInterestPoints(): Folder
+ assert(game.PlaceId == 110812537538556, "DemonShop Edit required")
+ local district = workspace:WaitForChild("NeonContractDistrict")
+ local existing = district:FindFirstChild("StreetInterestPoints")
+ assert(not existing or existing:IsA("Folder"), "StreetInterestPoints must be a Folder")
+ if existing and existing:IsA("Folder") then
+  for _, child in existing:GetChildren() do
+   if child:IsA("BasePart") then return existing end
+  end
+ end
+ local folder = existing :: Folder? or Instance.new("Folder")
+ folder.Name = "StreetInterestPoints"
+ local function Poi(name: string, x: number, y: number, z: number, lookDir: Vector3): ()
+  local part = Instance.new("Part")
+  part.Name = name
+  part.Size = Vector3.new(2, 0.25, 2)
+  part.CFrame = CFrame.lookAlong(Vector3.new(x, y, z), lookDir)
+  part.Anchored = true
+  part.CanCollide = false
+  part.CanQuery = false
+  part.CanTouch = false
+  part.CastShadow = false
+  part.Transparency = 1
+  part.Parent = folder
+ end
+ local northLook = Vector3.new(0, 0, -1)
+ local southLook = Vector3.new(0, 0, 1)
+ Poi("POI_North_Bar1", -62.0, 20.08, -82.5, northLook)
+ Poi("POI_North_KTV2_West", -42.0, 20.08, -82.5, northLook)
+ Poi("POI_North_KTV2_East", -24.0, 20.08, -82.5, northLook)
+ Poi("POI_North_Bakery", -4.5, 20.08, -82.5, northLook)
+ Poi("POI_North_Spa3", 17.0, 20.08, -82.5, northLook)
+ Poi("POI_North_Bar4", 41.0, 20.08, -82.5, northLook)
+ Poi("POI_North_Records", 62.5, 20.08, -82.5, northLook)
+ Poi("POI_North_CornerBar", 76.5, 20.08, -82.5, northLook)
+ Poi("POI_South_Bar5", -36.4, 20.08, -52.3, southLook)
+ Poi("POI_South_Spa6", -9.3, 20.08, -52.3, southLook)
+ Poi("POI_South_KTV7_West", 17.0, 20.08, -52.3, southLook)
+ Poi("POI_South_KTV7_East", 36.0, 20.08, -52.3, southLook)
+ Poi("POI_South_Bar8", 59.7, 20.08, -52.3, southLook)
+ Poi("POI_South_Arcade", 76.5, 20.08, -52.3, southLook)
+ folder.Parent = district
+ return folder
+end
+if ... == "StreetInterestPointsOnly" then return BuildStreetInterestPoints():GetFullName() end
 local function BuildCoinsOverlay(gui: ScreenGui, root: Frame, assets: { [string]: string }): ()
  local frameImage = assert(assets.frame_money, "Missing frame_money")
  local iconImage = assert(assets.icon_money_m, "Missing icon_money_m")
@@ -116,6 +193,10 @@ local items=folder(models,"Items")
 folder(models,"Effects")
 folder(models,"Previews")
 local district=workspace:WaitForChild("NeonContractDistrict")
+local CageGeometry = require(RS.Scripts.Shared.CageGeometry)
+local Physics = require(RS.Scripts.Shared.PhysicsConfig)
+local pool = district.SoulHoldingPool
+CageGeometry.Build(pool, "AirWalls", CageGeometry.Walls(pool.PoolFloor.CFrame, pool.PoolFloor.Size, Physics.Cage.PoolWallInset))
 if not district:FindFirstChild("SummoningSubmitAnchor") then
  local sigil=district.summoning.Generated.SummoningCircle["Flat Purple Summoning Sigil"]
  local anchor=Instance.new("Part");anchor.Name="SummoningSubmitAnchor";anchor.Size=Vector3.new(.1,.1,.1);anchor.Position=sigil:GetPivot().Position+Vector3.new(0,1,5)

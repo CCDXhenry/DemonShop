@@ -5,6 +5,7 @@ local CFrame, Vector3, Color3, Instance = R.CFrame, R.Vector3, R.Color3, R.Insta
 local B = require('./StationPotionBoundary')
 local Config = require('./GameConfig')
 local GameData = require('./GameData')
+local Physics = require('./PhysicsConfig')
 local Rules = require('./AutomationRules')
 local Scene = require('./StationScene')
 local Manager = require('./StationProcessingManager')
@@ -17,6 +18,7 @@ end
 
 -- 1. 配置表与依赖关系契约校验
 local F = GameData.FacilityId
+check(Scene.AutoPotionRack ~= nil and Scene.AutoPotionRack.Parent == Scene.AutoSmelterMachine, 'AutoPotionRack is a direct child of AutoSmelterMachine')
 check(GameData.GetFacility(F.FastChute).cost == 250 and GameData.GetFacility(F.FastChute).prerequisite == nil, 'A00 cost & no prereq')
 check(GameData.GetFacility(F.Brute1).cost == 1000 and GameData.GetFacility(F.Brute1).prerequisite == F.FastChute, 'A01 cost & prereq A00')
 check(GameData.GetFacility(F.Brute2).cost == 2500 and GameData.GetFacility(F.Brute2).prerequisite == F.Brute1, 'A02 cost & prereq A01')
@@ -27,10 +29,10 @@ check(table.concat(GameData.GetFacilityOrder(), ',') == '1,2,3,4,5,6', 'facility
 check(#GameData.GetAllFacilities() == 6, 'all 6 facilities loaded')
 check(Config.AutoRuneSeconds == 2.0 and Config.AutoSmelterSeconds == 2.5 and Config.AutoQueueVisibleLimit == 6, 'automation cadence & limit')
 
--- 2. 三态规则与真实 GameModels.rbxm UnlockPad 视觉同步校验
+-- 2. 解锁按钮状态、视觉同步与模型归档校验
 check(Rules.ComputePadState(F.FastChute, {}, 249) == 'Insufficient', 'A00 insufficient coins -> red')
 check(Rules.ComputePadState(F.FastChute, {}, 250) == 'Ready', 'A00 enough coins -> green')
-check(Rules.ComputePadState(F.AutoRune, {}, 9999) == 'Locked', 'A03 without A00 -> gray even with rich coins')
+check(Rules.ComputePadState(F.AutoRune, {}, 9999) == 'Locked', 'A03 without A00 stays locked even with enough coins')
 check(Rules.ComputePadState(F.AutoRune, { [F.FastChute] = true }, 1999) == 'Insufficient', 'A03 after A00 insufficient -> red')
 check(Rules.ComputePadState(F.AutoRune, { [F.FastChute] = true }, 2000) == 'Ready', 'A03 after A00 enough -> green')
 check(Rules.ComputePadState(F.AutoRune, { [F.FastChute] = true, [F.AutoRune] = true }, 0) == 'Unlocked', 'A03 unlocked state')
@@ -43,8 +45,6 @@ local function makeTestPad()
 	local pad = Instance.new('Model')
 	pad.Name = 'A03_AutoRune'
 	pad:SetAttribute('FacilityId', F.AutoRune)
-	pad:SetAttribute('PrerequisiteLabel', 'REQUIRES: FAST DROP CHUTE')
-	pad:SetAttribute('LockedColor', Color3.fromRGB(130, 134, 150))
 	pad:SetAttribute('InsufficientColor', Color3.fromRGB(255, 76, 98))
 	pad:SetAttribute('ReadyColor', Color3.fromRGB(72, 245, 146))
 	for _, name in { 'OuterRim', 'GlowRing', 'InnerDisc', 'CenterGlyph', 'TriggerZone' } do
@@ -66,30 +66,47 @@ local function makeTestPad()
 	stroke.Parent = card
 	local prereq = Instance.new('TextLabel')
 	prereq.Name = 'PrereqText'
+	prereq.Text = 'REQUIRES: FAST DROP CHUTE'
 	prereq.Parent = card
 	return pad
 end
 
 do
 	local pad = makeTestPad()
-	Rules.ApplyPadVisual(pad, 'Locked', 'REQUIRES: FAST DROP CHUTE')
-	check(pad.GlowRing.Color == pad:GetAttribute('LockedColor'), 'Locked applies LockedColor gray')
-	check(pad.GuiAnchor.PadGui.CardFrame.BorderStroke.Color == pad:GetAttribute('LockedColor'), 'Locked border stroke matches gray')
-	Rules.ApplyPadVisual(pad, 'Insufficient', 'REQUIRES: FAST DROP CHUTE')
+	local gui = pad.GuiAnchor.PadGui
+	local light = Instance.new('PointLight')
+	light.Parent = pad.CenterGlyph
+	local unlocked = {}
+
+	check(Rules.SyncPad(pad, unlocked, 9999) == 'Locked', 'A03 remains locked even with enough coins')
+	check(pad.OuterRim.LocalTransparencyModifier == 1 and not gui.Enabled and not light.Enabled, 'Unmet prerequisite hides the pad, card, and light')
+	check(pad.TriggerZone.CanTouch, 'Hidden pad keeps the existing touch trigger available')
+	check(pad:GetAttribute('Unlocked') == false, 'Hidden prerequisite pad stays marked as unpurchased')
+
+	unlocked[F.FastChute] = true
+	check(Rules.SyncPad(pad, unlocked, 1999) == 'Insufficient', 'A03 becomes visible before the player can afford it')
+	check(pad.OuterRim.LocalTransparencyModifier == 0 and gui.Enabled and light.Enabled, 'Meeting the prerequisite reveals the pad, card, and light')
 	check(pad.GlowRing.Color == pad:GetAttribute('InsufficientColor'), 'Insufficient applies InsufficientColor red')
-	check(pad.GuiAnchor.PadGui.CardFrame.PrereqText.Text == 'PRE-REQ: UNLOCKED', 'PrereqText updates when prereq cleared')
-	pad.GuiAnchor.PadGui.CardFrame.PrereqText.Text = 'LOCALLY BOUND TEXT'
-	Rules.ApplyPadVisual(pad, 'Ready', 'REQUIRES: FAST DROP CHUTE', { skipText = true })
-	check(pad.GuiAnchor.PadGui.CardFrame.PrereqText.Text == 'LOCALLY BOUND TEXT', 'skipText keeps client localized label untouched')
+	check(not gui.CardFrame.PrereqText.Visible, 'Visible card hides old prerequisite label')
+
+	check(Rules.SyncPad(pad, unlocked, 2000) == 'Ready', 'A03 is ready once affordable')
 	check(pad.GlowRing.Color == pad:GetAttribute('ReadyColor'), 'Ready applies ReadyColor green')
-	Rules.ApplyPadVisual(pad, 'Unlocked', nil)
-	check(pad.OuterRim.LocalTransparencyModifier == 1 and pad.TriggerZone.CanTouch == false and pad.GuiAnchor.PadGui.Enabled == false, 'Unlocked hides pad & disables touch/gui')
+	check(gui.Enabled and not gui.CardFrame.PrereqText.Visible, 'Ready card still hides prerequisite label')
+
+	unlocked[F.AutoRune] = true
+	check(Rules.SyncPad(pad, unlocked, 0) == 'Unlocked', 'Purchased facility is unlocked')
+	check(pad.OuterRim.LocalTransparencyModifier == 1 and not pad.TriggerZone.CanTouch and not gui.Enabled and not light.Enabled, 'Unlocked hides pad, card, and light and disables touch')
+end
+
+do
+	local pad = makeTestPad()
+	pad:SetAttribute('FacilityId', F.FastChute)
+	check(Rules.SyncPad(pad, nil, 0) == 'Insufficient', 'A00 is available before the initial snapshot')
+	check(pad.OuterRim.LocalTransparencyModifier == 0 and pad.GuiAnchor.PadGui.Enabled, 'Pad without a prerequisite is visible from the start')
+	check(not pad.GuiAnchor.PadGui.CardFrame.PrereqText.Visible, 'Pad without a prerequisite hides old prerequisite label')
 end
 check(Rules.FormatCost(250) == '250' and Rules.FormatCost(2500) == '2.5K' and Rules.FormatCost(1000000) == '1M', 'FormatCost formats AA suffixes')
 check(Rules.DescribeTitle(F.FastChute) == 'FAST DROP CHUTE' and Rules.DescribeDesc(F.AutoRune) == 'AUTO-PULLS BODIES AND ENGRAVES RUNES', 'DescribeTitle/Desc return source text from GameData')
-local lockedReq = Rules.DescribePrereq(F.AutoRune, 'Locked')
-check(lockedReq.textId == 'PadPrereqRequires' and lockedReq.argSources and lockedReq.argSources[1] == 'FAST DROP CHUTE', 'DescribePrereq binds nested argSources')
-check(Rules.DescribePrereq(F.FastChute, 'Insufficient').textId == 'PadPrereqNone' and Rules.DescribePrereq(F.AutoRune, 'Ready').textId == 'PadPrereqUnlocked', 'DescribePrereq handles none & cleared')
 check(Rules.DescribePrice(F.AutoClerk).textId == 'PadPrice' and Rules.DescribePrice(F.AutoClerk).args[1] == '9K', 'DescribePrice formats PadPrice description')
 
 -- 工具函数：构造测试白膜与重置场景
@@ -152,7 +169,7 @@ do
 		[F.FastChute] = Scene.AutomationLine.FastChuteLanding,
 		[F.Brute1] = Scene.BrutePost,
 		[F.AutoRune] = Scene.AutoRuneMachine,
-		[F.AutoSmelter] = Scene.AutoSmelterMachine.AutoPotionRack,
+		[F.AutoSmelter] = Scene.AutoPotionRack,
 		[F.AutoClerk] = Scene.AutoClerkStation,
 	}
 	local parts = {}
@@ -195,6 +212,8 @@ do
 	end
 	check(not sign.Enabled and not light.Enabled and not effect.Enabled, 'startup hides signs, lights and effects')
 	check(Scene.FastChuteCover.CoverPlate.CanCollide, 'chute remains covered at startup')
+	check(Scene.PoolAirWalls:GetAttribute('SoftCageEnabled') == true and not Scene.PoolAirWalls.West.CanCollide and Scene.ChuteAirWalls:GetAttribute('SoftCageEnabled') == false and not Scene.ChuteAirWalls.West.CanCollide, 'pool soft cage enabled, chute soft cage locked, and air walls stay non-collidable')
+	check(not Scene.ChuteBaffles.West.CanCollide and not Scene.ChuteBaffles.West.CanQuery, 'locked baffles ignore bodies and preview')
 	check(Scene.UnlockPads[F.FastChute].TriggerZone.CanTouch and Scene.UnlockPads[F.FastChute].GuiAnchor.PadGui.Enabled, 'locked pad stays visible and usable')
 	local padA00Pos = Scene.UnlockPads[F.FastChute].TriggerZone.Position
 	local padA03Pos = Scene.UnlockPads[F.AutoRune].TriggerZone.Position
@@ -232,7 +251,28 @@ do
 
 	-- A00 空洞开启与 Pad 隐藏 + 全房通知横幅
 	local cover = Scene.FastChuteCover
+	check(Scene.ChuteAirWalls:GetAttribute('SoftCageEnabled') == true and not Scene.ChuteAirWalls.West.CanCollide, 'unlocked landing enables soft cage without rigid air wall collision')
+	check(Scene.ChuteBaffles.West.CanCollide and Scene.ChuteBaffles.West.CanQuery and Scene.ChuteBaffles.West.CanTouch, 'A00 enables baffle physics, preview, and local touch')
 	check(cover ~= nil and cover:GetAttribute('Unlocked') == true, 'FastChuteCover marked unlocked')
+	local impactItem = makeTestBody(manager, 'Unpainted')
+	local limb = impactItem.model.UpperTorso
+	limb.Position, limb.CanCollide = root1.Position, true
+	limb.AssemblyLinearVelocity = Vector3.new(10, 0, 0)
+	local baffleSignal = B.Signal(Scene.ChuteBaffles.West, 'Touched')
+	local poolSignal = B.Signal(Scene.PoolAirWalls.West, 'Touched')
+	local function impacts()
+		local count = 0
+		for _, entry in B.notices do
+			if entry.player == p1 and entry.notice.kind == 'CageImpact' then count += 1 end
+		end
+		return count
+	end
+	baffleSignal:Fire(limb)
+	poolSignal:Fire(limb)
+	check(impacts() == 0, 'impact flashes run locally on clients with zero server CageImpact packets')
+	manager.items[impactItem.id] = nil
+	impactItem.model:Destroy()
+
 	for _, part in cover:GetDescendants() do
 		if part:IsA('BasePart') then
 			check(not part.CanCollide and not part.CanQuery and part.Transparency == 1, 'FastChuteCover collision & visibility cleared')
@@ -410,20 +450,38 @@ do
 	manager:SettleThrown(thrownPainted)
 	check(thrownPainted.location == 'Ground' and manager:ChuteCount() == 10, 'painted throw into chute lands on Ground')
 
-	-- 地下 ChutePickup 断点手取 1 具：计数减 1，其余实体维持原地；滚出边界则退回 Ground 可拾取
-	local nextInChute = manager.items[manager.chuteVisible[2]]
+	-- 快投区按 ID 拾取非队首白膜，队首和其他实体留在原地。
+	local nextInChute = manager:PeekChuteItem()
+	local picked = manager.items[manager.chuteVisible[2]]
 	local nextChutePose, nextChuteVersion = nextInChute.model.WorldPivot, nextInChute.version
 	root2.CFrame = CFrame.new(Scene.ChutePickup.Position)
 	root2.Position = Scene.ChutePickup.Position
-	manager:OnRequest(p2, { action = 'Interact', target = 'ChutePickup', version = manager.stationVersions.ChutePickup })
-	check(manager:ChuteCount() == 9 and #manager.chuteVisible == 9 and manager.chuteOverflowCount == 0 and #manager:Carried(p2) == 1, 'ChutePickup takes 1 without overflow cap')
-	check(nextInChute == manager:PeekChuteItem() and nextInChute.model.WorldPivot == nextChutePose and nextInChute.version == nextChuteVersion, 'ChutePickup keeps the next body in place without repacking the pile')
+	manager.chuteOverflowCount = 1
+	local chuteVersion = manager.stationVersions.ChutePickup
+	manager:OnRequest(p2, { action = 'Interact', target = 'ChutePickup', version = chuteVersion })
+	check(manager:ChuteCount() == 11 and #manager:Carried(p2) == 0, 'legacy chute anchor cannot take a body')
+	root2.Position = picked.model.PrimaryPart.Position + Vector3.new(0, 0, 3)
+	root2.CFrame = CFrame.new(root2.Position)
+	B.now += 0.2
+	B.cageOccluder = Scene.ChuteAirWalls.West
+	manager:OnRequest(p2, { action = 'Interact', target = picked.id, version = picked.version })
+	B.cageOccluder = nil
+	check(manager:ChuteCount() == 10 and #manager.chuteVisible == 10 and manager:Carried(p2)[1] == picked, 'specific chute pickup removes the selected body')
+	local replenishedChuteId = manager.chuteVisible[#manager.chuteVisible]
+	local replenishedChuteItem = manager.items[replenishedChuteId]
+	check(manager.chuteOverflowCount == 0 and replenishedChuteItem and replenishedChuteItem.location == 'Chute', 'chute overflow materializes after successful pickup')
+	check(not table.find(manager.chuteVisible, picked.id) and manager.stationVersions.ChutePickup > chuteVersion, 'specific chute pickup updates queue and station version')
+	check(nextInChute == manager:PeekChuteItem() and nextInChute.model.WorldPivot == nextChutePose and nextInChute.version == nextChuteVersion, 'specific pickup leaves the queue head in place')
 
+	-- 清理本用例额外补出的白膜，继续原有的出界和自动画符回归。
+	table.remove(manager.chuteVisible)
+	manager.items[replenishedChuteId] = nil
+	replenishedChuteItem.model:Destroy()
 	local escapedBody = manager.items[manager.chuteVisible[#manager.chuteVisible]]
 	escapedBody.model.UpperTorso.Position = Vector3.new(-100, 2, -90)
 	B.now += 0.2
 	manager:Update()
-	check(escapedBody.location == 'Ground' and manager:ChuteCount() == 8, 'body knocked outside FastChuteLanding reverts to pickable Ground')
+	check(escapedBody.location == 'Ground' and escapedBody.model:GetAttribute('CageContained') == nil and manager:ChuteCount() == 8, 'body knocked outside FastChuteLanding reverts to pickable Ground')
 	escapedBody.model.UpperTorso.Position = Vector3.new(-58.8, 2.0, -28.5)
 	B.now += 0.2
 	manager:Update()
@@ -435,7 +493,7 @@ do
 	root1.CFrame = CFrame.new(Scene.UnlockPads[F.AutoRune].TriggerZone.Position)
 	root1.Position = Scene.UnlockPads[F.AutoRune].TriggerZone.Position
 	check(manager:TryUnlockFacility(p1, F.AutoRune), 'unlock A03 pulls first chute body immediately')
-	check(manager:ChuteCount() == 8 and manager.autoRuneItemId ~= nil and manager.autoRuneEnds == 202.0, 'A03 starts processing with 2.0s period')
+	check(manager:ChuteCount() == 8 and manager.autoRuneItemId == nextInChute.id and manager.autoRuneEnds == 202.0, 'A03 starts processing with 2.0s period')
 
 	B.now = 201.9
 	manager:Update()
@@ -480,13 +538,34 @@ do
 	B.now = 300
 	root1.CFrame = CFrame.new(Scene.UnlockPads[F.AutoSmelter].TriggerZone.Position)
 	root1.Position = Scene.UnlockPads[F.AutoSmelter].TriggerZone.Position
-	check(manager:TryUnlockFacility(p1, F.AutoSmelter), 'unlock A04 starts smelting immediately')
+	check(manager:TryUnlockFacility(p1, F.AutoSmelter), 'unlock A04 immediately reserves a body for transport')
 	check(manager:AutoPaintedCount() == 7, 'A04 pulled 1 leaving AutoPaintedCount==7, got ' .. tostring(manager:AutoPaintedCount()))
-	check(manager.autoSmelterItemId ~= nil and manager.autoSmelterEnds == 302.5, 'A04 starts smelting with 2.5s period, got ' .. tostring(manager.autoSmelterEnds))
+	check(manager.autoSmelterItemId ~= nil and manager.autoSmelterEnds == 0, 'A04 reserves a body for travel before starting the furnace timer')
 
 	local autoOutVerDuringRun = manager.stationVersions.AutoOutput
+	local firstId = manager.autoSmelterItemId
+	local firstBody = manager.items[firstId]
+	local passLight = Scene.AutoTransferPass.TransferPassLight
+	check(firstBody.stage == 'Painted' and not passLight.Enabled, 'queued body is reserved and lamp begins off')
+	B.now = 300.15
+	manager:Update()
+	local position = firstBody.model.WorldPivot.Position
+	check(math.abs(position.X - Scene.AutoTransferPass.Position.X) < 2.2 and position.Y > 4,
+		'queued body aligns on the transfer station without returning to the ramp')
+	check(manager:PeekAutoPaintedItem().id ~= firstId, 'player pickup queue excludes the body reserved for transfer')
+	B.now = 300.4
+	manager:Update()
+	check(passLight.Enabled and firstBody.stage == 'Painted' and manager.autoSmelterEnds == 0, 'lamp indicates passage before furnace timer')
+	check((firstBody.model.WorldPivot.Position - Scene.AutoTransferPass.Position).Magnitude < 0.01, 'body waits at lit pass point')
+	B.now = 301.0
+	manager:Update()
+	check(not passLight.Enabled and firstBody.stage == 'Painted' and manager:AutoShelfCount() == 0, 'body travels from pass toward furnace without producing a potion')
+	B.now = 301.6
+	manager:Update()
+	check(firstBody.stage == 'Converting' and math.abs(manager.autoSmelterEnds - 304.05) < 0.001, 'furnace timer starts at arrival')
 	for step = 1, 8 do
-		B.now = 300 + step * 2.5
+		-- 每轮略过截止时间再采样，避免浮点误差落在同一截止点两侧。
+		B.now = 300 + step * 4.07
 		manager:Update()
 		if step < 7 then
 			check(manager.stationVersions.AutoOutput == autoOutVerDuringRun, 'A04 ticks keep AutoOutput version stable while queue remains non-empty')
@@ -518,6 +597,20 @@ do
 	p4.Character.HumanoidRootPart.Position = Scene.SigilPosition
 	manager:OnRequest(p4, { action = 'Interact', target = 'Sigil', version = manager.stationVersions.Sigil })
 	check(coinsEarned[p4] == 8 * Config.PotionReward, 'Sigil sells auto-shelf potions using standard economy reward')
+	local fresh = makeTestBody(manager)
+	manager:PushChuteItem(fresh, false)
+	manager:Update()
+	local paintStart = B.now
+	B.now = paintStart + 1.5
+	manager:Update()
+	check(fresh.location == 'AutoRune' and manager.autoSmelterItemId == nil, 'incomplete body remains at the drawing bed')
+	B.now = paintStart + 2.1
+	manager:Update()
+	check(manager.autoSmelterItemId == fresh.id and manager:AutoPaintedCount() == 0, 'painted body moves straight from bed to transfer when the furnace is free')
+	check((fresh.model.WorldPivot.Position - Scene.AutoRunePose().Position).Magnitude < 0.01, 'direct transfer starts at the painting bed')
+	B.now += 0.5
+	manager:Update()
+	check((fresh.model.WorldPivot.Position - Scene.AutoTransferRamp.Position).Magnitude < 0.01, 'direct transfer climbs the ramp before the pass station')
 	manager:Destroy()
 end
 

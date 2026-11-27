@@ -2,12 +2,16 @@
 --!strict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Physics = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
+local CageGeometry = require(ReplicatedStorage.Scripts.Shared.CageGeometry)
 local ThrowArc = require(ReplicatedStorage.Scripts.Shared.ThrowArc)
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local PaintRotation = require(ReplicatedStorage.Scripts.Shared.PaintRotation)
+local FixedCamera = require(ReplicatedStorage.Scripts.Shared.FixedCamera)
+local StreetZones = require(script.Parent.StreetWalkZones)
 local Scene = {}
 local district = workspace:WaitForChild("NeonContractDistrict")
 local pool = district:WaitForChild("SoulHoldingPool")
+local StreetFloorProbeSpacing = 2.5
 local PointRowBand = 0.5 -- 同一排点位的高度差上限，studs
 local ChuteFallbackLanding = Vector3.new(-58.8, 1.15, -28.5)
 local ChuteSpawnSpread = 1.8
@@ -35,11 +39,113 @@ local function TopThenLeft(a: BasePart, b: BasePart): boolean
 end
 Scene.District = district
 Scene.Deck = Part(district:WaitForChild("deck"):WaitForChild("Generated"):WaitForChild("Street"):WaitForChild("Raised Street Deck With Stair Void"), "Box_005")
+local function ReadStreetWalkZones(): { StreetZones.Zone }
+	local zones: { StreetZones.Zone } = {}
+	local folder = district:FindFirstChild("StreetWalkZones")
+	if folder and folder:IsA("Folder") then
+		for _, part in folder:GetChildren() do
+			if part:IsA("BasePart") and part.CFrame.UpVector.Y > 0.9999 then
+				table.insert(zones, StreetZones.New(part.CFrame, part.Size))
+				part.Transparency = 1
+				part.CanCollide = false
+				part.CanTouch = false
+				part.CanQuery = false
+			end
+		end
+	end
+	if #zones == 0 then
+		local deck = Scene.Deck
+		local surface = deck.CFrame * CFrame.new(0, deck.Size.Y / 2, 0)
+		local usable = Vector3.new(math.max(0.1, deck.Size.X - 8), deck.Size.Y, math.max(0.1, deck.Size.Z - 8))
+		table.insert(zones, StreetZones.New(surface, usable))
+	end
+	return zones
+end
+local streetZones = ReadStreetWalkZones()
+
+-- 只用静态街区找路，玩家和其他假人经过时不反复改变巡游方向。
+local function CreateStreetCastParams(): RaycastParams
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = { district }
+	params.RespectCanCollide = true
+	return params
+end
+
+local streetCastParams = CreateStreetCastParams()
+
+function Scene.StreetFloor(point: Vector3): Vector3?
+	local hit = workspace:Raycast(point + Vector3.new(0, 5, 0), Vector3.new(0, -7, 0), streetCastParams)
+	if hit and hit.Normal.Y > 0.6 and math.abs(hit.Position.Y - point.Y) <= 1.25 then return hit.Position end
+	return nil
+end
+
+function Scene.StreetPoint(random: Random): Vector3
+	local point = assert(StreetZones.Sample(streetZones, random))
+	for _ = 1, 8 do
+		local floor = Scene.StreetFloor(point)
+		if floor then return floor end
+		point = assert(StreetZones.Sample(streetZones, random))
+	end
+	-- 刷出和移动的调用方会拒绝没有可站立地面的目标。
+	return point
+end
+
+function Scene.IsInStreetWalkZones(position: Vector3, margin: number?): boolean
+	return StreetZones.Contains(streetZones, position, margin)
+end
+
+function Scene.ClampToStreetWalkZones(position: Vector3): Vector3?
+	local nearest = StreetZones.Closest(streetZones, position, 1.25)
+	local floor = nearest and Scene.StreetFloor(nearest)
+	if floor then return floor end
+	local best: Vector3? = nil
+	local distance = math.huge
+	for _, zone in streetZones do
+		for _, point in { StreetZones.Clamp(zone, position, 1.25), zone.frame.Position } do
+			local candidate = Scene.StreetFloor(point)
+			if candidate and (candidate - position).Magnitude < distance then
+				best, distance = candidate, (candidate - position).Magnitude
+			end
+		end
+	end
+	return best
+end
+
+function Scene.StreetRoute(from: Vector3, target: Vector3, recovering: boolean?): Vector3?
+	local floor = Scene.StreetFloor(target)
+	if not floor or not Scene.IsInStreetWalkZones(floor) then return nil end
+	if not recovering and not StreetZones.CoversSegment(streetZones, from, floor) then return nil end
+	local horizontal = Vector3.new(floor.X - from.X, 0, floor.Z - from.Z)
+	local distance = horizontal.Magnitude
+	if distance > 0.01 then
+		local frame = CFrame.lookAlong(from + Vector3.new(0, 0.15, 0), horizontal)
+		if workspace:Blockcast(frame, Vector3.new(2.5, 4.1, 1.2), horizontal, streetCastParams) then return nil end
+		local steps = math.ceil(distance / StreetFloorProbeSpacing)
+		local startFloor = Vector3.new(from.X, floor.Y, from.Z)
+		for step = 1, steps - 1 do
+			local support = Scene.StreetFloor(startFloor:Lerp(floor, step / steps))
+			if not support or (not recovering and not Scene.IsInStreetWalkZones(support)) then return nil end
+		end
+	end
+	return floor
+end
+
+export type InterestPoint = StreetZones.InterestPoint
+
+function Scene.StreetBoundaryPush(position: Vector3, margin: number?): Vector3
+	return StreetZones.BoundaryPush(streetZones, position, margin or 1.4)
+end
+
 Scene.PoolDrop = Part(pool, "DropPointAnchor")
 Scene.PoolPickup = Part(pool, "PickupPointAnchor")
 Scene.PoolFloor = Part(pool, "PoolFloor")
-Scene.Table = Part(district:WaitForChild("RuneBodyTable"), "BodyPlacementAnchor")
-Scene.TableInteract = Part(district:WaitForChild("RuneBodyTable"), "TransferStartAnchor")
+Scene.PoolAirWalls = pool:FindFirstChild("AirWalls")
+local tableModel = district:WaitForChild("RuneBodyTable")
+Scene.TableModel = tableModel
+Scene.Table = Part(tableModel, "BodyPlacementAnchor")
+Scene.TableInteract = Part(tableModel, "TransferStartAnchor")
+FixedCamera.HideAll(district)
 Scene.Altar = Part(district:WaitForChild("SoulConversionAltar"), "BodyArrivalAnchor")
 local altarRest = Part(district:WaitForChild("SoulConversionAltar"), "BodyRest")
 Scene.AltarMouth = altarRest:WaitForChild("FurnaceMouth") :: Attachment
@@ -94,6 +200,7 @@ Scene.ChuteBaffles = if autoLine then autoLine:FindFirstChild("ChuteThrowBaffles
 Scene.ChuteTopDrop = OptionalPart(autoLine, "ChuteTopDropAnchor")
 Scene.ChutePrompt = OptionalPart(autoLine, "ChutePromptAnchor")
 Scene.FastChuteLanding = OptionalModel(autoLine, "FastChuteLanding")
+Scene.ChuteAirWalls = if Scene.FastChuteLanding then Scene.FastChuteLanding:FindFirstChild("AirWalls") else nil
 Scene.ChuteDropZone = OptionalPart(autoLine, "FastChuteLanding", "DropZone")
 Scene.ChuteLanding = OptionalPart(autoLine, "FastChuteLanding", "LandingAnchor")
 Scene.ChutePickup = OptionalPart(autoLine, "FastChuteLanding", "ChutePickupAnchor")
@@ -102,9 +209,13 @@ Scene.AutoRuneWorkBed = OptionalPart(autoLine, "AutoRuneMachine", "WorkBedAnchor
 Scene.AutoRuneOutputPad = OptionalPart(autoLine, "AutoRuneMachine", "OutputPadAnchor")
 Scene.AutoRuneOutputPrompt = OptionalPart(autoLine, "AutoRuneMachine", "OutputPromptAnchor")
 Scene.AutoSmelterMachine = OptionalModel(autoLine, "AutoSmelterMachine")
-Scene.AutoSmelterFeed = OptionalPart(autoLine, "AutoSmelterMachine", "FeedRailAnchor")
+Scene.AutoTransferRamp = OptionalPart(autoLine, "AutoRuneMachine", "TransferRampAnchor")
+Scene.AutoTransferRampTop = OptionalPart(autoLine, "AutoRuneMachine", "TransferRampTopAnchor")
+Scene.AutoTransferPass = OptionalPart(autoLine, "AutoRuneMachine", "TransferPassAnchor")
+Scene.AutoSmelterInlet = OptionalPart(autoLine, "AutoSmelterMachine", "FurnaceInletAnchor")
+Scene.AutoPotionRack = OptionalModel(Scene.AutoSmelterMachine, "AutoPotionRack")
 Scene.AutoSmelterCenter = OptionalPart(autoLine, "AutoSmelterMachine", "MachineCenterAnchor")
-Scene.AutoShelfPickup = OptionalPart(autoLine, "AutoSmelterMachine", "AutoPotionRack", "AutoShelfPickupAnchor")
+Scene.AutoShelfPickup = OptionalPart(Scene.AutoPotionRack, "AutoShelfPickupAnchor")
 Scene.BrutePost = OptionalModel(autoLine, "BrutePost")
 Scene.Brute1Spawn = OptionalPart(autoLine, "BrutePost", "Brute1SpawnAnchor")
 Scene.Brute2Spawn = OptionalPart(autoLine, "BrutePost", "Brute2SpawnAnchor")
@@ -112,13 +223,7 @@ Scene.AutoClerkStation = OptionalModel(autoLine, "AutoClerkStation")
 Scene.ClerkSpawn = OptionalPart(autoLine, "AutoClerkStation", "ClerkSpawnAnchor")
 Scene.Noodles = OptionalModel(district, "UpperStreetCompletion", "NewShop_Noodles")
 local autoPotionPoints: { BasePart } = {}
-local autoPotionFolder = if autoLine
-	then (function(): Instance?
-		local smelter = autoLine:FindFirstChild("AutoSmelterMachine")
-		local rack = if smelter then smelter:FindFirstChild("AutoPotionRack") else nil
-		return if rack then rack:FindFirstChild("PotionPoints") else nil
-	end)()
-	else nil
+local autoPotionFolder = if Scene.AutoPotionRack then Scene.AutoPotionRack:FindFirstChild("PotionPoints") else nil
 if autoPotionFolder then
 	for _, child in autoPotionFolder:GetChildren() do
 		if child:IsA("BasePart") then
@@ -162,8 +267,12 @@ end
 function Scene.TablePose(): CFrame
 	return PaintRotation.TablePose(Scene.Table.Position)
 end
-function Scene.CameraPose(count: number?): CFrame
-	return PaintRotation.CameraPose(Scene.Table.Position, count)
+function Scene.CameraPose(_count: number?): CFrame
+	local markerPose = FixedCamera.GetCFrame(Scene.TableModel)
+	if markerPose then
+		return markerPose
+	end
+	return PaintRotation.CameraPose(Scene.Table.Position, 1)
 end
 function Scene.PoolPose(slot: number): CFrame
 	return CFrame.new(Scene.PoolPickup.Position + Vector3.new(((slot - 1) % 4 - 1.5) * 4, 1.7, -5 - math.floor((slot - 1) / 4) * 4))
@@ -179,6 +288,58 @@ function Scene.PoolDropTarget(random: Random): CFrame
 		* CFrame.new(x, floor.Size.Y * 0.5 + Physics.PoolTossClearance, z)
 		* CFrame.Angles(random:NextNumber(-0.4, 0.4), yaw, random:NextNumber(-0.4, 0.4))
 end
+function Scene.CageInset(cage: string): number
+	return if cage == "Pool" then Physics.Cage.PoolWallInset else Physics.Cage.ChuteWallInset
+end
+
+function Scene.CageFloor(cage: string): BasePart?
+	return if cage == "Pool" then Scene.PoolFloor else Scene.ChuteDropZone
+end
+
+function Scene.IsSoftCageEnabled(cage: string): boolean
+	if cage == "Pool" then
+		return Scene.PoolAirWalls ~= nil and Scene.PoolAirWalls:GetAttribute("SoftCageEnabled") ~= false
+	end
+	return Scene.ChuteAirWalls ~= nil and Scene.ChuteAirWalls:GetAttribute("SoftCageEnabled") == true
+end
+
+function Scene.CageAt(position: Vector3, allowChute: boolean): string?
+	local floor, chute = Scene.PoolFloor, Scene.ChuteDropZone
+	if Scene.IsSoftCageEnabled("Pool") and CageGeometry.Contains(floor.CFrame, floor.Size, position, Physics.Cage.PoolWallInset) then return "Pool" end
+	if allowChute and Scene.IsSoftCageEnabled("Chute") and chute and CageGeometry.Contains(chute.CFrame, chute.Size, position, Physics.Cage.ChuteWallInset) then return "Chute" end
+	return nil
+end
+
+function Scene.CageRetains(cage: string, position: Vector3): boolean
+	local floor = Scene.CageFloor(cage)
+	return floor ~= nil and CageGeometry.Retains(floor.CFrame, floor.Size, position, Scene.CageInset(cage))
+end
+
+function Scene.ClampToCage(cage: string, position: Vector3): Vector3?
+	local floor = Scene.CageFloor(cage)
+	if not floor then return nil end
+	return CageGeometry.ClampInside(floor.CFrame, floor.Size, Scene.CageInset(cage), position)
+end
+
+function Scene.SetChuteBarriersEnabled(enabled: boolean): ()
+	local airWalls, baffles = Scene.ChuteAirWalls, Scene.ChuteBaffles
+	if airWalls then
+		airWalls:SetAttribute("SoftCageEnabled", enabled)
+		for _, wall in airWalls:GetChildren() do
+			if wall:IsA("BasePart") then
+				wall.CanCollide = false
+				wall.CanQuery = false
+				wall.CanTouch = false
+			end
+		end
+	end
+	if baffles then
+		for _, wall in baffles:GetChildren() do
+			if wall:IsA("BasePart") then wall.CanCollide, wall.CanQuery, wall.CanTouch = enabled, enabled, enabled end
+		end
+	end
+end
+
 function Scene.PoolContainsStrict(position: Vector3): boolean
 	local floor = Scene.PoolFloor
 	return ThrowArc.InsidePoolStrict(floor.CFrame, floor.Size, position, Physics.PoolStackHeight)
@@ -273,8 +434,8 @@ function Scene.AutoOutputPose(slot: number): CFrame
 	local index = math.max(0, slot - 1)
 	local col = (index % 3) - 1
 	local layer = math.floor(index / 3) % 2
-	local base = if Scene.AutoRuneOutputPad then Scene.AutoRuneOutputPad.Position else Vector3.new(-28.6, 1.15, -27.0)
-	return CFrame.new(base + Vector3.new(col * 2.1, 0.55 + layer * 0.85, 0)) * CFrame.Angles(math.pi / 2, 0, 0)
+	local base = if Scene.AutoRuneOutputPad then Scene.AutoRuneOutputPad.Position else Vector3.new(-14.8, 4.05, -27.5)
+	return CFrame.new(base + Vector3.new(col * 2.95, 0.76 + layer * 1.36, 0)) * CFrame.Angles(math.pi / 2, 0, 0)
 end
 function Scene.AutoRunePose(): CFrame
 	local base = if Scene.AutoRuneWorkBed then Scene.AutoRuneWorkBed.Position else Vector3.new(-19.0, 4.4, -27.0)
@@ -282,7 +443,25 @@ function Scene.AutoRunePose(): CFrame
 end
 function Scene.AutoSmelterPose(): CFrame
 	local base = if Scene.AutoSmelterCenter then Scene.AutoSmelterCenter.Position else Vector3.new(-1.0, 4.5, -27.0)
-	return CFrame.new(base)
+	return PaintRotation.TablePose(base)
+end
+function Scene.AutoTransferPoses(): (CFrame, CFrame, CFrame, CFrame)
+	local ramp = if Scene.AutoTransferRamp then Scene.AutoTransferRamp.Position else Vector3.new(-18, 2.5, -27)
+	local rampTop = if Scene.AutoTransferRampTop then Scene.AutoTransferRampTop.Position else Vector3.new(-14, 4.5, -27)
+	local pass = if Scene.AutoTransferPass then Scene.AutoTransferPass.Position else Vector3.new(-12, 4.5, -27)
+	local inlet = if Scene.AutoSmelterInlet then Scene.AutoSmelterInlet.Position else Vector3.new(-5, 4.5, -27)
+	return PaintRotation.TablePose(ramp), PaintRotation.TablePose(rampTop), PaintRotation.TablePose(pass), PaintRotation.TablePose(inlet)
+end
+local transferPassLight = if Scene.AutoTransferPass then Scene.AutoTransferPass:FindFirstChild("TransferPassLight") else nil
+local transferPassStrip = if Scene.AutoRuneMachine then Scene.AutoRuneMachine:FindFirstChild("TransferPassStrip", true) else nil
+function Scene.SetAutoTransferLight(enabled: boolean): ()
+	if transferPassLight and transferPassLight:IsA("Light") and transferPassLight.Enabled ~= enabled then
+		transferPassLight.Enabled = enabled
+		if transferPassStrip and transferPassStrip:IsA("BasePart") then
+			transferPassStrip.Material = if enabled then Enum.Material.Neon else Enum.Material.SmoothPlastic
+			transferPassStrip.Transparency = if enabled then 0 else 0.75
+		end
+	end
 end
 function Scene.AutoShelfPose(slot: number): CFrame
 	if #autoPotionPoints == 0 then
@@ -301,12 +480,50 @@ function Scene.SafePose(position: Vector3, fallback: Vector3, ignored: { Instanc
 	end
 	return CFrame.new(fallback + Vector3.new(0, 3, 0))
 end
-function Scene.StreetPoint(random: Random): Vector3
-	local deck = Scene.Deck
-	return deck.CFrame:PointToWorldSpace(
-		Vector3.new(random:NextNumber(-deck.Size.X / 2 + 4, deck.Size.X / 2 - 4), deck.Size.Y / 2, random:NextNumber(-deck.Size.Z / 2 + 4, deck.Size.Z / 2 - 4))
-	)
+local function ReadStreetInterestPoints(): { InterestPoint }
+	local points: { InterestPoint } = {}
+	local folder = district:FindFirstChild("StreetInterestPoints")
+	if folder and folder:IsA("Folder") then
+		for _, part in folder:GetChildren() do
+			if part:IsA("BasePart") then
+				part.Transparency = 1
+				part.CanCollide = false
+				part.CanTouch = false
+				part.CanQuery = false
+				local look = part.CFrame.LookVector
+				local flatLook = Vector3.new(look.X, 0, look.Z)
+				local lookDir = if flatLook.Magnitude > 1e-4 then flatLook.Unit else -Vector3.zAxis
+				local pos = Scene.StreetFloor(part.Position) or part.Position
+				if Scene.IsInStreetWalkZones(pos) then
+					table.insert(points, {
+						id = part.Name,
+						position = pos,
+						lookDirection = lookDir,
+					})
+				end
+			end
+		end
+	end
+	if #points == 0 then
+		local fallback = StreetZones.FallbackInterestPoints(streetZones)
+		for _, entry in fallback do
+			local pos = Scene.StreetFloor(entry.position) or entry.position
+			table.insert(points, {
+				id = entry.id,
+				position = pos,
+				lookDirection = entry.lookDirection,
+			})
+		end
+	end
+	return points
 end
+
+local streetInterestPoints = ReadStreetInterestPoints()
+
+function Scene.GetStreetInterestPoints(): { InterestPoint }
+	return streetInterestPoints
+end
+
 function Scene.Visible(character: Model, position: Vector3, target: Model?, ignored: Instance?): boolean
 	local head = character:FindFirstChild("Head")
 	if not head or not head:IsA("BasePart") then

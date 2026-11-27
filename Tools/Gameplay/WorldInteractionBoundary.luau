@@ -9,11 +9,17 @@ function B.Signal()
 	}
 end
 local function createPrompt()
-	local prompt={Enabled=false, MaxActivationDistance=8}
+	local prompt={Enabled=false, MaxActivationDistance=8, HoldDuration=0.5, RequiresLineOfSight=true}
 	function prompt:IsA(className) return className == "ProximityPrompt" end
 	for _,name in {'PromptButtonHoldBegan','PromptButtonHoldEnded','PromptHidden','Triggered'} do prompt[name]=B.Signal() end
 	function prompt:Destroy() self.Parent=nil;self.destroyed=true end
-	function prompt:Clone() return createPrompt() end
+	function prompt:Clone()
+		local clone = createPrompt()
+		clone.HoldDuration = self.HoldDuration
+		clone.MaxActivationDistance = self.MaxActivationDistance
+		clone.RequiresLineOfSight = self.RequiresLineOfSight
+		return clone
+	end
 	return prompt
 end
 local template = createPrompt()

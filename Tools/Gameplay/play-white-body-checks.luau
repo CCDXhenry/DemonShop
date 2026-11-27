@@ -4,6 +4,7 @@ local NPC=require(game.ServerStorage.Scripts.NPC)
 local Carry=require(game.ServerStorage.Scripts.Carry)
 local Scene=require(game.ServerStorage.Scripts.Scene)
 local Physics=require(game.ReplicatedStorage.Scripts.Shared.PhysicsConfig)
+local Config=require(game.ReplicatedStorage.Scripts.Shared.GameConfig)
 local player=game.Players:GetPlayers()[1]
 assert(player and player.Character,"A live player is required")
 local character=player.Character
@@ -43,17 +44,25 @@ local ok,reason=xpcall(function()
  model.Humanoid:MoveTo(root.Position+Vector3.new(5,0,0))
  updateFor(.4)
  check(item.motionState=="Walking" and item.walkTrack.IsPlaying,"walkStarts")
- local before=root.Position
+ check(math.abs(model.Humanoid.WalkSpeed-Config.NpcStrollSpeed)<.01,"streetStrollSpeed")
+ check(Scene.IsInStreetWalkZones(root.Position,1),"streetSpawnInZone")
+ local attackFrom=root.Position-Vector3.xAxis*6
+ NPC.Hit(item,Vector3.xAxis,nil,nil,attackFrom)
+ check(item.motionState=="Hit" and model.Humanoid.WalkSpeed==0,"shortHitStop")
+ updateFor(.17)
+ check(item.motionState=="Fleeing" and model.Humanoid.WalkSpeed==Config.NpcFleeSpeed,"startsFlee")
+ local firstDeadline=item.fleeUntil
+ NPC.Hit(item,Vector3.xAxis,nil,nil,attackFrom)
+ check(item.fleeUntil>firstDeadline,"repeatHitExtendsFlee")
+ updateFor(Config.NpcFleeDuration+.12)
+ check(item.motionState~="Fleeing" and model.Humanoid.WalkSpeed==Config.NpcStrollSpeed,"fleeRecovers")
+ check(Scene.IsInStreetWalkZones(root.Position,1),"fleeStaysInStreet")
  NPC.Hit(item,Vector3.xAxis)
- updateFor(.3)
- results.hitDisplacement=(root.Position-before).Magnitude
- check(results.hitDisplacement>.2,"visibleHitRecoil")
- updateFor(.6)
- check(item.motionState~="Hit","staggerRecovers")
- NPC.Hit(item,Vector3.xAxis)
- NPC.Hit(item,Vector3.xAxis)
+ check(item.motionState=="Down" and item.fleeUntil==nil,"stunCancelsFlee")
  check(model:GetAttribute("PhysicsMode")== (if Physics.GroundRootEnabled then "GroundRoot" else "Loose"),"thirdHitRagdoll")
- character:PivotTo(CFrame.new(root.Position+Vector3.new(3,1,0)))
+ -- 沿用玩家当前的网络所有权，把隔离样本移到玩家身边再测肩扛。
+ model:PivotTo(CFrame.new(character.PrimaryPart.Position+Vector3.new(2,0,0))*root.CFrame.Rotation)
+ check((character.PrimaryPart.Position-root.Position).Magnitude<4,"carryFixtureInReach")
  check(Carry.Take(item,player),"takeBody")
  updateFor(.6)
  for _,part in model:GetDescendants() do

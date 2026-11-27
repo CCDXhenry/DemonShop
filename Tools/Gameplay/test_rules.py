@@ -82,7 +82,7 @@ for name in ("GameConfig","GameData","GameTexts","GameTypes","Hints","SaveRules"
         start=text.index('local replicatedStorage:')
         end=text.index('--游戏版本')
         text=text[:start]+"local D=require('./FoundationDateBoundary')\nlocal DateTimeExtension,DateTime=D.DateTimeExtension,D.DateTime\n"+text[end:]
-        text="local Color3=require('@lune/roblox').Color3\nlocal game={GameId=0}\n"+text
+        text="local Color3=require('@lune/roblox').Color3\nlocal Vector3=require('@lune/roblox').Vector3\nlocal game={GameId=0}\n"+text
     if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneStampRules","ThrowArc","AutomationRules","AutoRunePattern"):
         text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame,Color3,Enum=roblox.Vector2,roblox.Vector3,roblox.CFrame,roblox.Color3,roblox.Enum\n"+text
     (OUT/(name+".luau")).write_text(text,encoding="utf-8")
@@ -109,13 +109,52 @@ def run_hit_feedback_tests():
     source=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientProcessingManager.luau").read_text(encoding="utf-8")
     start=source.index("function Client.CancelHitFeedback(")
     end=source.index("function Client.OnNotice(",start)
-    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,player,Config,HitRules,Sound=B.workspace,B.player,require('./GameConfig'),require('./HitFeedbackRules'),B.Sound or {Play=function()end}\nlocal UIManager=B.UIManager\nlocal PersonalRules=require('./PersonalUpgradeRules')\nlocal Client={}\n"
+    prefix=(
+        "local R=require('@lune/roblox')\n"
+        "local Vector3,CFrame=R.Vector3,R.CFrame\n"
+        "local B=require('./AttackFeedbackBoundary')\n"
+        "local workspace,player,Net,Config,HitRules,Sound=B.workspace,B.player,B.Net,require('./GameConfig'),require('./HitFeedbackRules'),B.Sound or {Play=function()end}\n"
+        "local UIManager=B.UIManager\n"
+        "local GameData=require('./GameData')\n"
+        "local Types=require('./GameTypes')\n"
+        "local PersonalRules=require('./PersonalUpgradeRules')\n"
+        "local Client={}\n"
+    )
     (OUT/"AttackFeedbackClient.luau").write_text(prefix+source[start:end]+"\nreturn Client\n",encoding="utf-8")
     source=(server/"ProcessingManager.luau").read_text(encoding="utf-8")
     start=source.index("function Manager.Attack(")
     end=source.index("function Manager.Paint(",start)
-    prefix="local B=require('./AttackFeedbackBoundary')\nlocal workspace,task,Net,NPC=B.workspace,B.task,B.Net,B.NPC\nlocal Config=require('./GameConfig')\nlocal PersonalRules=require('./PersonalUpgradeRules')\nlocal NumberExtension=require('./NumberExtension')\nlocal Vector3=require('@lune/roblox').Vector3\nlocal Manager={}\n"
-    (OUT/"AttackFeedbackServer.luau").write_text(prefix+source[start:end]+"\nreturn Manager\n",encoding="utf-8")
+    throw_start = source.index("function Manager.Throw(")
+    throw_end = source.index("local function SyncCarryRig(", throw_start)
+    server_prefix = """local B = require('./AttackFeedbackBoundary')
+local R = require('@lune/roblox')
+local Vector3, CFrame = R.Vector3, R.CFrame
+local workspace, task, Net, NPC = B.workspace, B.task, B.Net, B.NPC
+local Carry, Ground = B.Carry, B.Ground
+local Config = require('./GameConfig')
+local Physics = require('./PhysicsConfig')
+local ThrowArc = require('./ThrowArc')
+local PersonalRules = require('./PersonalUpgradeRules')
+local GameData = require('./GameData')
+local NumberExtension = require('./NumberExtension')
+local Manager = {}
+"""
+    (OUT / "AttackFeedbackServer.luau").write_text(
+        server_prefix + source[start:end] + source[throw_start:throw_end] + "\nreturn Manager\n",
+        encoding="utf-8",
+    )
+    source = (ROOT / "Scripts/ReplicatedStorage/Scripts/Client/ManualThrowController.luau").read_text(encoding="utf-8")
+    controller_prefix = """local B = require('./AttackFeedbackBoundary')
+local R = require('@lune/roblox')
+local Vector2, UDim2, Enum = R.Vector2, R.UDim2, R.Enum
+local workspace, Players, Net = B.workspace, {LocalPlayer = B.player}, B.Net
+local Config = require('./PhysicsConfig').ManualThrow
+local PersonalRules = require('./PersonalUpgradeRules')
+"""
+    (OUT / "ManualThrowController.luau").write_text(
+        controller_prefix + source[source.index("local Controller = {}"):],
+        encoding="utf-8",
+    )
     text=(shared/"ProcessingNet.luau").read_text(encoding="utf-8")
     prefix="local Types=require('./GameTypes')\nlocal Surface=require('./PaintSurface')\nlocal VisualRules=require('./VisualRules')\nlocal Curve=require('./CurvedSurface')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal requestEvent,notifyEvent={},{}\nlocal BodyPose=require('./PaintBodyPose')\n"
     (OUT/"VisualProtocol.luau").write_text(prefix+text[text.index('local Net ='):],encoding="utf-8")
@@ -360,10 +399,21 @@ subprocess.run(["lune","run",str(OUT/"test_foundation_chat.luau")],cwd=ROOT,chec
 
 run_hit_feedback_tests()
 
+geometry_source = (shared / "CageGeometry.luau").read_text(encoding="utf-8")
+(OUT / "CageGeometry.luau").write_text(
+    "local R=require('@lune/roblox')\nlocal CFrame,Vector3=R.CFrame,R.Vector3\nlocal Physics=require('./PhysicsConfig')\n"
+    + geometry_source[geometry_source.index("local Geometry ="):],
+    encoding="utf-8",
+)
+
 # Exercise station prompt distances, toolbar potion isolation, respawn rescue, and looped audio with production modules.
 for name in ("StationPotionBoundary", "test_station_and_potions"):
     (OUT / (name + ".luau")).write_text((ROOT / "Tools/Gameplay" / (name + ".luau")).read_text(encoding="utf-8"), encoding="utf-8")
 
+zone_src = (server / "StreetWalkZones.luau").read_text(encoding="utf-8")
+(OUT / "StreetWalkZones.luau").write_text("local Vector3=require('@lune/roblox').Vector3\n" + zone_src, encoding="utf-8")
+for test_name in ("test_street_walk_zones", "test_npc_street_motion", "test_npc_crowd_ai"):
+    subprocess.run(["lune", "run", f"Tools/Gameplay/{test_name}.luau"], cwd=ROOT, check=True)
 scene_src = (server / "Scene.luau").read_text(encoding="utf-8")
 scene_body = scene_src[scene_src.index("local Scene = {}"):].replace(":WaitForChild(", ":FindFirstChild(")
 scene_prefix = (
@@ -375,7 +425,20 @@ scene_prefix = (
     "local Config=require('./GameConfig')\n"
     "local ThrowArc=require('./ThrowArc')\n"
     "local PaintRotation=require('./PaintRotation')\n"
+    "local FixedCamera=require('./StationFixedCamera')\n"
+    "local CageGeometry=require('./CageGeometry')\n"
+    "local StreetZones=require('./StreetWalkZones')\n"
 )
+fixed_cam_src = (shared / "FixedCamera.luau").read_text(encoding="utf-8")
+fixed_cam_body = fixed_cam_src[fixed_cam_src.index("export type MarkerSettings ="):]
+station_cam_prefix = (
+    "local R=require('@lune/roblox')\n"
+    "local Instance,Vector3,CFrame,Color3,Enum=R.Instance,R.Vector3,R.CFrame,R.Color3,R.Enum\n"
+    "local B=require('./StationPotionBoundary')\n"
+    "local Players,Workspace=B.Players,B.workspace\n"
+    "local TweenService={Create=function() return {Play=function() end,Cancel=function() end,Destroy=function() end,Completed={Connect=function() return {Disconnect=function() end} end}} end}\n"
+)
+(OUT / "StationFixedCamera.luau").write_text(station_cam_prefix + fixed_cam_body, encoding="utf-8")
 (OUT / "StationScene.luau").write_text(scene_prefix + scene_body, encoding="utf-8")
 (OUT / "StationSceneFallback.luau").write_text(scene_prefix + scene_body, encoding="utf-8")
 
@@ -418,6 +481,7 @@ pm_body = re.sub(r"\b([A-Za-z_]\w*):WaitForChild\(", r"B.WaitForChild(\1, ", pm_
 pm_body = re.sub(r"\b([A-Za-z_]\w*):EquipTool\(", r"B.EquipTool(\1, ", pm_body)
 pm_body = re.sub(r"\b([A-Za-z_]\w*):UnequipTools\(\)", r"B.UnequipTools(\1)", pm_body)
 pm_body = re.sub(r"\b([A-Za-z_]\w*)\.(CharacterRemoving|CharacterAdded|Died|Unequipped|Touched):Connect\(", r'B.Signal(\1, "\2"):Connect(', pm_body)
+pm_body = pm_body.replace("wall:GetClosestPointOnSurface(other.Position)", "other.Position")
 pm_body = pm_body.replace("self.runtime.Parent = workspace", "self.runtime.Parent = B.district")
 # Lune instances lack Destroying. Keep scope ownership for runtime teardown.
 pm_body = pm_body.replace("self.scope:Own(self.runtime)", "self.scope.instances[self.runtime] = true")
@@ -427,6 +491,7 @@ pm_body = re.sub(r"([A-Za-z_][\w.]*):GetPivot\(\)", r"\1.WorldPivot", pm_body)
 pm_prefix = (
     "local R=require('@lune/roblox')\n"
     "local CFrame,Vector3,Instance,Enum=R.CFrame,R.Vector3,R.Instance,R.Enum\n"
+    "local PhysicalProperties={new=function(...) return R.PhysicalProperties.new(...) end}\n"
     "local task=require('@lune/task')\n"
     "local Config=require('./GameConfig')\n"
     "local GameData=require('./GameData')\n"
@@ -439,6 +504,7 @@ pm_prefix = (
     "local VisualRules=require('./VisualRules')\n"
     "local Surface=require('./PaintSurface')\n"
     "local ThrowArc=require('./ThrowArc')\n"
+    "local CageGeometry=require('./CageGeometry')\n"
     "local AutomationRules=require('./AutomationRules')\n"
     "local AutoRunePattern=require('./AutoRunePattern')\n"
     "local AutomationAgents=require('./AutomationAgents')\n"
@@ -452,6 +518,7 @@ pm_prefix = (
     "local Net,workspace,Scene=B.Net,B.workspace,require('./StationScene')\n"
     "local Players,ReplicatedStorage,HttpService,RunService=B.Players,B.ReplicatedStorage,B.HttpService,B.RunService\n"
     "local NPC,Carry,Ragdoll,Ground,Door,Info=B.NPC,B.Carry,B.Ragdoll,B.Ground,B.Door,B.Info\n"
+    "local CollisionGroups={Init=function() end}\n"
     "local Replication=require('./StationReplication')\n"
     "local Random={new=function() return B.Random end}\n"
 )
@@ -520,3 +587,109 @@ subprocess.run(["lune", "run", str(OUT / "test_m4_automation.luau")], cwd=ROOT, 
 subprocess.run(["python",str(ROOT/"Tools/Gameplay/test_world_interaction.py")],cwd=ROOT,check=True)
 subprocess.run([sys.executable,str(ROOT/"Tools/Gameplay/test_white_presentation.py")],cwd=ROOT,check=True)
 subprocess.run(["lune", "run", str(ROOT / "Tools/Gameplay/test_m2_assets.luau")], cwd=ROOT, check=True)
+
+# Exercise FixedCamera, PaintCamera, and Scene.CameraPose.
+(OUT / "FixedCameraBoundary.luau").write_text((ROOT / "Tools/Gameplay/FixedCameraBoundary.luau").read_text(encoding="utf-8"), encoding="utf-8")
+fixed_cam_prefix = (
+    "local B=require('./FixedCameraBoundary')\n"
+    "local R=B.R\n"
+    "local Instance,Vector3,CFrame,Color3,Enum,TweenInfo=R.Instance,R.Vector3,R.CFrame,R.Color3,R.Enum,B.TweenInfo\n"
+    "local Players,TweenService,Workspace=B.Players,B.TweenService,B.Workspace\n"
+)
+(OUT / "FixedCamera.luau").write_text(fixed_cam_prefix + fixed_cam_body, encoding="utf-8")
+paint_cam_src = (client / "PaintCamera.luau").read_text(encoding="utf-8")
+paint_cam_body = paint_cam_src[paint_cam_src.index("local Controller = {}"):]
+paint_cam_prefix = (
+    "local B=require('./FixedCameraBoundary')\n"
+    "local R=B.R\n"
+    "local Vector3,CFrame,workspace=R.Vector3,R.CFrame,B.workspace\n"
+    "local Players=B.Players\n"
+    "local Config=require('./GameConfig')\n"
+    "local FixedCamera=require('./FixedCamera')\n"
+)
+(OUT / "PaintCamera.luau").write_text(paint_cam_prefix + paint_cam_body, encoding="utf-8")
+cam_scene_prefix = (
+    "local R=require('@lune/roblox')\n"
+    "local Instance,Vector3,CFrame,Enum=R.Instance,R.Vector3,R.CFrame,R.Enum\n"
+    "local B=require('./StationPotionBoundary')\n"
+    "local workspace,RaycastParams,PhysicsService=B.workspace,B.RaycastParams,B.PhysicsService\n"
+    "local Physics=require('./PhysicsConfig')\n"
+    "local Config=require('./GameConfig')\n"
+    "local ThrowArc=require('./ThrowArc')\n"
+    "local PaintRotation=require('./PaintRotation')\n"
+    "local FixedCamera=require('./StationFixedCamera')\n"
+    "local CageGeometry=require('./CageGeometry')\n"
+    "local StreetZones=require('./StreetWalkZones')\n"
+)
+# Reuse StationPotionBoundary workspace with a CameraMarker inside RuneBodyTable for CameraPose verification.
+cam_scene_setup = (
+    "local _tbl = B.workspace:FindFirstChild('NeonContractDistrict'):FindFirstChild('RuneBodyTable')\n"
+    "if _tbl and not _tbl:FindFirstChild('CameraMarker') then\n"
+    " local _m = Instance.new('Part'); _m.Name = 'CameraMarker'; _m.Transparency = 0.5\n"
+    " _m:SetAttribute('CameraMarker', true)\n"
+    " _m.CFrame = CFrame.new(-16, 13, 9) * CFrame.Angles(-0.5, 0, 0); _m.Parent = _tbl\n"
+    "end\n"
+)
+(OUT / "CameraScene.luau").write_text(cam_scene_prefix + cam_scene_setup + scene_body, encoding="utf-8")
+(OUT / "test_fixed_camera.luau").write_text((ROOT / "Tools/Gameplay/test_fixed_camera.luau").read_text(encoding="utf-8"), encoding="utf-8")
+subprocess.run(["lune", "run", str(OUT / "test_fixed_camera.luau")], cwd=ROOT, check=True)
+
+# Exercise the production collision matrix and cage geometry with a mocked PhysicsService.
+collision_source = (server / "CollisionGroups.luau").read_text(encoding="utf-8")
+(OUT / "CollisionGroups.luau").write_text(
+    "local PhysicsService=require('./CagePhysicsBoundary')\nlocal Physics=require('./PhysicsConfig')\n"
+    + collision_source[collision_source.index("local CollisionGroups ="):],
+    encoding="utf-8",
+)
+(OUT / "CagePhysicsBoundary.luau").write_text(
+    "local S={registrations=0};local groups={Default=true,Custom=true};local pairsByGroup={}\n"
+    "function S:IsCollisionGroupRegistered(name) return groups[name]==true end\n"
+    "function S:RegisterCollisionGroup(name) assert(not groups[name]);groups[name]=true;self.registrations+=1 end\n"
+    "function S:GetRegisteredCollisionGroups() local out={} for n in groups do table.insert(out,{name=n}) end return out end\n"
+    "function S:CollisionGroupSetCollidable(a,b,v) assert(groups[a] and groups[b]);pairsByGroup[a]=pairsByGroup[a] or {};pairsByGroup[b]=pairsByGroup[b] or {};pairsByGroup[a][b]=v;pairsByGroup[b][a]=v end\n"
+    "function S:CollisionGroupsAreCollidable(a,b) assert(groups[a] and groups[b]);return not pairsByGroup[a] or pairsByGroup[a][b]~=false end\n"
+    "S:CollisionGroupSetCollidable('Default','Custom',false);return S\n",
+    encoding="utf-8",
+)
+carry_source = (server / "Carry.luau").read_text(encoding="utf-8")
+(OUT / "CageCarry.luau").write_text(
+    "local R=require('@lune/roblox')\nlocal Vector3,Enum=R.Vector3,R.Enum\nlocal B=require('./CageCarryBoundary')\n"
+    "local Carry,Config,Ragdoll,Scene,Players={},require('./PhysicsConfig'),B.Ragdoll,B.Scene,B.Players\n"
+    "local CageGeometry=require('./CageGeometry')\n"
+    "local SetOwner,BodyTorso=B.SetOwner,B.BodyTorso\n"
+    "local workspace,RaycastParams=B.workspace,B.RaycastParams\n"
+    + carry_source[carry_source.index("function Carry.Contain("):carry_source.index("function Carry.ReleaseIntoChute(")]
+    + carry_source[carry_source.index("function Carry.AdvanceManualToss("):carry_source.index("local function AltarRestOffset(")]
+    + "\nreturn Carry\n",
+    encoding="utf-8",
+)
+(OUT / "CageCarryBoundary.luau").write_text(
+    """local R=require('@lune/roblox')
+local B={changes={}}
+local function record(value) table.insert(B.changes,value) end
+B.Ragdoll={
+    SetCageContained=function(model,cage) model.cage=cage;record(cage or 'clear') end,
+    SetThrowPhysics=function(_,inFlight) assert(not inFlight);record('ground physics') end,
+    LimitVelocity=function() end,
+}
+B.BodyTorso=function(model) return model.torso end
+B.SetOwner=function(_,owner) assert(owner==nil);record('server owner') end
+B.Players={online={},GetPlayerByUserId=function(self,uid) return self.online[uid] end}
+B.RaycastParams={new=function() return {} end}
+B.workspace={Raycast=function() return nil end}
+B.Scene={
+    CageAt=function(pos,allowChute) if allowChute and pos.X>=0 and pos.X<10 then return 'Chute' end end,
+    CageRetains=function(_,pos) return pos.X>=0 and pos.X<11 end,
+    ClampToCage=function(_,pos) return R.Vector3.new(math.clamp(pos.X, 0.35, 9.65), pos.Y, pos.Z) end,
+    IsSoftCageEnabled=function() return false end,
+    CageFloor=function() return nil end,
+    CageInset=function() return 0 end,
+    ChuteLandingContains=function(pos) return pos.X>=0 and pos.X<11 end,
+    PoolBasinContains=function() return false end,
+}
+return B
+""",
+    encoding="utf-8",
+)
+(OUT / "test_cage_physics.luau").write_bytes((ROOT / "Tools/Gameplay/test_cage_physics.luau").read_bytes())
+subprocess.run(["lune", "run", str(OUT / "test_cage_physics.luau")], cwd=ROOT, check=True)

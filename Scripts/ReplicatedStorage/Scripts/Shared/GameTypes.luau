@@ -11,7 +11,7 @@ export type Sample = { part: string, face: number, u: number, v: number, breakBe
 export type Stroke = { key: string, samples: { Sample } }
 export type VisualSegment = { key: string, version: number, gesture: number, part: string, face: number, u: number, v: number, glyph: number, angle: number, scale: number, triangle: number?, surfaceVersion: number?, side: number? }
 export type VisualState = { segments: { [string]: VisualSegment }, count: number, revision: number }
-export type Request = { action: string, category: string?, expectedNextLevel: number?, facilityId: number?, sprint: boolean?, attackSequence: number?, target: string?, version: number?, session: string?, samples: { Sample }?, orientation: CFrame?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose?, direction: Vector3? }
+export type Request = { action: string, category: string?, expectedNextLevel: number?, facilityId: number?, sprint: boolean?, attackSequence: number?, target: string?, targets: { string }?, attackPose: CFrame?, version: number?, session: string?, samples: { Sample }?, orientation: CFrame?, sequence: number?, segments: { VisualSegment }?, started: number?, bodyPose: BodyPose?, direction: Vector3? }
 export type GroundFall = {target: CFrame, started: number, velocity: Vector3}
 export type PoolToss = {
 	from: CFrame,
@@ -86,6 +86,19 @@ export type Item = {
 	carryWeld: Weld?,
 	carryTween: Tween?,
 	walkTrack: AnimationTrack?,
+	runTrack: AnimationTrack?,
+	runRequestedAt: number?,
+	walkTarget: Vector3?,
+	fleeUntil: number?,
+	fleeHeading: Vector3?,
+	panicUntil: number?,
+	panicHeading: Vector3?,
+	poiId: string?,
+	poiLookDir: Vector3?,
+	lastPoiId: string?,
+	stuckAnchor: Vector3?,
+	stuckSince: number?,
+	streetSafePoint: Vector3?,
 	idleTrack: AnimationTrack?,
 	motionState: string?,
 	staggerEnds: number?,
@@ -136,5 +149,5 @@ export type Snapshot = {
 	autoSmelterEnds: number?,
 }
 export type AltarOutput = { bodyIds: { string }, shelfIds: { string } }
-export type Notice = { altarOutput: AltarOutput?, kind: string, paintBatch: { string }?, personalLevels: { [string]: number }?, attackSequence: number?, hit: boolean?, version: number?, hits: number?, hp: number?, maxHp: number?, weaponLevel: number?, attackPose: CFrame?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, flipped: boolean?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
+export type Notice = { wall: BasePart?, altarOutput: AltarOutput?, kind: string, paintBatch: { string }?, personalLevels: { [string]: number }?, attackSequence: number?, hit: boolean?, version: number?, hits: number?, hp: number?, maxHp: number?, weaponLevel: number?, attackPose: CFrame?, direction: Vector3?, position: Vector3?, removed: { string }?, actor: number?, started: number?, altarToss: AltarTossView?, text: string?, textId: GameTexts.TextId?, textArgs: {string}?, snapshot: Snapshot?, id: string?, cells: { string }?, session: string?, orientation: CFrame?, flipped: boolean?, progress: number?, sequence: number?, stroke: Stroke?, strokes: { Stroke }?, segments: { VisualSegment }?, visualRevision: number?, bodyPose: BodyPose? }
 return {}

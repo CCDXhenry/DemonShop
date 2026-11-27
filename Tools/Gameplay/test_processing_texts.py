@@ -14,9 +14,16 @@ for data_name in ("WeaponData", "CarryToolData", "PersonalAbilityData", "Automat
     (OUT / "GameConfig" / f"{data_name}.luau").write_text(
         (SHARED / "GameConfig" / f"{data_name}.luau").read_text(encoding="utf-8"), encoding="utf-8"
     )
+number_extension = ROOT / "Scripts/ReplicatedStorage/Core/Scripts/Shared/NumberExtension.luau"
+(OUT / number_extension.name).write_bytes(number_extension.read_bytes())
 for name in ("Hints", "GameTexts", "GameData"):
     source = (SHARED / f"{name}.luau").read_text(encoding="utf-8")
     source = re.sub(r"require\(script.Parent.(\w+)\)", r"require('./\1')", source)
+    if name == "Hints":
+        source = source.replace(
+            'require(game:GetService("ReplicatedStorage").Core.Scripts.Shared.NumberExtension)',
+            "require('./NumberExtension')",
+        )
     if name == "GameData":
         for data_name in ("WeaponData", "CarryToolData", "PersonalAbilityData", "AutomationFacilityData"):
             source = source.replace(f"require(script.Parent.GameConfig.{data_name})", f"require('./GameConfig/{data_name}')")

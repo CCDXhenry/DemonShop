@@ -17,7 +17,7 @@ Check(Action('Pool',raw)=='StoreBody','store unfinished')
 Check(Action('Pool',painted)==nil and Action('Pool',potion)==nil,'pool rejects completed or potion')
 snapshot.pool=Config.PoolCapacity + 5
 Check(Action('Pool',raw)=='StoreBody','unlimited pool accepts unfinished body past visible limit')
-Check(Action('Pool',nil)=='TakeSharedBody','take from pool')
+Check(Action('Pool',nil)==nil,'stocked pool has no station pickup')
 Check(Action('Table',nil)=='FetchAndPaint','fetch from pool and paint')
 Check(Action('Table',raw)=='PlaceBody' and Action('Table',potion)==nil,'table requires unfinished body')
 snapshot.pool=0
@@ -52,7 +52,17 @@ Check(Action('Chute',raw)=='DepositBodies' and Action('Chute',painted)==nil,'chu
 Check(Action('Chute',nil,nil,{painted,raw})=='DepositBodies','chute matches any unfinished body in carried stack')
 Check(Action('ChutePickup',nil)==nil,'empty chute pickup hidden')
 snapshot.chuteQueue=1
-Check(Action('ChutePickup',nil)=='TakeChuteBody' and Action('ChutePickup',raw)=='TakeChuteBody' and Action('ChutePickup',potion)==nil,'chute pickup takes unfinished body when no non-body held')
+Check(Action('ChutePickup',nil)==nil and Action('ChutePickup',raw)==nil,'stocked chute has no station pickup')
+for _, location in {'Pool','Chute'} do
+	raw.location=location
+	potion.location=location
+	local action=Rules.Resolve('raw',snapshot,items,nil)
+	Check(action and action.action=='PromptPickUp' and action.instant,'cage body has instant pickup: '..location)
+	Check(Action('raw',potion)==nil and Action('potion',nil)==nil,'cage allows only bodies and requires a free shoulder: '..location)
+end
+raw.location='Pool';raw.toss={}
+Check(Action('raw',nil)==nil,'pool deposit flight does not expose a pickup')
+raw.location='Ground';raw.toss=nil;potion.location='Ground'
 Check(Action('AutoOutput',nil)==nil,'empty auto output hidden')
 snapshot.autoPaintedQueue=1
 Check(Action('AutoOutput',nil)=='TakeAutoRuneBody' and Action('AutoOutput',potion)==nil,'auto output pickup yields painted body')
@@ -69,6 +79,7 @@ Check(Action('raw',nil)==nil,'other carrier hides item')
 raw.holder=nil
 Check(Rules.Resolve('raw',nil,items,nil)==nil,'no snapshot no action')
 local stationPrompt = B.CreatePrompt()
+stationPrompt.MaxActivationDistance = 14
 local anchor = {
 	Parent = {},
 	FindFirstChild = function(_, name) return if name == "WorldInteractionPrompt" then stationPrompt else nil end,
@@ -79,7 +90,7 @@ local manager = Manager.new({Shelf=anchor}, function() return state end)
 manager:Refresh();manager:Refresh()
 local prompt = manager.bindings.Shelf.prompt
 Check(prompt == stationPrompt and prompt.Enabled and prompt.Parent == anchor, 'station uses preset workspace prompt as single source')
-Check(prompt.MaxActivationDistance==Config.InteractionRange,'range uses shared config')
+Check(prompt.MaxActivationDistance==14 and prompt.HoldDuration==0.5 and prompt.RequiresLineOfSight==true,'station uses existing range, hold duration, and line-of-sight')
 Check(prompt.ObjectText=='POTION SHELF','native object text translated')
 prompt.Triggered:Fire()
 Check(#B.requests==0,'no hold token no request')
@@ -104,10 +115,14 @@ raw.model={Parent={},PrimaryPart={Parent={}}}
 manager:Refresh();manager:Refresh()
 local itemPrompt=manager.bindings.raw.prompt
 Check(itemPrompt.Enabled and itemPrompt.Parent==raw.model,'pickup prompt excludes the whole model from native visibility checks')
+Check(itemPrompt.RequiresLineOfSight==false and itemPrompt.MaxActivationDistance==Config.InteractionRange,'body prompt clones UI template, disables line-of-sight, and keeps interaction range')
 Check(itemPrompt.ActionText=='PICK UP' and itemPrompt.ObjectText=='BODY','pickup prompt has concise localized text')
-itemPrompt.PromptButtonHoldBegan:Fire();itemPrompt.Triggered:Fire()
+Check(itemPrompt.HoldDuration==0 and manager.bindings.raw.holding==nil,'body prompt has no hold token')
+itemPrompt.Triggered:Fire()
 Check(#B.requests==2 and B.requests[2].target==raw.id and B.requests[2].version==raw.version,'model prompt sends the item target and version')
 itemPrompt.PromptButtonHoldBegan:Fire()
+raw.version+=1;itemPrompt.Triggered:Fire()
+Check(#B.requests==2,'instant pickup rejects stale version before refresh')
 raw.model={Parent={},PrimaryPart={Parent={}}};itemPrompt.Triggered:Fire()
 Check(#B.requests==2,'replaced model rejects stale prompt before next refresh')
 manager:Refresh()
@@ -119,6 +134,13 @@ raw.model.PrimaryPart={Parent={}};manager:Refresh()
 local restored=manager.bindings.raw.prompt
 items.raw=nil;manager:Refresh()
 Check(restored.destroyed and manager.bindings.raw==nil,'removed item releases prompt')
+potion.model={Parent={},PrimaryPart={Parent={}}}
+manager:Refresh();manager:Refresh()
+local potionPrompt=manager.bindings.potion.prompt
+Check(potionPrompt.Enabled and potionPrompt.HoldDuration==0.5,'ground potion retains template hold duration')
+Check(potionPrompt.RequiresLineOfSight==false and potionPrompt.MaxActivationDistance==Config.InteractionRange,'ground potion disables line-of-sight and keeps interaction range')
+potionPrompt.Triggered:Fire()
+Check(#B.requests==2,'ground potion requires a hold token')
 local getEntry=Texts.GetEntry
 for _,missing in {'CollectPotion','PromptShelf'} do
 	Texts.GetEntry=function(textId) return if textId==missing then nil else getEntry(textId) end

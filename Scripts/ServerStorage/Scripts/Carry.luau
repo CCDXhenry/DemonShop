@@ -9,6 +9,7 @@ local Scene = require(script.Parent.Scene)
 local Config = require(ReplicatedStorage.Scripts.Shared.PhysicsConfig)
 local GameConfig = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local ThrowArc = require(ReplicatedStorage.Scripts.Shared.ThrowArc)
+local CageGeometry = require(ReplicatedStorage.Scripts.Shared.CageGeometry)
 local Ground = require(script.Parent.GroundAuthority)
 local PersonalRules = require(ReplicatedStorage.Scripts.Shared.PersonalUpgradeRules)
 local Carry = {}
@@ -60,6 +61,7 @@ local function LiftPose(from: CFrame, support: CFrame, base: CFrame, scale: Vect
 	return CFrame.new(point) * from.Rotation:Lerp(destination.Rotation, Smooth(t))
 end
 local function SetOwner(model: Model, owner: Player?): ()
+	model:SetAttribute("PhysicsOwnerUserId", if owner then owner.UserId else nil)
 	for _, part in model:GetDescendants() do
 		if part:IsA("BasePart") and not part.Anchored then pcall(function(): () part:SetNetworkOwner(owner) end) end
 	end
@@ -90,6 +92,8 @@ function Carry.Detach(item: Types.Item, restoreTool: boolean?): ()
 	SetOwner(item.model, nil)
 	local owner = item.holder
 	item.holder = nil
+	-- 处理白膜时保留工具栏选择。其他搬运物仍沿用原来的武器恢复逻辑。
+	if item.kind == "Body" then return end
 	local humanoid = owner and owner.Character and owner.Character:FindFirstChildOfClass("Humanoid")
 	local backpack = owner and owner:FindFirstChild("Backpack")
 	local weapon = if backpack then PersonalRules.FindWeapon(backpack) else nil
@@ -110,6 +114,26 @@ end
 local function VerticalHalfExtent(frame: CFrame, size: Vector3): number
 	return (math.abs(frame.RightVector.Y) * size.X + math.abs(frame.UpVector.Y) * size.Y + math.abs(frame.LookVector.Y) * size.Z) * 0.5
 end
+function Carry.Contain(item: Types.Item, cage: string, preserveOwner: boolean?): ()
+	if item.model:GetAttribute("CageContained") == cage then return end
+	Ragdoll.SetCageContained(item.model, cage)
+	Ragdoll.SetThrowPhysics(item.model, false)
+	if preserveOwner then return end
+	SetOwner(item.model, nil)
+	local damping = Config.Cage.EntryHorizontalDamping
+	local maxHoriz = Config.Cage.EntryMaxHorizontalSpeed
+	for _, part in item.model:GetDescendants() do
+		if part:IsA("BasePart") and not part.Anchored then
+			local v = part.AssemblyLinearVelocity
+			local flat = Vector3.new(v.X, 0, v.Z) * damping
+			if flat.Magnitude > maxHoriz then
+				flat = flat.Unit * maxHoriz
+			end
+			part.AssemblyLinearVelocity = Vector3.new(flat.X, v.Y, flat.Z)
+		end
+	end
+end
+
 function Carry.ReleaseIntoChute(item: Types.Item, pose: CFrame, pile: { Model }, restoreTool: boolean?): ()
 	local ChuteReleaseClearance = 0.25
 	local supportY = pose.Position.Y
@@ -125,6 +149,7 @@ function Carry.ReleaseIntoChute(item: Types.Item, pose: CFrame, pile: { Model },
 	local bottom = frame.Position.Y - VerticalHalfExtent(frame, size)
 	item.model:PivotTo(pose + Vector3.yAxis * (supportY - bottom + ChuteReleaseClearance))
 	Ragdoll.SetMode(item.model, "Loose")
+	Carry.Contain(item, "Chute")
 	item.motionState = "ChutePile"
 	item.model:SetAttribute("MotionState", item.motionState)
 end
@@ -182,10 +207,11 @@ function Carry.Take(item: Types.Item, player: Player, bodyLayer: number?): boole
 		weld.C0,weld.Parent=root.CFrame:ToObjectSpace(primary.CFrame),primary
 		item.carryWeld=weld
 	end
-	humanoid:UnequipTools()
 	if item.kind == "Body" then
 		nextCarryOrder += 1
 		item.carryOrder = nextCarryOrder
+	else
+		humanoid:UnequipTools()
 	end
 	item.holder,item.location,item.motionState=player,"Carried","Carried"
 	item.model:SetAttribute("MotionState","Carried")
@@ -261,6 +287,7 @@ end
 local function FreezePose(item: Types.Item, collision: boolean): ()
 	NPC.StopMotion(item)
 	local model = item.model
+	if model:GetAttribute("CageContained") then Ragdoll.SetCageContained(model, nil) end
 	local humanoid = model:FindFirstChildOfClass("Humanoid")
 	if humanoid then
 		humanoid.EvaluateStateMachine = false
@@ -302,8 +329,7 @@ end
 local function ReleasePool(item: Types.Item): ()
 	item.poolToss = nil
 	SetFlightCollision(item.model, true)
-	SetOwner(item.model, nil)
-	Ragdoll.SetThrowPhysics(item.model, false)
+	Carry.Contain(item, "Pool")
 	item.motionState = "Pool"
 	item.model:SetAttribute("PhysicsMode", "Loose")
 	item.model:SetAttribute("MotionState", "Pool")
@@ -363,6 +389,7 @@ local function SafeManualRelease(model: Model, character: Model?, forward: Vecto
 	cast.FilterType = Enum.RaycastFilterType.Include
 	cast.FilterDescendantsInstances = { Scene.District, workspace.Terrain }
 	cast.RespectCanCollide = true
+	cast.CollisionGroup = Config.BodyGroup
 	local origin = anchor.Position
 	local delta = current.Position - origin
 	if delta.Magnitude > 0.05 then
@@ -377,6 +404,7 @@ local function SafeManualRelease(model: Model, character: Model?, forward: Vecto
 	overlap.FilterType = Enum.RaycastFilterType.Include
 	overlap.FilterDescendantsInstances = cast.FilterDescendantsInstances
 	overlap.RespectCanCollide = true
+	overlap.CollisionGroup = Config.BodyGroup
 	overlap.MaxParts = 1
 	if torso and #workspace:GetPartsInPart(torso, overlap) > 0 then
 		local fallback = origin + ThrowArc.Horizontal(forward, anchor.CFrame.LookVector) * 0.85 + Vector3.yAxis * 0.5
@@ -439,8 +467,7 @@ function Carry.FinishPool(item: Types.Item): ()
 	if item.model:GetAttribute("PhysicsMode") ~= "Loose" then
 		Ragdoll.SetMode(item.model, "Loose")
 	end
-	Ragdoll.SetThrowPhysics(item.model, false)
-	SetOwner(item.model, nil)
+	Carry.Contain(item, "Pool", true)
 	item.location = "Pool"
 	item.stage = "Unpainted"
 	item.streetSlot = false
@@ -455,8 +482,7 @@ function Carry.FinishChute(item: Types.Item): ()
 	if item.model:GetAttribute("PhysicsMode") ~= "Loose" then
 		Ragdoll.SetMode(item.model, "Loose")
 	end
-	Ragdoll.SetThrowPhysics(item.model, false)
-	SetOwner(item.model, nil)
+	Carry.Contain(item, "Chute", true)
 	item.location = "Chute"
 	item.stage = "Unpainted"
 	item.streetSlot = false
@@ -465,12 +491,13 @@ function Carry.FinishChute(item: Types.Item): ()
 	item.model:SetAttribute("MotionState", "ChutePile")
 	item.version += 1
 end
-function Carry.FinishGround(item: Types.Item): ()
+function Carry.FinishGround(item: Types.Item, keepCage: boolean?): ()
 	item.fall = nil
 	item.poolToss = nil
 	if item.model:GetAttribute("PhysicsMode") ~= "Loose" then
 		Ragdoll.SetMode(item.model, "Loose")
 	end
+	if not keepCage and item.model:GetAttribute("CageContained") then Ragdoll.SetCageContained(item.model, nil) end
 	Ragdoll.SetThrowPhysics(item.model, false)
 	SetOwner(item.model, nil)
 	item.location = "Ground"
@@ -507,7 +534,15 @@ local function AdvanceToss(item: Types.Item, now: number, bed: BasePart, release
 	end
 	if not flightDone then return false end
 	if not toss.collision then
+		local torso = BodyTorso(item.model)
+		if not torso or not Scene.PoolBasinContains(torso.Position) then
+			-- 客户端的最后一帧可能晚于服务器。等待交接，超时后使用既定存入落点。
+			if now < toss.started + flight + Config.ReleaseGraceSeconds then return false end
+			item.model:PivotTo(toss.target)
+			Ragdoll.SetMode(item.model, "Loose")
+		end
 		toss.collision = true
+		Carry.Contain(item, "Pool")
 		SetFlightCollision(item.model, true)
 		item.motionState = settledMotion
 		item.model:SetAttribute("MotionState", settledMotion)
@@ -536,7 +571,7 @@ end
 function Carry.AdvancePoolToss(item: Types.Item, now: number): boolean
 	return AdvanceToss(item, now, Scene.PoolFloor, ReleasePool, "Pool")
 end
-function Carry.AdvanceManualToss(item: Types.Item, now: number, onSettled: (Types.Item) -> ()): boolean
+function Carry.AdvanceManualToss(item: Types.Item, now: number, onSettled: (Types.Item) -> (), chuteUnlocked: boolean?): boolean
 	local toss = item.poolToss
 	if not toss or toss.kind ~= "Manual" then return false end
 	if not item.model.Parent then
@@ -552,6 +587,24 @@ function Carry.AdvanceManualToss(item: Types.Item, now: number, onSettled: (Type
 	end
 	local elapsed = math.max(0, now - toss.started)
 	local pos = torso.Position
+	local cage = item.model:GetAttribute("CageContained") :: string?
+	if not cage then
+		local allowChute = chuteUnlocked == true and toss.canEnterChute == true
+		cage = Scene.CageAt(pos, allowChute)
+		if cage then
+			local hasOwner = Players:GetPlayerByUserId(toss.owner) ~= nil
+			Carry.Contain(item, cage, hasOwner)
+		end
+	end
+	if cage and Players:GetPlayerByUserId(toss.owner) == nil then
+		if Scene.IsSoftCageEnabled and Scene.CageFloor and Scene.CageInset and Scene.IsSoftCageEnabled(cage) then
+			local floor = Scene.CageFloor(cage)
+			if floor then
+				CageGeometry.ApplySoftBounceToModel(item.model, floor.CFrame, floor.Size, Scene.CageInset(cage))
+				pos = torso.Position
+			end
+		end
+	end
 	-- 快速通道落料垫：纯自然抛物线落入 FastChuteLanding 并减速稳定后才收纳。
 	if toss.canEnterChute and Scene.ChuteLandingContains(pos) and torso.AssemblyLinearVelocity.Magnitude <= manual.PoolSettleSpeed then
 		toss.chuteStableSince = toss.chuteStableSince or now
@@ -591,7 +644,8 @@ function Carry.AdvanceManualToss(item: Types.Item, now: number, onSettled: (Type
 		toss.groundedAt = nil
 	end
 	if (toss.groundedAt and now - toss.groundedAt >= manual.GroundPickupDelaySeconds)
-		or elapsed >= manual.MaxFlightSeconds
+		or (not cage and elapsed >= manual.MaxFlightSeconds)
+		or (cage ~= nil and elapsed >= manual.MaxFlightSeconds + Config.Cage.SoftBounceSettleGrace)
 		or pos.Y < -35
 	then
 		onSettled(item)
