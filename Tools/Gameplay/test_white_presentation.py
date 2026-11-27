@@ -53,6 +53,7 @@ local CageGeometry={Contains=function() return false end,ApplySoftBounceToModel=
 local CageImpactView={Play=function() end,PlayAt=function() end}
 local Sound={Play=function() end}
 local Physics=require('./PhysicsConfig')
+local BodyPlacementMarkers={RestoreModel=function() end,ApplyToModel=function() end,TransformBatchPart=function(c) return c end}
 local Input={TouchEnabled=false}
 local Players={LocalPlayer=nil,GetPlayers=function() return {} end,GetPlayerByUserId=function() return nil end}
 local Vector3,CFrame=require('@lune/roblox').Vector3,require('@lune/roblox').CFrame
@@ -109,6 +110,7 @@ local Config=require('./PhysicsConfig')
 local GameConfig={PaintLiePitch=math.pi/2}
 local PersonalRules={FindWeapon=function(container) return container:FindFirstChild("W01_RustyPan") end}
 local ThrowArc=require('./ThrowArc')
+local BodyPlacementMarkers={RestoreModel=function() end}
 local NPC={StopMotion=function() end}
 local Scene=require('./AltarScene')
 local function GetPivot(model)

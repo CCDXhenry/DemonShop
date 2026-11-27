@@ -36,6 +36,7 @@ local AutomationAgents = require(script.Parent.AutomationAgents)
 local PersonalRules = require(Shared.PersonalUpgradeRules)
 local PersonalMovement = require(script.Parent.PersonalMovement)
 local ModelTemplates = require(Shared.ModelTemplates)
+local BodyPlacementMarkers = require(Shared.BodyPlacementMarkers)
 type PlayerData = {
 	IsActive: (Player) -> boolean,
 	CanAddCoins: (Player, number) -> boolean,
@@ -45,6 +46,13 @@ type PlayerData = {
 	TrySpendCoins: ((Player, number) -> boolean)?,
 }
 type PaintSession = Painting.Session
+type DepositBatch = {
+	kind: "Pool" | "Chute",
+	itemIds: { string },
+	overflowRemaining: number,
+	nextAt: number,
+	interval: number,
+}
 type PlayerRecord = {
 	scope: Lifecycle.Lifecycle,
 	characterScope: Lifecycle.Lifecycle?,
@@ -55,6 +63,7 @@ type PlayerRecord = {
 	lastSync: number,
 	lastUpgrade: number,
 	carryOverflowCount: number,
+	depositQueue: DepositBatch?,
 	levels: PersonalRules.Levels,
 	movement: PersonalMovement.State,
 	closing: boolean,
@@ -97,9 +106,12 @@ export type Manager = typeof(setmetatable(
 		autoOutputTakeSerial: number,
 		autoRuneItemId: string?,
 		autoRuneEnds: number,
+		autoRuneIntake: { startedAt: number, origin: CFrame }?,
 		autoRuneSegments: { Types.VisualSegment }?,
 		autoRuneCursor: number,
 		autoRuneVisualQueue: { { id: string, segments: { Types.VisualSegment }, revision: number } },
+		autoOutputSlides: { [string]: { kind: "Ramp" | "Shift", startedAt: number, origin: CFrame, duration: number } },
+		autoOverflowSlides: { { model: Model, startedAt: number, origin: CFrame, target: CFrame, duration: number } },
 		autoSmelterItemId: string?,
 		autoTransfer: { startedAt: number, origin: CFrame, fromOutput: boolean }?,
 		autoSmelterEnds: number,
@@ -158,9 +170,12 @@ function Manager.new(data: PlayerData?): Manager
 		autoOutputTakeSerial = 0,
 		autoRuneItemId = nil,
 		autoRuneEnds = 0,
+		autoRuneIntake = nil,
 		autoRuneSegments = nil,
 		autoRuneCursor = 0,
 		autoRuneVisualQueue = {},
+		autoOutputSlides = {},
+		autoOverflowSlides = {},
 		autoSmelterItemId = nil,
 		autoTransfer = nil,
 		autoSmelterEnds = 0,
@@ -207,6 +222,16 @@ end
 local function IsAutomationLocation(location: string): boolean
 	return location == "Chute" or location == "AutoOutput" or location == "AutoRune" or location == "AutoSmelter" or location == "BruteCarried"
 end
+local function ModelPivot(model: Model): CFrame
+	local ok, pivot = pcall(function(): CFrame
+		return model:GetPivot()
+	end)
+	if ok and typeof(pivot) == "CFrame" then
+		return pivot
+	end
+	local primary = model.PrimaryPart
+	return if primary then primary.CFrame else CFrame.identity
+end
 local function MarkAutoPaintedAppearance(item: Types.Item): ()
 	item.model:SetAttribute("AutoPainted", true)
 end
@@ -247,9 +272,16 @@ local function AdvanceAutoRuneVisual(self: Manager, now: number): ()
 		return
 	end
 	local duration = math.max(Config.AutoRuneSeconds, 1e-3)
+	local startedAt = self.autoRuneEnds - duration
+	local intakeDelay = math.min(Config.AutoRuneIntakeSeconds or 0, duration * 0.5)
+	local paintWindow = math.max(duration - intakeDelay, 1e-3)
 	local alpha = 1
 	if now < self.autoRuneEnds then
-		alpha = math.clamp((now - (self.autoRuneEnds - duration)) / duration, 0, 1)
+		local paintStart = startedAt + intakeDelay
+		if now < paintStart then
+			return
+		end
+		alpha = math.clamp((now - paintStart) / paintWindow, 0, 1)
 	end
 	local target = if alpha >= 1 then #pattern else math.floor(alpha * #pattern + 1e-6)
 	if target <= self.autoRuneCursor then
@@ -278,6 +310,113 @@ local function FlushAutoRuneVisuals(self: Manager): ()
 			})
 		end
 	end
+end
+local function BodyPosition(item: Types.Item): Vector3?
+	local model = item.model
+	if model.Parent == nil then
+		return nil
+	end
+	local torso = model:FindFirstChild("UpperTorso")
+	if torso and torso:IsA("BasePart") then
+		return torso.Position
+	end
+	local primary = model.PrimaryPart
+	return if primary then primary.Position else nil
+end
+local function PartSpeed(part: BasePart): number
+	local ok, velocity = pcall(function(): Vector3
+		return part.AssemblyLinearVelocity
+	end)
+	return if ok and typeof(velocity) == "Vector3" then velocity.Magnitude else 0
+end
+local function PartAngularSpeed(part: BasePart): number
+	local ok, angular = pcall(function(): Vector3
+		return part.AssemblyAngularVelocity
+	end)
+	return if ok and typeof(angular) == "Vector3" then angular.Magnitude else 0
+end
+local function CollectCageOccupied(self: Manager, cage: string): ({ Vector3 }, { Vector3 })
+	local occupied: { Vector3 } = {}
+	for _, item in self.items do
+		if item.kind == "Body" and item.model.Parent ~= nil then
+			if item.poolToss and (item.poolToss.kind == cage or item.location == cage) then
+				table.insert(occupied, item.poolToss.target.Position)
+			elseif item.location == cage then
+				local pos = BodyPosition(item)
+				if pos then
+					table.insert(occupied, pos)
+				end
+			end
+		end
+	end
+	local avoidPlayers: { Vector3 } = {}
+	for player in self.players do
+		local root = self:Root(player)
+		if root then
+			local inside = if cage == "Pool" then Scene.PoolContains(root.Position) else Scene.ChutePileContains(root.Position)
+			if inside or Scene.CageRetains(cage, root.Position) then
+				table.insert(avoidPlayers, root.Position)
+			end
+		end
+	end
+	return occupied, avoidPlayers
+end
+local function WakeCageAbove(self: Manager, cage: string, removedPos: Vector3, now: number): ()
+	local radiusSq = Physics.Cage.WakeRadius * Physics.Cage.WakeRadius
+	local vertTol = Physics.Cage.WakeVerticalTolerance
+	for _, item in self.items do
+		if item.kind == "Body" and item.location == cage and item.poolToss == nil
+			and item.model.Parent ~= nil and item.model:GetAttribute("PhysicsMode") == "CageSleep"
+		then
+			local pos = BodyPosition(item)
+			if pos then
+				local dx, dz = pos.X - removedPos.X, pos.Z - removedPos.Z
+				if dx * dx + dz * dz <= radiusSq and pos.Y >= removedPos.Y - vertTol then
+					Carry.WakeInCage(item, cage, now)
+				end
+			end
+		end
+	end
+end
+local function StepCageSleep(self: Manager, item: Types.Item, cage: string, now: number): boolean
+	if item.kind ~= "Body" or item.location ~= cage or item.poolToss ~= nil or item.model.Parent == nil then
+		return false
+	end
+	if item.model:GetAttribute("PhysicsMode") ~= "Loose" then
+		return false
+	end
+	local torso = item.model:FindFirstChild("UpperTorso") or item.model.PrimaryPart
+	if not torso or not torso:IsA("BasePart") then
+		return false
+	end
+	local pos = torso.Position
+	local inCage = if cage == "Pool" then Scene.PoolContains(pos) else Scene.ChutePileContains(pos)
+	if not inCage then
+		item.cageStableSince = nil
+		return false
+	end
+	item.cageEnteredAt = item.cageEnteredAt or now
+	local activeAge = now - (item.cageEnteredAt :: number)
+	local cfg = Physics.Cage
+	if activeAge < cfg.SleepMinActiveSeconds then
+		return false
+	end
+	local lin = PartSpeed(torso)
+	local ang = PartAngularSpeed(torso)
+	if lin <= cfg.SleepLinearSpeed and ang <= cfg.SleepAngularSpeed then
+		item.cageStableSince = item.cageStableSince or now
+		if now - (item.cageStableSince :: number) >= cfg.SleepStableSeconds then
+			Carry.SleepInCage(item, cage)
+			return true
+		end
+	else
+		item.cageStableSince = nil
+	end
+	if activeAge >= cfg.SleepMaxActiveSeconds then
+		Carry.SleepInCage(item, cage)
+		return true
+	end
+	return false
 end
 local function CreateStationBody(self: Manager, location: string, stage: string, pose: CFrame): Types.Item?
 	local template = ModelTemplates.FindCharacter("WhiteR15-People")
@@ -335,6 +474,11 @@ function Manager.ReplenishPoolVisible(self: Manager): ()
 		table.insert(self.pool, item.id)
 	end
 end
+local function MarkChuteEntered(item: Types.Item, enterNow: number): ()
+	item.chuteEnteredAt = enterNow
+	item.chuteSettledSince = nil
+	item.chuteRecoverAt = enterNow + Config.AutoChuteDwellSeconds
+end
 function Manager.ReleaseChuteBody(self: Manager, item: Types.Item, pose: CFrame, restoreTool: boolean?): ()
 	local pile = {}
 	for _, id in self.chuteVisible do
@@ -346,7 +490,7 @@ function Manager.ReleaseChuteBody(self: Manager, item: Types.Item, pose: CFrame,
 		end
 	end
 	Carry.ReleaseIntoChute(item, pose, pile, restoreTool)
-	item.chuteRecoverAt = workspace:GetServerTimeNow() + Physics.PoolRecoverSeconds
+	MarkChuteEntered(item, workspace:GetServerTimeNow())
 end
 function Manager.SpawnChuteBody(self: Manager): Types.Item?
 	local pose = Scene.ChuteDropPose(random)
@@ -381,7 +525,7 @@ function Manager.ReplenishChuteVisible(self: Manager): ()
 		table.insert(self.chuteVisible, item.id)
 	end
 end
-function Manager.ReplenishAutoPaintedVisible(self: Manager): ()
+function Manager.ReplenishAutoPaintedVisible(self: Manager, now: number?): ()
 	for index = #self.autoPaintedVisible, 1, -1 do
 		if self.items[self.autoPaintedVisible[index]] == nil then
 			table.remove(self.autoPaintedVisible, index)
@@ -399,9 +543,26 @@ function Manager.ReplenishAutoPaintedVisible(self: Manager): ()
 		local item = self.items[id]
 		if item then
 			local target = Scene.AutoOutputPose(index)
-			if (item.model:GetPivot().Position - target.Position).Magnitude > 0.05 then
-				Carry.Static(item, target, false)
-				item.version += 1
+			local slide = self.autoOutputSlides[id]
+			if slide and slide.kind == "Ramp" then
+				continue
+			end
+			local model = item.model
+			local currentPivot = ModelPivot(model)
+			if (currentPivot.Position - target.Position).Magnitude > 0.05 then
+				if now ~= nil then
+					self.autoOutputSlides[id] = {
+						kind = "Shift",
+						startedAt = now,
+						origin = currentPivot,
+						duration = Config.AutoOutputShiftSeconds,
+					}
+				else
+					Carry.Static(item, target, false)
+					item.version += 1
+				end
+			else
+				self.autoOutputSlides[id] = nil
 			end
 		end
 	end
@@ -463,22 +624,49 @@ function Manager.PeekAutoPaintedItem(self: Manager): Types.Item?
 	local id = self.autoPaintedVisible[1]
 	return if id then self.items[id] else nil
 end
-function Manager.PushAutoPaintedItem(self: Manager, item: Types.Item): ()
+function Manager.PushAutoPaintedItem(self: Manager, item: Types.Item, now: number?, animateFromBed: boolean?): ()
 	if #self.autoPaintedVisible < Config.AutoQueueVisibleLimit then
+		local slotIndex = #self.autoPaintedVisible + 1
+		local targetPose = Scene.AutoOutputPose(slotIndex)
 		item.location = "AutoOutput"
 		item.stage = "Painted"
 		item.progress = 1
 		item.streetSlot = false
 		item.version += 1
 		MarkAutoPaintedAppearance(item)
-		Carry.Static(item, Scene.AutoOutputPose(#self.autoPaintedVisible + 1), false)
+		if animateFromBed then
+			local origin = ModelPivot(item.model)
+			Carry.Static(item, origin, false)
+			self.autoOutputSlides[item.id] = {
+				kind = "Ramp",
+				startedAt = now or workspace:GetServerTimeNow(),
+				origin = origin,
+				duration = Config.AutoRampToOutputSeconds,
+			}
+		else
+			self.autoOutputSlides[item.id] = nil
+			Carry.Static(item, targetPose, false)
+		end
 		table.insert(self.autoPaintedVisible, item.id)
 	else
+		local origin = if animateFromBed and item.model.Parent ~= nil then ModelPivot(item.model) else nil
 		Carry.Detach(item, false)
 		NPC.StopMotion(item)
+		self.autoOutputSlides[item.id] = nil
 		self.items[item.id] = nil
-		item.model:Destroy()
 		self.autoPaintedOverflowCount += 1
+		if animateFromBed and origin and item.model.Parent ~= nil then
+			Carry.Static(item, origin, false)
+			table.insert(self.autoOverflowSlides, {
+				model = item.model,
+				startedAt = now or workspace:GetServerTimeNow(),
+				origin = origin,
+				target = Scene.AutoOutputPose(Config.AutoQueueVisibleLimit),
+				duration = Config.AutoRampToOutputSeconds,
+			})
+		else
+			item.model:Destroy()
+		end
 	end
 end
 function Manager.IsFacilityUnlocked(self: Manager, facilityId: number): boolean
@@ -652,12 +840,65 @@ function Manager.StepAutomationAgents(self: Manager, now: number): boolean
 	local state = self:EnsureAgents()
 	return AutomationAgents.Step(state, now)
 end
+local function ChutePartSpeed(part: BasePart): number
+	local ok, velocity = pcall(function(): Vector3
+		return part.AssemblyLinearVelocity
+	end)
+	return if ok and typeof(velocity) == "Vector3" then velocity.Magnitude else 0
+end
+local function IsChuteItemReadyForAutoRune(item: Types.Item, now: number): boolean
+	if item.model.Parent == nil then
+		return false
+	end
+	local enteredAt = item.chuteEnteredAt or 0
+	if now - enteredAt >= Config.AutoChuteMaxSettleWaitSeconds then
+		return true
+	end
+	local asleep = item.model:GetAttribute("PhysicsMode") == "CageSleep"
+	local torso = item.model:FindFirstChild("UpperTorso") or item.model.PrimaryPart
+	if not torso or not torso:IsA("BasePart") then
+		item.chuteSettledSince = item.chuteSettledSince or now
+		return now - (item.chuteSettledSince :: number) >= Config.AutoChuteDwellSeconds
+	end
+	local speed = if asleep then 0 else ChutePartSpeed(torso)
+	local nearFloor = asleep or torso.Position.Y <= Scene.ChuteFloorTopY() + 4.5
+	if speed <= Config.AutoChuteSettleSpeed and nearFloor then
+		item.chuteSettledSince = item.chuteSettledSince or now
+	else
+		item.chuteSettledSince = nil
+	end
+	return item.chuteSettledSince ~= nil and (now - (item.chuteSettledSince :: number)) >= Config.AutoChuteDwellSeconds
+end
+function Manager.TakeReadyChuteItem(self: Manager, now: number): Types.Item?
+	for index = #self.chuteVisible, 1, -1 do
+		if self.items[self.chuteVisible[index]] == nil then
+			table.remove(self.chuteVisible, index)
+		end
+	end
+	if #self.chuteVisible == 0 and self.chuteOverflowCount > 0 then
+		self:ReplenishChuteVisible()
+	end
+	for index, id in self.chuteVisible do
+		local item = self.items[id]
+		if item and IsChuteItemReadyForAutoRune(item, now) then
+			local removedPos = BodyPosition(item)
+			table.remove(self.chuteVisible, index)
+			if removedPos then
+				WakeCageAbove(self, "Chute", removedPos, now)
+			end
+			self:ReplenishChuteVisible()
+			return item
+		end
+	end
+	return nil
+end
 local function BeginAutoTransfer(self: Manager, item: Types.Item?, now: number): ()
 	self.autoSmelterItemId = if item then item.id else HttpService:GenerateGUID(false)
 	local fromOutput = item == nil or item.location == "AutoOutput"
 	local origin = Scene.AutoOutputPose(1)
 	if item then
-		origin = item.model:GetPivot()
+		self.autoOutputSlides[item.id] = nil
+		origin = ModelPivot(item.model)
 		item.location = "AutoSmelter"
 		item.stage = "Painted"
 		item.progress = 1
@@ -667,6 +908,76 @@ local function BeginAutoTransfer(self: Manager, item: Types.Item?, now: number):
 	end
 	self.autoTransfer = { startedAt = now, origin = origin, fromOutput = fromOutput }
 end
+local function AdvanceAutoRuneIntake(self: Manager, now: number): ()
+	local intake = self.autoRuneIntake
+	local id = self.autoRuneItemId
+	local item = if intake and id then self.items[id] else nil
+	if not intake or not item or item.model.Parent == nil then
+		self.autoRuneIntake = nil
+		return
+	end
+	local duration = math.max(Config.AutoRuneIntakeSeconds, 1e-3)
+	local alpha = math.clamp((now - intake.startedAt) / duration, 0, 1)
+	local entry = Scene.AutoRuneIntakeEntry()
+	local bed = Scene.AutoRunePose()
+	local pose: CFrame
+	if alpha >= 1 then
+		pose = bed
+		self.autoRuneIntake = nil
+	elseif alpha < 0.55 then
+		local t = alpha / 0.55
+		local eased = t * t * (3 - 2 * t)
+		pose = intake.origin:Lerp(entry, eased) + Vector3.yAxis * (math.sin(t * math.pi) * 0.9)
+	else
+		local t = (alpha - 0.55) / 0.45
+		local eased = t * t * (3 - 2 * t)
+		pose = entry:Lerp(bed, eased)
+	end
+	local model = item.model
+	model:PivotTo(pose)
+end
+local function AdvanceAutoOutputSlides(self: Manager, now: number): ()
+	for index, id in self.autoPaintedVisible do
+		local slide = self.autoOutputSlides[id]
+		if not slide then
+			continue
+		end
+		local item = self.items[id]
+		if not item or item.model.Parent == nil then
+			self.autoOutputSlides[id] = nil
+			continue
+		end
+		local target = Scene.AutoOutputPose(index)
+		local duration = math.max(slide.duration, 1e-3)
+		local alpha = math.clamp((now - slide.startedAt) / duration, 0, 1)
+		local pose: CFrame
+		if alpha >= 1 then
+			pose = target
+			self.autoOutputSlides[id] = nil
+		elseif slide.kind == "Ramp" then
+			pose = Scene.AutoRampPose(alpha, slide.origin, target)
+		else
+			local eased = alpha * alpha * (3 - 2 * alpha)
+			pose = slide.origin:Lerp(target, eased)
+		end
+		local model = item.model
+		model:PivotTo(pose)
+	end
+	for index = #self.autoOverflowSlides, 1, -1 do
+		local slide = self.autoOverflowSlides[index]
+		local duration = math.max(slide.duration, 1e-3)
+		local alpha = math.clamp((now - slide.startedAt) / duration, 0, 1)
+		if alpha >= 1 or slide.model.Parent == nil then
+			if slide.model.Parent ~= nil then
+				slide.model:Destroy()
+			end
+			table.remove(self.autoOverflowSlides, index)
+		else
+			local model = slide.model
+			model:PivotTo(Scene.AutoRampPose(alpha, slide.origin, slide.target))
+		end
+	end
+end
 local function AdvanceAutoTransfer(self: Manager, now: number): boolean
 	local transfer = self.autoTransfer
 	if not transfer then return false end
@@ -674,21 +985,15 @@ local function AdvanceAutoTransfer(self: Manager, now: number): boolean
 	local toPass = if transfer.fromOutput then Config.AutoTransferAlignSeconds else Config.AutoTransferToPassSeconds
 	local lightEnd = toPass + Config.AutoTransferLightSeconds
 	local arrival = lightEnd + Config.AutoTransferToFurnaceSeconds
-	local ramp, rampTop, pass, inlet = Scene.AutoTransferPoses()
+	local _, _, pass, inlet = Scene.AutoTransferPoses()
 	local furnace = Scene.AutoSmelterPose()
 	local pose = furnace
 	if elapsed < toPass then
 		local alpha = elapsed / toPass
 		if transfer.fromOutput then
 			pose = transfer.origin:Lerp(pass, alpha)
-		elseif alpha < 0.5 then
-			pose = transfer.origin:Lerp(ramp, alpha * 2)
 		else
-			local riseLength = (rampTop.Position - ramp.Position).Magnitude
-			local flatLength = (pass.Position - rampTop.Position).Magnitude
-			local distance = (alpha * 2 - 1) * (riseLength + flatLength)
-			pose = if distance < riseLength then ramp:Lerp(rampTop, distance / riseLength)
-				else rampTop:Lerp(pass, if flatLength > 0 then (distance - riseLength) / flatLength else 1)
+			pose = Scene.AutoRampPose(alpha, transfer.origin, pass)
 		end
 	elseif elapsed < lightEnd then
 		pose = pass
@@ -714,11 +1019,14 @@ local function AdvanceAutoTransfer(self: Manager, now: number): boolean
 end
 function Manager.StepAutomation(self: Manager, now: number): boolean
 	local changed = false
+	AdvanceAutoRuneIntake(self, now)
+	AdvanceAutoOutputSlides(self, now)
 	if self:IsFacilityUnlocked(GameData.FacilityId.AutoRune) then
 		if self.autoRuneItemId ~= nil and now >= self.autoRuneEnds then
 			AdvanceAutoRuneVisual(self, now)
 			local doneId = self.autoRuneItemId
 			self.autoRuneItemId = nil
+			self.autoRuneIntake = nil
 			self.autoRuneEnds = 0
 			self.autoRuneSegments = nil
 			self.autoRuneCursor = 0
@@ -726,9 +1034,15 @@ function Manager.StepAutomation(self: Manager, now: number): boolean
 			if doneItem and self:IsFacilityUnlocked(FacilityId.AutoSmelter)
 				and self.autoSmelterItemId == nil and self:AutoPaintedCount() == 0
 			then
+				local bedPose = Scene.AutoRunePose()
+				local model = doneItem.model
+				model:PivotTo(bedPose)
 				BeginAutoTransfer(self, doneItem, now)
 			elseif doneItem then
-				self:PushAutoPaintedItem(doneItem)
+				local bedPose = Scene.AutoRunePose()
+				local model = doneItem.model
+				model:PivotTo(bedPose)
+				self:PushAutoPaintedItem(doneItem, now, true)
 			elseif #self.autoPaintedVisible < Config.AutoQueueVisibleLimit then
 				local created = self:SpawnAutoPaintedBody()
 				if created then
@@ -744,23 +1058,30 @@ function Manager.StepAutomation(self: Manager, now: number): boolean
 			AdvanceAutoRuneVisual(self, now)
 		end
 		if self.autoRuneItemId == nil and self:ChuteCount() > 0 then
-			local nextItem = self:PeekChuteItem()
+			local nextItem = self:TakeReadyChuteItem(now)
 			if nextItem then
-				table.remove(self.chuteVisible, 1)
-				self:ReplenishChuteVisible()
+				local model = nextItem.model
+				local origin = ModelPivot(model)
+				local bedPose = Scene.AutoRunePose()
 				self.autoRuneItemId = nextItem.id
 				self.autoRuneEnds = now + Config.AutoRuneSeconds
 				nextItem.location = "AutoRune"
 				nextItem.stage = "Painting"
+				nextItem.chuteEnteredAt = nil
+				nextItem.chuteSettledSince = nil
 				nextItem.version += 1
-				Carry.Static(nextItem, Scene.AutoRunePose(), false)
-				self.autoRuneSegments = AutoRunePattern.Build(nextItem.model)
+				-- 先以绘画床平躺姿态生成符文落印点位，再恢复起点做滑入过渡。
+				Carry.Static(nextItem, bedPose, false)
+				self.autoRuneSegments = AutoRunePattern.Build(model)
+				model:PivotTo(origin)
+				self.autoRuneIntake = { startedAt = now, origin = origin }
 				self.autoRuneCursor = 0
 				AdvanceAutoRuneVisual(self, now)
 				changed = true
-			elseif self.chuteOverflowCount > 0 then
+			elseif #self.chuteVisible == 0 and self.chuteOverflowCount > 0 then
 				self.chuteOverflowCount -= 1
 				self.autoRuneItemId = HttpService:GenerateGUID(false)
+				self.autoRuneIntake = nil
 				self.autoRuneEnds = now + Config.AutoRuneSeconds
 				self.autoRuneSegments = nil
 				self.autoRuneCursor = 0
@@ -787,7 +1108,7 @@ function Manager.StepAutomation(self: Manager, now: number): boolean
 			local nextItem = self:PeekAutoPaintedItem()
 			if nextItem then
 				table.remove(self.autoPaintedVisible, 1)
-				self:ReplenishAutoPaintedVisible()
+				self:ReplenishAutoPaintedVisible(now)
 				BeginAutoTransfer(self, nextItem, now)
 				changed = true
 			elseif self.autoPaintedOverflowCount > 0 then
@@ -1125,9 +1446,13 @@ function Manager.PickUpItem(self: Manager, player: Player, id: string, version: 
 		return false
 	end
 	if not isBody then return Carry.Take(item, player) end
+	local removedPos = if queue and queueIndex then BodyPosition(item) else nil
 	if not self:TakeBody(player, item) then return false end
 	if queue and queueIndex then
 		table.remove(queue, queueIndex)
+		if removedPos then
+			WakeCageAbove(self, location, removedPos, workspace:GetServerTimeNow())
+		end
 		if location == "Pool" then
 			self:ReplenishPoolVisible()
 		else
@@ -1178,6 +1503,9 @@ function Manager.LaunchToAltar(self: Manager, item: Types.Item, started: number?
 	item.altarHeld = false
 	item.version += 1
 	if self.tableId == item.id then self.tableId = nil end
+	if item.kind == "Body" then
+		BodyPlacementMarkers.RestoreModel(item.model)
+	end
 	local holder = item.holder
 	local keep = holder ~= nil and self:HasOtherBodies(holder, item)
 	Carry.BeginAltarToss(item, fromTable, now, not keep)
@@ -1213,15 +1541,23 @@ end
 local function SyncBatchPose(session: PaintSession, item: Types.Item): ()
 	local frames = item.poseBody
 	if not frames then return end
-	local pivot = PaintRotation.Pose(Scene.TablePose(), session.geometry, session.orientation)
 	for index, body in ipairs(session.batch or {}) do
 		if body.model.Parent then
-			BodyPose.Apply(body.model, pivot + PaintRotation.BatchOffset(index + 1), frames)
+			local slot = index + 1
+			local spec = Scene.TableSlot(slot)
+			if spec.bodyPose then
+				local slotGeo = PaintRotation.Create(body.model, spec.bodyPose)
+				BodyPlacementMarkers.ApplyToModel(body.model, spec, session.orientation, slotGeo)
+			else
+				local slotPivot = PaintRotation.Pose(spec.pose, session.geometry, session.orientation)
+				BodyPose.Apply(body.model, slotPivot, frames)
+			end
 		end
 	end
 end
 
 local function ReturnBatchBody(self: Manager, body: Types.Item): ()
+	BodyPlacementMarkers.RestoreModel(body.model)
 	body.paintSlot = nil
 	body.visualState = nil
 	body.location, body.stage = "Pool", "Unpainted"
@@ -1239,7 +1575,11 @@ local function TakePoolBody(self: Manager, freshOnly: boolean): Types.Item?
 			table.remove(self.pool, index)
 			self:ReplenishPoolVisible()
 		elseif not freshOnly or (item.progress == 0 and item.visualState == nil and item.stage ~= "Painted") then
+			local removedPos = BodyPosition(item)
 			table.remove(self.pool, index)
+			if removedPos then
+				WakeCageAbove(self, "Pool", removedPos, workspace:GetServerTimeNow())
+			end
 			self:ReplenishPoolVisible()
 			return item
 		else
@@ -1267,7 +1607,8 @@ local function FillPaintBatch(self: Manager, session: PaintSession, center: Type
 		body.location, body.stage = "Table", "Painting"
 		body.streetSlot = false
 		body.version += 1
-		Carry.Static(body, Scene.TablePose() + PaintRotation.BatchOffset(slot), false)
+		Carry.Static(body, Scene.TablePose(slot), false)
+		BodyPlacementMarkers.ApplyToModel(body.model, Scene.TableSlot(slot))
 	end
 	for _, body in stack do
 		if #batch >= limit - 1 then break end
@@ -1396,8 +1737,13 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): bo
 	root.Anchored = true
 	player:SetAttribute("Painting", true)
 	Carry.Static(item, Scene.TablePose(), false)
+	BodyPlacementMarkers.ApplyToModel(item.model, Scene.TableSlot(1))
 	local frames = BodyPose.Capture(item.model)
 	item.poseBody = frames
+	if item.area == 0 then
+		item.totalArea = Surface.Total(item.model)
+		item.exteriorMeasured = false
+	end
 	if not item.exteriorMeasured then
 		item.totalArea -= CurvedSurface.ExcludeInterior(item.model,item.covered)
 		local frontTotal, backTotal = Surface.FlatSideTotals(item.model, item.covered)
@@ -1416,42 +1762,181 @@ function Manager.BeginPaint(self: Manager, player: Player, item: Types.Item): bo
 	Net.FireNotify(player, { kind = "BeginPaint", id = item.id, session = session.token, paintBatch = BatchIds(session), bodyPose = frames, orientation = initialOrientation, flipped = initialFlipped })
 	return true
 end
-function Manager.Pool(self: Manager, player: Player): boolean
-	local stack = self:Carried(player)
-	local deposit: { Types.Item } = {}
-	for _, item in stack do
-		if item.stage ~= "Painted" then table.insert(deposit, item) end
-	end
-	local record = self.players[player]
-	local overflow = if record then record.carryOverflowCount else 0
-	if #deposit > 0 or overflow > 0 then
-		local keep = #deposit < #stack
-		if record then record.carryOverflowCount = 0 end
-		for index, item in deposit do
-			local restore = index == #deposit and not keep
-			item.location = "Pool"
-			item.version += 1
-			table.insert(self.pool, item.id)
-			Carry.TossIntoPool(item, restore)
+local function HasValidBatchItem(self: Manager, player: Player, batch: DepositBatch): boolean
+	for _, id in batch.itemIds do
+		local item = self.items[id]
+		if item and item.kind == "Body" and item.holder == player and item.location == "Carried" and item.stage ~= "Painted" then
+			return true
 		end
-		for _ = 1, overflow do
-			local spawned = self:SpawnPoolBody()
-			if spawned then
-				table.insert(self.pool, spawned.id)
-			else
-				self.poolOverflowCount += 1
+	end
+	return false
+end
+
+local function LaunchNextDeposit(self: Manager, player: Player, record: PlayerRecord, now: number): boolean
+	local batch = record.depositQueue
+	if not batch then
+		return false
+	end
+	if self.players[player] ~= record or record.closing or self.closing then
+		record.depositQueue = nil
+		return false
+	end
+	local chosen: Types.Item? = nil
+	while #batch.itemIds > 0 do
+		local id = table.remove(batch.itemIds, 1) :: string
+		local candidate = self.items[id]
+		if candidate and candidate.kind == "Body" and candidate.holder == player
+			and candidate.location == "Carried" and candidate.stage ~= "Painted"
+		then
+			chosen = candidate
+			break
+		end
+	end
+	if not chosen and batch.overflowRemaining > 0 and record.carryOverflowCount > 0 then
+		local root = self:Root(player)
+		local originPose = if root then root.CFrame
+			elseif batch.kind == "Chute" and Scene.ChutePrompt then Scene.ChutePrompt.CFrame
+			else Scene.PoolPickup.CFrame
+		local spawned = CreateStationBody(self, "Ground", "Unpainted", originPose)
+		record.carryOverflowCount -= 1
+		batch.overflowRemaining -= 1
+		if spawned then
+			chosen = spawned
+		elseif batch.kind == "Chute" then
+			self.chuteOverflowCount += 1
+		else
+			self.poolOverflowCount += 1
+		end
+	end
+	local launched = false
+	if chosen then
+		launched = true
+		local willReplenish = batch.overflowRemaining > 0 and record.carryOverflowCount > 0
+		local hasMore = willReplenish or HasValidBatchItem(self, player, batch) or self:HasOtherBodies(player, chosen)
+		local restore = not hasMore
+		local occupied, avoidPlayers = CollectCageOccupied(self, batch.kind)
+		if batch.kind == "Pool" then
+			local target = Scene.PoolDropTarget(random, occupied, avoidPlayers)
+			chosen.location = "Pool"
+			chosen.stage = "Unpainted"
+			chosen.version += 1
+			table.insert(self.pool, chosen.id)
+			Carry.TossIntoPool(chosen, restore, target)
+			chosen.cageEnteredAt = now
+		else
+			local target = Scene.ChuteDropTarget(random, occupied, avoidPlayers, true)
+			chosen.location = "Chute"
+			chosen.stage = "Unpainted"
+			chosen.streetSlot = false
+			chosen.version += 1
+			table.insert(self.chuteVisible, chosen.id)
+			Carry.TossIntoChute(chosen, restore, target)
+			chosen.cageEnteredAt = now
+		end
+		if willReplenish then
+			local root = self:Root(player)
+			local stack = self:Carried(player)
+			if root and #stack < Config.CarryVisibleLimit then
+				local spawned = CreateStationBody(self, "Ground", "Unpainted", root.CFrame)
+				if spawned and Carry.Take(spawned, player, #stack) then
+					record.carryOverflowCount -= 1
+					batch.overflowRemaining -= 1
+					table.insert(batch.itemIds, spawned.id)
+				elseif spawned then
+					self.items[spawned.id] = nil
+					spawned.model:Destroy()
+				end
 			end
 		end
-		self:ReplenishPoolVisible()
-		if keep then self:Restack(player) end
-		return true
-	elseif #stack > 0 or self:ShoulderOccupied(player) then
-		self:Tell(player, "StoreUnfinished")
-		return false
+		self:Restack(player)
+		if batch.kind == "Chute" then
+			self:StepAutomation(now)
+		end
+	end
+	if not HasValidBatchItem(self, player, batch) and (batch.overflowRemaining <= 0 or record.carryOverflowCount <= 0) then
+		record.depositQueue = nil
 	else
-		self:Tell(player, "PoolIsEmpty")
+		batch.nextAt += batch.interval
+	end
+	return launched
+end
+
+local function EnqueueDeposit(self: Manager, player: Player, kind: "Pool" | "Chute"): boolean
+	local stack = self:Carried(player)
+	local record = self.players[player]
+	local existing = if record then record.depositQueue else nil
+	local queuedSet: { [string]: boolean } = {}
+	if existing then
+		for _, id in existing.itemIds do
+			queuedSet[id] = true
+		end
+	end
+	local depositIds: { string } = {}
+	for _, item in stack do
+		if item.stage ~= "Painted" and not queuedSet[item.id] then
+			table.insert(depositIds, item.id)
+		end
+	end
+	local queuedOverflow = if existing then existing.overflowRemaining else 0
+	local overflow = if record then math.max(0, record.carryOverflowCount - queuedOverflow) else 0
+	if #depositIds == 0 and overflow == 0 then
+		if #stack > 0 or self:ShoulderOccupied(player) then
+			self:Tell(player, if kind == "Chute" then "ChuteUnfinishedOnly" else "StoreUnfinished")
+		else
+			self:Tell(player, if kind == "Chute" then "ChuteNeedsBody" else "PoolIsEmpty")
+		end
 		return false
 	end
+	local now = workspace:GetServerTimeNow()
+	if not record then
+		for index, id in depositIds do
+			local item = self.items[id]
+			if item then
+				local restore = index == #depositIds and #depositIds == #stack
+				local occupied, avoidPlayers = CollectCageOccupied(self, kind)
+				if kind == "Pool" then
+					item.location = "Pool"
+					item.version += 1
+					table.insert(self.pool, item.id)
+					Carry.TossIntoPool(item, restore, Scene.PoolDropTarget(random, occupied, avoidPlayers))
+					item.cageEnteredAt = now
+				else
+					item.location = "Chute"
+					item.stage = "Unpainted"
+					item.streetSlot = false
+					item.version += 1
+					table.insert(self.chuteVisible, item.id)
+					Carry.TossIntoChute(item, restore, Scene.ChuteDropTarget(random, occupied, avoidPlayers, true))
+					item.cageEnteredAt = now
+				end
+			end
+		end
+		return true
+	end
+	if existing then
+		existing.kind = kind
+		for _, id in depositIds do
+			table.insert(existing.itemIds, id)
+		end
+		existing.overflowRemaining += overflow
+		local total = #existing.itemIds + existing.overflowRemaining
+		existing.interval = math.clamp(Physics.BatchDepositMaxSeconds / math.max(1, total - 1), 0.05, Physics.BatchDepositInterval)
+		return true
+	end
+	local total = #depositIds + overflow
+	local interval = math.clamp(Physics.BatchDepositMaxSeconds / math.max(1, total - 1), 0.05, Physics.BatchDepositInterval)
+	record.depositQueue = {
+		kind = kind,
+		itemIds = depositIds,
+		overflowRemaining = overflow,
+		nextAt = now,
+		interval = interval,
+	}
+	return LaunchNextDeposit(self, player, record, now)
+end
+
+function Manager.Pool(self: Manager, player: Player): boolean
+	return EnqueueDeposit(self, player, "Pool")
 end
 function Manager.Table(self: Manager, player: Player): boolean
 	if self.paint then
@@ -1717,42 +2202,7 @@ function Manager.Chute(self: Manager, player: Player): boolean
 		self:Tell(player, "ChuteLocked")
 		return false
 	end
-	local stack = self:Carried(player)
-	local deposit: { Types.Item } = {}
-	for _, item in stack do
-		if item.stage ~= "Painted" then
-			table.insert(deposit, item)
-		end
-	end
-	local record = self.players[player]
-	local overflow = if record then record.carryOverflowCount else 0
-	if #deposit == 0 and overflow == 0 then
-		if #stack > 0 or self:ShoulderOccupied(player) then
-			self:Tell(player, "ChuteUnfinishedOnly")
-		else
-			self:Tell(player, "ChuteNeedsBody")
-		end
-		return false
-	end
-	local willHaveRemaining = #deposit < #stack
-	for index, item in deposit do
-		self:PushChuteItem(item, index == #deposit and not willHaveRemaining)
-	end
-	if record then record.carryOverflowCount = 0 end
-	for _ = 1, overflow do
-		local spawned = self:SpawnChuteBody()
-		if spawned then
-			table.insert(self.chuteVisible, spawned.id)
-		else
-			self.chuteOverflowCount += 1
-		end
-	end
-	self:ReplenishChuteVisible()
-	if willHaveRemaining then
-		self:Restack(player)
-	end
-	self:StepAutomation(workspace:GetServerTimeNow())
-	return true
+	return EnqueueDeposit(self, player, "Chute")
 end
 function Manager.AutoOutput(self: Manager, player: Player): boolean
 	if self:ShoulderOccupied(player) then
@@ -1765,9 +2215,10 @@ function Manager.AutoOutput(self: Manager, player: Player): boolean
 		return false
 	end
 	if self:TakeBody(player, item) then
+		self.autoOutputSlides[item.id] = nil
 		table.remove(self.autoPaintedVisible, 1)
 		self.autoOutputTakeSerial += 1
-		self:ReplenishAutoPaintedVisible()
+		self:ReplenishAutoPaintedVisible(workspace:GetServerTimeNow())
 		return true
 	end
 	return false
@@ -2088,6 +2539,7 @@ function Manager.SettleThrown(self: Manager, item: Types.Item): ()
 	elseif kind == "Chute" then
 		table.insert(self.chuteVisible, item.id)
 		Carry.FinishChute(item)
+		MarkChuteEntered(item, workspace:GetServerTimeNow())
 		self:StepAutomation(workspace:GetServerTimeNow())
 		return
 	end
@@ -2392,6 +2844,10 @@ function Manager.OnRequest(self: Manager, player: Player, request: Types.Request
 	end
 end
 function Manager.ReleasePlayer(self: Manager, player: Player): ()
+	local record = self.players[player]
+	if record then
+		record.depositQueue = nil
+	end
 	self:EndPaint(player)
 	local stack = self:Carried(player)
 	local character = player.Character
@@ -2411,7 +2867,6 @@ function Manager.ReleasePlayer(self: Manager, player: Player): ()
 			Carry.Drop(item, base + right * (index - 1) * Physics.CarryReleaseSpacing, index == #stack)
 		end
 	end
-	local record = self.players[player]
 	if record then
 		for index = 1, record.carryOverflowCount do
 			local offset = Vector3.new((index - 1) % 5 - 2, 0, math.floor((index - 1) / 5) + 1)
@@ -2561,18 +3016,21 @@ function Manager.RemovePlayer(self: Manager, player: Player): ()
 	self.players[player] = nil
 	self.removing[player] = nil
 end
-local function PartSpeed(part: BasePart): number
-	local ok, velocity = pcall(function(): Vector3
-		return part.AssemblyLinearVelocity
-	end)
-	return if ok and typeof(velocity) == "Vector3" then velocity.Magnitude else 0
-end
 function Manager.Update(self: Manager): ()
 	if self.closing then
 		return
 	end
 	local now = workspace:GetServerTimeNow()
 	local changedMotion = false
+	if self.players then
+		for player, record in self.players do
+			while record.depositQueue and now >= record.depositQueue.nextAt do
+				if LaunchNextDeposit(self, player, record, now) then
+					changedMotion = true
+				end
+			end
+		end
+	end
 	for _, item in self.items do
 		local carrier = item.holder
 		if carrier and item.kind == "Body" and item.model.Parent == nil then
@@ -2710,9 +3168,9 @@ function Manager.Update(self: Manager): ()
 			if NPC and not NPC.StepCrowd then
 				NPC.Update(item, now)
 			end
-			if (item.location == "Pool" or item.location == "Chute") and item.poolToss == nil then
+			if (item.location == "Pool" or item.location == "Chute") and item.poolToss == nil and item.model:GetAttribute("PhysicsMode") == "Loose" then
 				Ragdoll.LimitVelocity(item.model)
-			elseif item.hits >= Config.StunHits and not item.fall then
+			elseif item.hits >= Config.StunHits and not item.fall and item.model:GetAttribute("PhysicsMode") == "Loose" then
 				Ragdoll.LimitVelocity(item.model)
 			end
 		end
@@ -2721,25 +3179,19 @@ function Manager.Update(self: Manager): ()
 		local bodyPos = if torso and torso:IsA("BasePart") then torso.Position elseif primary then primary.Position else nil
 		if item.kind == "Body" and item.location == "Pool" and item.poolToss == nil and bodyPos then
 			if not Scene.PoolContains(bodyPos) then
-				local idx = table.find(self.pool, item.id)
-				if idx then table.remove(self.pool, idx) end
-				if bodyPos.Y < -40 then
-					Carry.Drop(item, Vector3.new(0, -100, 0), false)
-				else
-					Carry.FinishGround(item)
-				end
+				local occupied, avoidPlayers = CollectCageOccupied(self, "Pool")
+				Carry.RecoverInCage(item, "Pool", Scene.PoolDropTarget(random, occupied, avoidPlayers), now)
 				changed = true
+			elseif item.model:GetAttribute("PhysicsMode") == "Loose" then
+				StepCageSleep(self, item, "Pool", now)
 			end
 		elseif item.kind == "Body" and item.location == "Chute" and item.poolToss == nil and bodyPos then
 			if not Scene.ChutePileContains(bodyPos) then
-				local idx = table.find(self.chuteVisible, item.id)
-				if idx then table.remove(self.chuteVisible, idx) end
-				if bodyPos.Y < -40 then
-					Carry.Drop(item, Vector3.new(0, -100, 0), false)
-				else
-					Carry.FinishGround(item)
-				end
+				local occupied, avoidPlayers = CollectCageOccupied(self, "Chute")
+				Carry.RecoverInCage(item, "Chute", Scene.ChuteDropTarget(random, occupied, avoidPlayers, false), now)
 				changed = true
+			elseif item.model:GetAttribute("PhysicsMode") == "Loose" then
+				StepCageSleep(self, item, "Chute", now)
 			end
 		elseif item.kind == "Body" and item.location == "Ground" and item.stage ~= "Painted"
 			and item.holder == nil and item.poolToss == nil
@@ -2758,6 +3210,7 @@ function Manager.Update(self: Manager): ()
 						table.insert(self.chuteVisible, item.id)
 					end
 					Carry.FinishChute(item)
+					MarkChuteEntered(item, now)
 					changed = true
 				end
 			end
@@ -2827,6 +3280,14 @@ end
 function Manager.Close(self: Manager): ()
 	self.closing = true
 	Scene.SetAutoTransferLight(false)
+	for _, slide in self.autoOverflowSlides do
+		if slide.model.Parent ~= nil then
+			slide.model:Destroy()
+		end
+	end
+	table.clear(self.autoOverflowSlides)
+	table.clear(self.autoOutputSlides)
+	self.autoRuneIntake = nil
 	for player in self.players do self:RemovePlayer(player) end
 end
 function Manager.BindThrowBarriers(self: Manager): ()

@@ -7,6 +7,7 @@ local Physics = require(script.Parent.Parent.Shared.PhysicsConfig)
 local CageGeometry = require(script.Parent.Parent.Shared.CageGeometry)
 local HitRules = require(script.Parent.Parent.Shared.HitFeedbackRules)
 local Rotation = require(script.Parent.Parent.Shared.PaintRotation)
+local BodyPlacementMarkers = require(script.Parent.Parent.Shared.BodyPlacementMarkers)
 local Types = require(script.Parent.Parent.Shared.GameTypes)
 local Adapter = require(script.Parent.JointAdapter)
 local TableView = require(script.Parent.BodyPresentation)
@@ -547,6 +548,7 @@ local function TransitionTableToAltar(self: Manager, v: BodyView, item: Types.It
 	if self.tableView.model == visual then
 		self.tableView:Clear()
 	end
+	BodyPlacementMarkers.RestoreModel(visual)
 	visual.Name = "LocalAltarBody"
 	DisableAltarJointDrives(v)
 	for _, node in visual:GetDescendants() do
@@ -851,35 +853,6 @@ local function ArcPosition(from: Vector3, to: Vector3, alpha: number): Vector3
 	local mid = (from + to) * 0.5 + Vector3.new(0, Physics.PoolTossArcHeight, 0)
 	return from:Lerp(mid, alpha):Lerp(mid:Lerp(to, alpha), alpha)
 end
-local function DrivePoolToss(item: Types.ItemView, now: number): ()
-	local toss = item.toss
-	local player = Players.LocalPlayer
-	local model = item.model
-	if not toss or toss.kind == "Manual" or not player or toss.owner ~= player.UserId or not model or not model.Parent then return end
-	local root = model.PrimaryPart
-	if (root and root.Anchored) or model:GetAttribute("MotionState") == "ChutePile" or model:GetAttribute("CageContained") then return end
-	local duration = Physics.PoolTossSeconds
-	local elapsed = now - toss.started
-	if elapsed < duration then
-		local alpha = if duration <= 0 then 1 else elapsed / duration
-		local position = ArcPosition(toss.from.Position, toss.target.Position, alpha)
-		local rotation = toss.from.Rotation:Lerp(toss.target.Rotation, alpha)
-		model:PivotTo(CFrame.new(position) * rotation)
-		return
-	end
-	if model:GetAttribute("PoolTossLaunched") == toss.started then return end
-	model:SetAttribute("PoolTossLaunched", toss.started)
-	model:PivotTo(toss.target)
-	local velocity = Vector3.new(0, -Physics.PoolDropSpeed, 0)
-	local limit = Physics.PoolSpin
-	local spin = Vector3.new((math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit)
-	for _, part in model:GetDescendants() do
-		if part:IsA("BasePart") and not part.Anchored then
-			part.AssemblyLinearVelocity = velocity
-			part.AssemblyAngularVelocity = spin
-		end
-	end
-end
 local function IsSoftCageEnabled(container: Instance?): boolean
 	return container ~= nil and container:GetAttribute("SoftCageEnabled") == true
 end
@@ -966,6 +939,82 @@ local function TryLocalCagePreContain(model: Model, started: number): ()
 	ApplyLocalCageContainment(model, started, entered)
 end
 
+local function DrivePoolToss(item: Types.ItemView, now: number): ()
+	local toss = item.toss
+	local player = Players.LocalPlayer
+	local model = item.model
+	if not toss or toss.kind == "Manual" or not player or toss.owner ~= player.UserId or not model or not model.Parent then return end
+	local root = model.PrimaryPart
+	if (root and root.Anchored) or model:GetAttribute("MotionState") == "ChutePile" then return end
+	local duration = Physics.PoolTossSeconds
+	local elapsed = now - toss.started
+	if elapsed < duration then
+		local alpha = if duration <= 0 then 1 else elapsed / duration
+		local position = ArcPosition(toss.from.Position, toss.target.Position, alpha)
+		local rotation = toss.from.Rotation:Lerp(toss.target.Rotation, alpha)
+		for _, part in model:GetDescendants() do
+			if part:IsA("BasePart") and not part.Anchored then
+				part.AssemblyLinearVelocity = Vector3.zero
+				part.AssemblyAngularVelocity = Vector3.zero
+			end
+		end
+		model:PivotTo(CFrame.new(position) * rotation)
+		return
+	end
+	if toss.kind == "Chute" then
+		if model:GetAttribute("PoolTossLaunched") ~= toss.started then
+			model:SetAttribute("PoolTossLaunched", toss.started)
+			model:PivotTo(toss.target)
+			local velocity = Vector3.new(0, -Physics.PoolDropSpeed, 0)
+			local limit = Physics.PoolSpin * 0.6
+			local spin = Vector3.new((math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit)
+			local manual = Physics.ManualThrow
+			local groundProps = PhysicalProperties.new(
+				manual.GroundDensity,
+				manual.GroundFriction,
+				manual.GroundElasticity,
+				manual.GroundFrictionWeight,
+				manual.GroundElasticityWeight
+			)
+			for _, part in model:GetDescendants() do
+				if part:IsA("BasePart") then
+					if part.Name ~= "HumanoidRootPart" then
+						part.CanCollide = true
+						part.CanTouch = true
+						part.CustomPhysicalProperties = groundProps
+					end
+					if not part.Anchored then
+						part.AssemblyLinearVelocity = velocity
+						part.AssemblyAngularVelocity = spin
+					end
+				end
+			end
+		end
+		TryLocalCagePreContain(model, toss.started)
+		return
+	end
+	if model:GetAttribute("CageContained") then return end
+	if model:GetAttribute("PoolTossLaunched") == toss.started then return end
+	model:SetAttribute("PoolTossLaunched", toss.started)
+	model:PivotTo(toss.target)
+	local velocity = Vector3.new(0, -Physics.PoolDropSpeed, 0)
+	local limit = Physics.PoolSpin * 0.6
+	local spin = Vector3.new((math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit, (math.random() * 2 - 1) * limit)
+	for _, part in model:GetDescendants() do
+		if part:IsA("BasePart") then
+			if part.Name ~= "HumanoidRootPart" then
+				part.CanCollide = true
+				part.CanTouch = true
+			end
+			if not part.Anchored then
+				part.AssemblyLinearVelocity = velocity
+				part.AssemblyAngularVelocity = spin
+			end
+		end
+	end
+	ApplyLocalCageContainment(model, toss.started, "Pool")
+end
+
 local function LocalRootPosition(): Vector3?
 	local localPlayer = Players.LocalPlayer
 	local character = if localPlayer then localPlayer.Character else nil
@@ -1042,7 +1091,11 @@ local function StepSoftCages(self: Manager, dt: number): ()
 			self.softCageState[id] = nil
 			continue
 		end
-		if item.location ~= "Thrown" and model:GetAttribute("LocalCageKind") ~= nil then
+		if model:GetAttribute("PhysicsMode") == "CageSleep" then
+			self.softCageState[id] = nil
+			continue
+		end
+		if item.location ~= "Thrown" and item.toss == nil and model:GetAttribute("LocalCageKind") ~= nil then
 			model:SetAttribute("LocalCageKind", nil)
 		end
 		if item.location ~= "Thrown" and item.location ~= "Pool" and item.location ~= "Chute" and item.location ~= "Ground" then
@@ -1050,7 +1103,7 @@ local function StepSoftCages(self: Manager, dt: number): ()
 			continue
 		end
 		local cage = (model:GetAttribute("CageContained") :: string?)
-			or (if item.location == "Thrown" then model:GetAttribute("LocalCageKind") :: string? else nil)
+			or (if item.location == "Thrown" or item.toss ~= nil then model:GetAttribute("LocalCageKind") :: string? else nil)
 		local spec = if cage and cages then cages[cage] else nil
 		if not spec then
 			self.softCageState[id] = nil
@@ -1069,7 +1122,7 @@ local function StepSoftCages(self: Manager, dt: number): ()
 		local ownerAttr = model:GetAttribute("PhysicsOwnerUserId")
 		local isOwner = localUserId ~= nil and (
 			ownerAttr == localUserId
-			or (item.location == "Thrown" and item.toss ~= nil and item.toss.owner == localUserId)
+			or (item.toss ~= nil and item.toss.owner == localUserId)
 		)
 		if isOwner then
 			local result = CageGeometry.ApplySoftBounceToModel(model, spec.floor.CFrame, spec.floor.Size, spec.inset)
@@ -1256,20 +1309,35 @@ function Manager.Step(self: Manager, now: number, seconds: number, painting: boo
 		Mixer.Commit(v.jointMap,v.sourceJoints,v.physicsMask,root.CFrame,self.contacts[v.id],rotations,shift,legacy,self.step,v.offsets,dt,cfg.Limits.AngularSpeed,yaw)
 	end
 end
-function Manager.SyncPaintBatch(self: Manager): ()
+function Manager.SyncPaintBatch(self: Manager, slotSpecs: { [number]: BodyPlacementMarkers.SlotSpec }?): ()
 	local center = self.tableView.model
 	if not center then return end
+	local primarySpec = if slotSpecs then slotSpecs[1] else nil
 	for id, item in self.items do
 		local slot = item.paintSlot
 		local view = self.views[id]
 		local model = if view and view.mode == "Table" then view.visualModel else nil
 		if not slot or not model then continue end
-		local offset = Rotation.BatchOffset(slot)
-		for _, part in model:GetChildren() do
-			if not part:IsA("BasePart") then continue end
-			local source = center:FindFirstChild(part.Name)
-			if source and source:IsA("BasePart") then
-				part.CFrame = source.CFrame + offset
+		local spec = if slotSpecs then slotSpecs[slot] else nil
+		if spec and spec.bodyPose then
+			local slotGeo = Rotation.Create(model, spec.bodyPose)
+			BodyPlacementMarkers.ApplyToModel(model, spec, self.tableView.orientation, slotGeo, self.tableView.flipLift)
+		elseif spec and primarySpec then
+			for _, part in model:GetChildren() do
+				if not part:IsA("BasePart") then continue end
+				local source = center:FindFirstChild(part.Name)
+				if source and source:IsA("BasePart") then
+					part.CFrame = BodyPlacementMarkers.TransformBatchPart(source.CFrame, primarySpec.pose, spec.pose)
+				end
+			end
+		else
+			local offset = Rotation.BatchOffset(slot)
+			for _, part in model:GetChildren() do
+				if not part:IsA("BasePart") then continue end
+				local source = center:FindFirstChild(part.Name)
+				if source and source:IsA("BasePart") then
+					part.CFrame = source.CFrame + offset
+				end
 			end
 		end
 	end

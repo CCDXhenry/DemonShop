@@ -115,6 +115,37 @@ assert(bounce.angularScale == Physics.Cage.SoftBounceAngularDamping, "angular da
 assert(bounce.hitWall == "South" and bounce.hitNormal ~= nil and frame:VectorToObjectSpace(bounce.hitNormal).Z < -0.99, "impact normal points inward")
 -- 回拉后下一帧向内飞行不再触发二次反弹（杜绝反复反弹卡墙）
 assert(Geometry.ResolveSoftBounce(frame, size, inset, frame:PointToWorldSpace(afterLocalPos), frame:VectorToWorldSpace(afterLocalVel)) == nil, "rebounded body moving inward must not re-bounce")
+-- 静置或慢速挤压越线时仅温和回拉并清零向外速度，绝不注入 SoftBounceMinPush（根治池内抽搐）
+local staticPen = Geometry.ResolveSoftBounce(frame, size, inset, place(0, 4, hz + 0.25), R.Vector3.zero)
+assert(staticPen ~= nil and staticPen.hitWall == nil and staticPen.angularScale == 1, "static penetration gently pulls back without hit flash")
+assert(frame:VectorToObjectSpace(staticPen.velocityDelta).Magnitude < 1e-4, "static penetration never injects outward/inward push velocity")
+local slowOut = frame:VectorToWorldSpace(R.Vector3.new(0, 0, 0.6))
+local slowBounce = Geometry.ResolveSoftBounce(frame, size, inset, place(0, 4, hz + 0.2), slowOut)
+assert(slowBounce ~= nil and math.abs(frame:VectorToObjectSpace(slowOut + slowBounce.velocityDelta).Z) < 1e-4, "slow squeeze zeroes outward speed instead of bouncing")
+-- 躯干在笼内但四肢伸出边缘时，ApplySoftBounceToModel 温和拉回且不误注入推力
+local limbModel = makeModel(0)
+limbModel.torso.Position = place(0, 4, hz - 0.5)
+limbModel.torso.AssemblyLinearVelocity = R.Vector3.zero
+limbModel.arm = {
+	Name = "LeftHand",
+	Position = place(0, 4, hz + 0.5),
+	Size = R.Vector3.new(0.8, 0.8, 0.8),
+	AssemblyLinearVelocity = R.Vector3.zero,
+	Anchored = false,
+	IsA = function(_, cls) return cls == "BasePart" end,
+}
+function limbModel:FindFirstChild(name) return if name == "UpperTorso" then self.torso else nil end
+function limbModel:GetPivot() return R.CFrame.new(self.torso.Position) end
+function limbModel:GetDescendants() return { self.torso, self.arm } end
+function limbModel:PivotTo(cf)
+	local delta = cf.Position - self.torso.Position
+	self.torso.Position += delta
+	self.arm.Position += delta
+end
+local limbResult = Geometry.ApplySoftBounceToModel(limbModel, frame, size, inset)
+assert(limbResult ~= nil and limbResult.hitWall == nil, "limb overhang is clamped gently without impact")
+assert(frame:PointToObjectSpace(limbModel.arm.Position).Z < hz + 0.2, "extended limb pulled inward toward inner wall")
+assert(limbModel.torso.AssemblyLinearVelocity.Magnitude < 1e-4, "limb clamp adds zero jitter velocity")
 -- 围观客户端位置穿越软壁检测
 local obsImpact = Geometry.DetectSoftImpact(frame, size, inset, place(0, 4, hz - 0.8), place(0, 4, hz + 0.1), R.Vector3.zero, 1 / 60)
 assert(obsImpact ~= nil and obsImpact.wall == "South" and frame:VectorToObjectSpace(obsImpact.normal).Z < -0.99, "observer detects soft impact from displacement")

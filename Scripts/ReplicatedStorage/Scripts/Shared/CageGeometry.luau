@@ -72,6 +72,14 @@ local function CheckSoftAxis(
 	if not triggered then
 		return false, 0, vel, false, 0, nil, sign
 	end
+	if penetration > 0 and vOut < Config.SoftBounceRestThreshold then
+		local pull = penetration + Config.SoftBounceClearance
+		if penetration <= 1.5 then
+			pull = math.min(pull, Config.SoftBounceMaxShiftPerStep)
+		end
+		local newVel = if vOut > 0 then 0 else vel
+		return true, -sign * pull, newVel, false, 0, nil, sign
+	end
 	local shift = if penetration > 0 then -sign * (penetration + Config.SoftBounceClearance) else 0
 	local newVel = vel
 	local bounced = false
@@ -193,6 +201,59 @@ function Geometry.DetectSoftImpact(
 	return best
 end
 
+local function ResolveModelLimbClamp(model: Model, frame: CFrame, size: Vector3, inset: number?, velocity: Vector3): (Vector3, Vector3)
+	local hx, hz = Geometry.InnerHalfSize(size, inset)
+	local halfY = size.Y * 0.5
+	local minX, maxX = math.huge, -math.huge
+	local minZ, maxZ = math.huge, -math.huge
+	local found = false
+	for _, part in model:GetDescendants() do
+		if not part:IsA("BasePart") or part.Anchored then
+			continue
+		end
+		local okName, name = pcall(function(): string return part.Name end)
+		if okName and name == "HumanoidRootPart" then
+			continue
+		end
+		local lp = frame:PointToObjectSpace(part.Position)
+		if lp.Y < -halfY - 1 or lp.Y > Config.WallHeight - halfY then
+			continue
+		end
+		local rad = 0
+		local okSize, pSize = pcall(function(): Vector3 return part.Size end)
+		if okSize and typeof(pSize) == "Vector3" then
+			rad = math.max(pSize.X, pSize.Z) * 0.35
+		end
+		found = true
+		minX = math.min(minX, lp.X - rad)
+		maxX = math.max(maxX, lp.X + rad)
+		minZ = math.min(minZ, lp.Z - rad)
+		maxZ = math.max(maxZ, lp.Z + rad)
+	end
+	if not found then
+		return Vector3.zero, Vector3.zero
+	end
+	local shiftX = 0
+	if maxX > hx and minX >= -hx then
+		shiftX = -math.min(maxX - hx + Config.SoftBounceClearance, Config.SoftBounceMaxShiftPerStep)
+	elseif minX < -hx and maxX <= hx then
+		shiftX = math.min(-hx - minX + Config.SoftBounceClearance, Config.SoftBounceMaxShiftPerStep)
+	end
+	local shiftZ = 0
+	if maxZ > hz and minZ >= -hz then
+		shiftZ = -math.min(maxZ - hz + Config.SoftBounceClearance, Config.SoftBounceMaxShiftPerStep)
+	elseif minZ < -hz and maxZ <= hz then
+		shiftZ = math.min(-hz - minZ + Config.SoftBounceClearance, Config.SoftBounceMaxShiftPerStep)
+	end
+	if shiftX == 0 and shiftZ == 0 then
+		return Vector3.zero, Vector3.zero
+	end
+	local v = frame:VectorToObjectSpace(velocity)
+	local dvx = if (shiftX < 0 and v.X > 0) or (shiftX > 0 and v.X < 0) then -v.X else 0
+	local dvz = if (shiftZ < 0 and v.Z > 0) or (shiftZ > 0 and v.Z < 0) then -v.Z else 0
+	return frame:VectorToWorldSpace(Vector3.new(shiftX, 0, shiftZ)), frame:VectorToWorldSpace(Vector3.new(dvx, 0, dvz))
+end
+
 function Geometry.ApplySoftBounceToModel(model: Model, frame: CFrame, size: Vector3, inset: number?): SoftBounce?
 	local torso = model:FindFirstChild("UpperTorso") or model.PrimaryPart
 	if not torso or not torso:IsA("BasePart") or torso.Anchored then
@@ -205,40 +266,63 @@ function Geometry.ApplySoftBounceToModel(model: Model, frame: CFrame, size: Vect
 		return nil
 	end
 	local result = Geometry.ResolveSoftBounce(frame, size, inset, torso.Position, currentVel)
-	if not result then
+	local limbShift, limbDelta = ResolveModelLimbClamp(model, frame, size, inset, currentVel)
+	if not result and limbShift.Magnitude <= 1e-5 then
 		return nil
 	end
-	if result.offset.Magnitude > 1e-4 then
+	local totalOffset = if result then result.offset else limbShift
+	local totalDelta = if result then result.velocityDelta else limbDelta
+	local angularScale = if result then result.angularScale else 1
+	if result and limbShift.Magnitude > 1e-5 then
+		local rLocal = frame:VectorToObjectSpace(result.offset)
+		local lLocal = frame:VectorToObjectSpace(limbShift)
+		local mergedX = if math.abs(rLocal.X) >= math.abs(lLocal.X) then rLocal.X else lLocal.X
+		local mergedZ = if math.abs(rLocal.Z) >= math.abs(lLocal.Z) then rLocal.Z else lLocal.Z
+		totalOffset = frame:VectorToWorldSpace(Vector3.new(mergedX, rLocal.Y, mergedZ))
+	end
+	if totalOffset.Magnitude > 1e-4 then
 		local okPivot = pcall(function(): ()
-			model:PivotTo(model:GetPivot() + result.offset)
+			model:PivotTo(model:GetPivot() + totalOffset)
 		end)
 		if not okPivot then
 			for _, part in model:GetDescendants() do
 				if part:IsA("BasePart") and not part.Anchored then
-					part.CFrame = part.CFrame + result.offset
+					part.CFrame = part.CFrame + totalOffset
 				end
 			end
 		end
 	end
-	for _, part in model:GetDescendants() do
-		if part:IsA("BasePart") and not part.Anchored then
-			local okPartVel, partVel = pcall(function(): Vector3
-				return part.AssemblyLinearVelocity
-			end)
-			if okPartVel and typeof(partVel) == "Vector3" then
-				part.AssemblyLinearVelocity = partVel + result.velocityDelta
-			end
-			if result.angularScale < 1 then
-				local okAng, partAng = pcall(function(): Vector3
-					return part.AssemblyAngularVelocity
-				end)
-				if okAng and typeof(partAng) == "Vector3" then
-					part.AssemblyAngularVelocity = partAng * result.angularScale
+	if totalDelta.Magnitude > 1e-5 or angularScale < 1 then
+		for _, part in model:GetDescendants() do
+			if part:IsA("BasePart") and not part.Anchored then
+				if totalDelta.Magnitude > 1e-5 then
+					local okPartVel, partVel = pcall(function(): Vector3
+						return part.AssemblyLinearVelocity
+					end)
+					if okPartVel and typeof(partVel) == "Vector3" then
+						part.AssemblyLinearVelocity = partVel + totalDelta
+					end
+				end
+				if angularScale < 1 then
+					local okAng, partAng = pcall(function(): Vector3
+						return part.AssemblyAngularVelocity
+					end)
+					if okAng and typeof(partAng) == "Vector3" then
+						part.AssemblyAngularVelocity = partAng * angularScale
+					end
 				end
 			end
 		end
 	end
-	return result
+	return result or {
+		offset = totalOffset,
+		velocityDelta = totalDelta,
+		angularScale = 1,
+		hitWall = nil,
+		hitPosition = nil,
+		hitNormal = nil,
+		impactSpeed = 0,
+	}
 end
 
 function Geometry.IntersectInnerWall(frame: CFrame, size: Vector3, inset: number?, from: Vector3, delta: Vector3): (number?, Vector3?, Vector3?)

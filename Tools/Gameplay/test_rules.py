@@ -68,12 +68,12 @@ server=ROOT/"Scripts/ServerStorage/Scripts"
 (OUT/"GameConfig").mkdir(parents=True,exist_ok=True)
 for data_name in ("WeaponData","CarryToolData","PersonalAbilityData","AutomationFacilityData"):
     (OUT/"GameConfig"/(data_name+".luau")).write_text((shared/"GameConfig"/(data_name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")
-for name in ("GameConfig","GameData","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","AutoRunePattern"):
+for name in ("GameConfig","GameData","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","BodyPlacementMarkers","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","AutoRunePattern"):
     src_path=(shared/"GameConfig"/"init.luau") if name == "GameConfig" else (shared/(name+".luau"))
     text=src_path.read_text(encoding="utf-8")
     text=text.replace('require(game:GetService("ReplicatedStorage").Core.Scripts.Shared.NumberExtension)', "require('./NumberExtension')")
     text=text.replace("require(ReplicatedStorage.Core.Scripts.Shared.NumberExtension)", "require('./NumberExtension')")
-    for dep in ("GameConfig","GameData","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","VisualRules","AutoRunePattern"):
+    for dep in ("GameConfig","GameData","GameTexts","GameTypes","Hints","SaveRules","PlayerProfileRules","PaintSurface","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","BodyPlacementMarkers","RuneGlyphData","RuneStampRules","ThrowArc","AutomationRules","WorldInteractionRules","VisualRules","AutoRunePattern"):
         text=text.replace("require(script.Parent."+dep+")", "require('./"+dep+"')")
     if name == "GameData":
         for data_name in ("WeaponData","CarryToolData","PersonalAbilityData","AutomationFacilityData"):
@@ -83,7 +83,7 @@ for name in ("GameConfig","GameData","GameTexts","GameTypes","Hints","SaveRules"
         end=text.index('--游戏版本')
         text=text[:start]+"local D=require('./FoundationDateBoundary')\nlocal DateTimeExtension,DateTime=D.DateTimeExtension,D.DateTime\n"+text[end:]
         text="local Color3=require('@lune/roblox').Color3\nlocal Vector3=require('@lune/roblox').Vector3\nlocal game={GameId=0}\n"+text
-    if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","RuneStampRules","ThrowArc","AutomationRules","AutoRunePattern"):
+    if name in ("PaintSurface","StrokePath","VisualRules","CurvedSurface","BodySurfaceData","PhysicsConfig","PaintBodyPose","PaintRotation","BodyPlacementMarkers","RuneStampRules","ThrowArc","AutomationRules","AutoRunePattern"):
         text="local roblox=require('@lune/roblox')\nlocal Vector2,Vector3,CFrame,Color3,Enum=roblox.Vector2,roblox.Vector3,roblox.CFrame,roblox.Color3,roblox.Enum\n"+text
     (OUT/(name+".luau")).write_text(text,encoding="utf-8")
 (OUT/"test_throw_arc.luau").write_text((ROOT/"Tools/Gameplay/test_throw_arc.luau").read_text(encoding="utf-8"),encoding="utf-8")
@@ -425,6 +425,7 @@ scene_prefix = (
     "local Config=require('./GameConfig')\n"
     "local ThrowArc=require('./ThrowArc')\n"
     "local PaintRotation=require('./PaintRotation')\n"
+    "local BodyPlacementMarkers=require('./BodyPlacementMarkers')\n"
     "local FixedCamera=require('./StationFixedCamera')\n"
     "local CageGeometry=require('./CageGeometry')\n"
     "local StreetZones=require('./StreetWalkZones')\n"
@@ -512,6 +513,7 @@ pm_prefix = (
     "local NumberExtension=require('./NumberExtension')\n"
     "local PersonalMovement=require('./PersonalMovement')\n"
     "local ModelTemplates=require('./StationModelTemplates')\n"
+    "local BodyPlacementMarkers=require('./BodyPlacementMarkers')\n"
     "local Lifecycle=require('./LifecycleTool')\n"
     "local B=require('./StationPotionBoundary')\n"
     "local RaycastParams=B.RaycastParams\n"
@@ -617,6 +619,7 @@ cam_scene_prefix = (
     "local Config=require('./GameConfig')\n"
     "local ThrowArc=require('./ThrowArc')\n"
     "local PaintRotation=require('./PaintRotation')\n"
+    "local BodyPlacementMarkers=require('./BodyPlacementMarkers')\n"
     "local FixedCamera=require('./StationFixedCamera')\n"
     "local CageGeometry=require('./CageGeometry')\n"
     "local StreetZones=require('./StreetWalkZones')\n"
@@ -693,3 +696,5 @@ return B
 )
 (OUT / "test_cage_physics.luau").write_bytes((ROOT / "Tools/Gameplay/test_cage_physics.luau").read_bytes())
 subprocess.run(["lune", "run", str(OUT / "test_cage_physics.luau")], cwd=ROOT, check=True)
+(OUT / "test_body_placement_markers.luau").write_bytes((ROOT / "Tools/Gameplay/test_body_placement_markers.luau").read_bytes())
+subprocess.run(["lune", "run", str(OUT / "test_body_placement_markers.luau")], cwd=ROOT, check=True)

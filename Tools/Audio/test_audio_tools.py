@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import Mock
 from upload_roblox_audio import upload_selected, upload_single_audio
 from setup_sounds_in_studio import selected_sounds, build_setup_code
+from check_roblox_audio_moderation import check_moderation, check_staged
 
 
 class AudioTests(unittest.TestCase):
@@ -60,12 +61,63 @@ class AudioTests(unittest.TestCase):
     def test_deployment_hash_and_selected_scope(self):
         self.upload()
         sounds = selected_sounds(['Click'], self.root, self.manifest, 'group', '42')
-        code = build_setup_code(sounds, 'group', '42')
+        code = build_setup_code(sounds, 'group', '42', place_id=101)
+        self.assertIn('assert(game.PlaceId == 101,', code)
         self.assertIn('Enum.CreatorType.Group', code)
         self.assertNotIn('Other', code)
         (self.root / 'Click.mp3').write_bytes(b'changed')
         with self.assertRaises(ValueError):
             selected_sounds(['Click'], self.root, self.manifest, 'group', '42')
+
+    def test_review_is_checked_once_and_unknown_is_not_approved(self):
+        session = Mock()
+        response = session.get.return_value
+        for raw, expected in (
+            ('Approved', 'approved'),
+            ('MODERATION_STATE_APPROVED', 'approved'),
+            ('Reviewing', 'pending'),
+            ('MODERATION_STATE_REJECTED', 'rejected'),
+            ('future-status', 'unknown'),
+            (None, 'unknown'),
+        ):
+            session.reset_mock()
+            response.status_code = 200
+            response.json.return_value = {'moderationResult': {'moderationState': raw}}
+            self.assertEqual(check_moderation(session, 'fake-key', '123')['status'], expected)
+            self.assertEqual(session.get.call_count, 1)
+        response.status_code = 401
+        self.assertEqual(check_moderation(session, 'fake-key', '123')['httpStatus'], 401)
+
+    def test_staged_review_is_saved_and_resume_reuses_asset_id(self):
+        self.upload()
+        before = self.manifest.read_bytes()
+        session = Mock()
+        session.get.return_value.status_code = 200
+        session.get.return_value.json.return_value = {'moderationResult': {'moderationState': 'Pending'}}
+        status = self.root / 'review.json'
+        before_hash = json.loads(before)['sounds']['Click']['sha256']
+        check_staged(['Click'], self.root, self.manifest, 'group', '42', 101, status, 'fake-key', session)
+        saved = json.loads(status.read_text())
+        self.assertEqual(saved['placeId'], 101)
+        self.assertEqual(saved['sounds']['Click']['status'], 'pending')
+        self.assertEqual(saved['sounds']['Click']['sha256'], before_hash)
+        session.get.return_value.json.return_value = {'moderationResult': {'moderationState': 'Approved'}}
+        results = check_staged(['Click'], self.root, self.manifest, 'group', '42', 101, status, 'fake-key', session)
+        self.assertEqual(results['sounds']['Click']['status'], 'approved')
+        self.assertEqual(self.manifest.read_bytes(), before)
+        self.assertTrue(all('/123' in call.args[0] for call in session.get.call_args_list))
+        self.assertEqual(self.uploader.call_count, 1)
+        (self.root / 'Click.mp3').write_bytes(b'changed')
+        with self.assertRaises(ValueError):
+            check_staged(['Click'], self.root, self.manifest, 'group', '42', 101, status, 'fake-key', session)
+        self.assertEqual(session.get.call_count, 2)
+        (self.root / 'Click.mp3').write_bytes(b'Click')
+        replaced = json.loads(before)
+        replaced['sounds']['Click']['assetId'] = '999'
+        self.manifest.write_text(json.dumps(replaced))
+        with self.assertRaises(ValueError):
+            check_staged(['Click'], self.root, self.manifest, 'group', '42', 101, status, 'fake-key', session)
+        self.assertEqual(session.get.call_count, 2)
 
     def test_operation_path_and_user_creator(self):
         session = Mock()

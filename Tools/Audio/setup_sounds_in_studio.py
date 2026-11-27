@@ -6,10 +6,15 @@ from pathlib import Path
 from upload_roblox_audio import load_manifest
 
 
-def build_setup_code(sounds, creator_type, creator_id):
+def build_setup_code(sounds, creator_type, creator_id, place_id=None):
     payload = json.dumps(json.dumps(sounds, ensure_ascii=True))
     enum = 'Group' if creator_type == 'group' else 'User'
-    return f'''assert(not game:GetService("RunService"):IsRunning(), "Edit mode required")
+    place_guard = ""
+    if place_id is not None:
+        if place_id <= 0:
+            raise ValueError("place-id must be positive")
+        place_guard = f'assert(game.PlaceId == {place_id}, "Place mismatch")\n'
+    return f'''{place_guard}assert(not game:GetService("RunService"):IsRunning(), "Edit mode required")
 assert(game.CreatorType == Enum.CreatorType.{enum} and game.CreatorId == {int(creator_id)}, "Creator mismatch")
 local sounds = game:GetService("HttpService"):JSONDecode({payload})
 local storage = game:GetService("ReplicatedStorage")
@@ -64,12 +69,15 @@ def main():
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--creator-type', choices=['user', 'group'], required=True)
     parser.add_argument('--creator-id', required=True, type=int)
+    parser.add_argument('--place-id', type=int)
     parser.add_argument('--emit-code', required=True, action='store_true')
     args = parser.parse_args()
     if args.creator_id <= 0:
         parser.error('creator-id must be positive')
+    if args.place_id is not None and args.place_id <= 0:
+        parser.error('place-id must be positive')
     sounds = selected_sounds(args.names, args.sounds_dir, args.manifest, args.creator_type, args.creator_id)
-    print(build_setup_code(sounds, args.creator_type, args.creator_id))
+    print(build_setup_code(sounds, args.creator_type, args.creator_id, args.place_id))
 
 
 if __name__ == '__main__':

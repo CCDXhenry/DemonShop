@@ -407,7 +407,12 @@ do
 
 	local verBeforeChute = manager.stationVersions.ChutePickup
 	manager:OnRequest(p1, { action = 'Interact', target = 'Chute', version = manager.stationVersions.Chute })
-	check(manager:ChuteCount() == 8 + 1 - 1 and #manager:Carried(p1) == 1 and manager:Carried(p1)[1] == paintedKept, 'A00 batch deposits 8 unfinished bodies (7 new + rawPre) and keeps painted body')
+	for _ = 1, 20 do
+		if not manager.players[p1].depositQueue then break end
+		B.now += 0.1
+		manager:Update()
+	end
+	check(manager.players[p1].depositQueue == nil and manager:ChuteCount() == 8 + 1 - 1 and #manager:Carried(p1) == 1 and manager:Carried(p1)[1] == paintedKept, 'A00 batch deposits 8 unfinished bodies (7 new + rawPre) and keeps painted body')
 	check(#manager.chuteVisible == 8 and manager.chuteOverflowCount == 0, 'chuteQueue renders all deposited bodies without cap or virtual overflow')
 	for _, id in manager.chuteVisible do
 		local item = manager.items[id]
@@ -417,7 +422,8 @@ do
 			torso.CFrame = primary.CFrame
 			torso.Position = primary.Position
 		end
-		check(item.model:GetAttribute('PhysicsMode') == 'Loose', 'each visible body enters physical chute storage')
+		local pm = item.model:GetAttribute('PhysicsMode')
+		check(pm == 'Loose' or pm == 'CageSleep', 'each visible body enters physical chute storage')
 	end
 	check(manager:PoolCount() == 0 and manager:ShelfCount() == 0 and manager.stationVersions.ChutePickup > verBeforeChute, 'manual pool/shelf untouched by chute deposit')
 
@@ -481,21 +487,37 @@ do
 	escapedBody.model.UpperTorso.Position = Vector3.new(-100, 2, -90)
 	B.now += 0.2
 	manager:Update()
-	check(escapedBody.location == 'Ground' and escapedBody.model:GetAttribute('CageContained') == nil and manager:ChuteCount() == 8, 'body knocked outside FastChuteLanding reverts to pickable Ground')
-	escapedBody.model.UpperTorso.Position = Vector3.new(-58.8, 2.0, -28.5)
-	B.now += 0.2
-	manager:Update()
-	check(escapedBody.location == 'Chute' and manager:ChuteCount() == 9, 'body returned onto FastChuteLanding re-enters chuteVisible')
+	check(escapedBody.location == 'Chute' and escapedBody.model:GetAttribute('CageContained') == 'Chute' and manager:ChuteCount() == 9, 'chute body knocked outside recovers back into FastChuteLanding instead of Ground')
 
 	-- 5. A03 自动符文台 (2.0s/具) -> autoPaintedQueue (无限+6实体)
-	B.now = 200
+	-- 落稳门控：模拟刚落入落料池（未满停留时长且未到兜底上限）时，不得被 A03 提前抽走
+	B.now = 199.9
+	for _, id in manager.chuteVisible do
+		local chuteItem = manager.items[id]
+		if chuteItem then
+			chuteItem.chuteEnteredAt = B.now
+			chuteItem.chuteSettledSince = nil
+		end
+	end
 	p1:SetAttribute('Coins', 10000)
 	root1.CFrame = CFrame.new(Scene.UnlockPads[F.AutoRune].TriggerZone.Position)
 	root1.Position = Scene.UnlockPads[F.AutoRune].TriggerZone.Position
-	check(manager:TryUnlockFacility(p1, F.AutoRune), 'unlock A03 pulls first chute body immediately')
-	check(manager:ChuteCount() == 8 and manager.autoRuneItemId == nextInChute.id and manager.autoRuneEnds == 202.0, 'A03 starts processing with 2.0s period')
+	check(manager:TryUnlockFacility(p1, F.AutoRune), 'unlock A03 does not pull unsettled chute body immediately')
+	check(manager:ChuteCount() == 9 and manager.autoRuneItemId == nil, 'chute body waits to settle before entering AutoRune')
 
-	B.now = 201.9
+	-- 模拟落料池落稳停留时长 (AutoChuteDwellSeconds = 0.65s) 到期后拉入绘画机
+	B.now = 200.65
+	manager:Update()
+	check(manager:ChuteCount() == 8 and manager.autoRuneItemId == nextInChute.id and manager.autoRuneEnds == 202.65, 'A03 pulls settled body after dwell and starts 2.0s period')
+
+	-- 进床滑入阶段 (0 ~ 0.50s) 处于池与床之间，尚未瞬移到 WorkBed
+	B.now = 200.9
+	manager:Update()
+	local midIntakePos = nextInChute.model.WorldPivot.Position
+	check((midIntakePos - Scene.AutoRunePose().Position).Magnitude > 1.0, 'intake smoothly slides body toward WorkBed instead of teleporting')
+
+	-- 进床完成后进入画符阶段，在 1.9s 后（202.55s）仍未完工，且已开始打符
+	B.now = 202.55
 	manager:Update()
 	check(manager:AutoPaintedCount() == 0, 'A03 does not finish before 2.0s')
 	local working = manager.items[manager.autoRuneItemId]
@@ -509,7 +531,7 @@ do
 	end
 	check(sawStamp, 'A03 broadcasts rune stamps for clients')
 
-	B.now = 202.0
+	B.now = 202.65
 	manager:Update()
 	check(manager:AutoPaintedCount() == 1 and manager:ChuteCount() == 7, 'A03 completes 1 painted body at 2.0s and feeds next')
 	local firstOut = manager.items[manager.autoPaintedVisible[1]]
@@ -517,20 +539,43 @@ do
 	check(firstOut.visualState ~= nil and firstOut.visualState.count > midCount, 'A03 finishes the remaining rune stamps')
 	check(firstOut.model.UpperTorso.Color ~= Config.AutoPaintedColor, 'auto rune keeps the membrane color')
 
+	-- 并行斜坡过渡验证：刚画完第 0 帧留在 WorkBed，0.4s 时沿斜坡上行，0.85s 到达摆放台槽位
+	check((firstOut.model.WorldPivot.Position - Scene.AutoRunePose().Position).Magnitude < 0.05, 'output body starts ramp climb from WorkBed instead of teleporting')
+	B.now = 203.10
+	manager:Update()
+	local midRampPos = firstOut.model.WorldPivot.Position
+	check((midRampPos - Scene.AutoRunePose().Position).Magnitude > 1.0 and (midRampPos - Scene.AutoOutputPose(1).Position).Magnitude > 0.5, 'output body smoothly climbs ramp mid-transition')
+	B.now = 203.55
+	manager:Update()
+	check((firstOut.model.WorldPivot.Position - Scene.AutoOutputPose(1).Position).Magnitude < 0.05, 'output body settles cleanly at AutoOutputPose(1)')
+
 	-- 再推进 8 个 2.0s 节拍消化剩余 8 具（共 9 具全部画符完毕）-> autoPaintedQueue = 9 (6 实体 + 3 虚拟溢出)
 	for step = 1, 8 do
-		B.now = 202.0 + step * 2.0
+		B.now = 202.65 + step * 2.0
 		manager:Update()
 	end
+	-- 等最后一具爬坡到达摆放台
+	B.now = 202.65 + 8 * 2.0 + 1.0
+	manager:Update()
 	check(manager:ChuteCount() == 0 and manager.autoRuneItemId == nil and manager:AutoPaintedCount() == 9 and #manager.autoPaintedVisible == 6 and manager.autoPaintedOverflowCount == 3, 'A03 produces 9 bodies into infinite autoPaintedQueue capped at 6 visible')
 	check(manager:PoolCount() == 0 and manager.tableId == nil and manager.altarId == nil and manager:ShelfCount() == 0, 'strict isolation after A03 batch')
 
-	-- 断点手取 1 具已画符白膜（剩 8 具）
+	-- 断点手取 1 具已画符白膜（剩 8 具），并验证队列平滑补位（非瞬移）
+	local secondOutBeforePick = manager.items[manager.autoPaintedVisible[2]]
 	local emptyP, _, _, emptyRoot = B.CreatePlayer(203, Scene.AutoRuneOutputPrompt.Position)
 	manager:AddPlayer(emptyP)
 	local outVerBefore = manager.stationVersions.AutoOutput
 	manager:OnRequest(emptyP, { action = 'Interact', target = 'AutoOutput', version = outVerBefore })
 	check(manager:AutoPaintedCount() == 8 and #manager.autoPaintedVisible == 6 and manager.autoPaintedOverflowCount == 2 and #manager:Carried(emptyP) == 1 and manager:Carried(emptyP)[1].stage == 'Painted', 'AutoOutput pickup gives Painted body & replenishes from overflow')
+	check((secondOutBeforePick.model.WorldPivot.Position - Scene.AutoOutputPose(2).Position).Magnitude < 0.1, 'queued body slides instead of snapping immediately on pickup')
+	B.now += 0.15
+	manager:Update()
+	local midShiftX = secondOutBeforePick.model.WorldPivot.Position.X
+	local pos1X, pos2X = Scene.AutoOutputPose(1).Position.X, Scene.AutoOutputPose(2).Position.X
+	check(midShiftX > math.min(pos1X, pos2X) and midShiftX < math.max(pos1X, pos2X), 'queued body smoothly shifts between slot 2 and slot 1')
+	B.now += 0.25
+	manager:Update()
+	check((secondOutBeforePick.model.WorldPivot.Position - Scene.AutoOutputPose(1).Position).Magnitude < 0.05, 'queued body finishes smooth shift to slot 1')
 	local replenished = manager.items[manager.autoPaintedVisible[#manager.autoPaintedVisible]]
 	check(replenished ~= nil and replenished.visualState ~= nil and replenished.visualState.count == firstOut.visualState.count and replenished.model:GetAttribute('AutoPainted') == true and replenished.model.UpperTorso.Color ~= Config.AutoPaintedColor, 'overflow respawn carries the full rune pattern')
 
@@ -555,7 +600,7 @@ do
 	check(manager:PeekAutoPaintedItem().id ~= firstId, 'player pickup queue excludes the body reserved for transfer')
 	B.now = 300.4
 	manager:Update()
-	check(passLight.Enabled and firstBody.stage == 'Painted' and manager.autoSmelterEnds == 0, 'lamp indicates passage before furnace timer')
+	check(passLight.Enabled and math.abs(passLight.Brightness - Config.AutoTransferLightBrightness) < 0.01 and firstBody.stage == 'Painted' and manager.autoSmelterEnds == 0, 'lamp indicates passage with softened brightness before furnace timer')
 	check((firstBody.model.WorldPivot.Position - Scene.AutoTransferPass.Position).Magnitude < 0.01, 'body waits at lit pass point')
 	B.now = 301.0
 	manager:Update()
@@ -599,7 +644,20 @@ do
 	check(coinsEarned[p4] == 8 * Config.PotionReward, 'Sigil sells auto-shelf potions using standard economy reward')
 	local fresh = makeTestBody(manager)
 	manager:PushChuteItem(fresh, false)
+	-- 模拟刚投入时速度未降稳，即使经过 Dwell 时长也不得被抽走
+	fresh.model.UpperTorso.AssemblyLinearVelocity = Vector3.new(0, -10, 0)
 	manager:Update()
+	check(fresh.location == 'Chute' and manager.autoRuneItemId == nil, 'fresh chute body is not pulled immediately before settling')
+	B.now += Config.AutoChuteDwellSeconds + 0.1
+	manager:Update()
+	check(fresh.location == 'Chute' and manager.autoRuneItemId == nil, 'fast-moving chute body stays in chute until speed settles')
+	-- 速度降稳后再经过 Dwell 时长，正式拉入 AutoRune
+	fresh.model.UpperTorso.AssemblyLinearVelocity = Vector3.zero
+	manager:Update()
+	check(fresh.location == 'Chute', 'just-settled body still waits for dwell duration')
+	B.now += Config.AutoChuteDwellSeconds + 0.05
+	manager:Update()
+	check(fresh.location == 'AutoRune', 'settled body enters AutoRune after dwell')
 	local paintStart = B.now
 	B.now = paintStart + 1.5
 	manager:Update()
@@ -608,9 +666,12 @@ do
 	manager:Update()
 	check(manager.autoSmelterItemId == fresh.id and manager:AutoPaintedCount() == 0, 'painted body moves straight from bed to transfer when the furnace is free')
 	check((fresh.model.WorldPivot.Position - Scene.AutoRunePose().Position).Magnitude < 0.01, 'direct transfer starts at the painting bed')
-	B.now += 0.5
+	B.now += 0.35
 	manager:Update()
-	check((fresh.model.WorldPivot.Position - Scene.AutoTransferRamp.Position).Magnitude < 0.01, 'direct transfer climbs the ramp before the pass station')
+	check((fresh.model.WorldPivot.Position - Scene.AutoTransferRamp.Position).Magnitude < 0.1, 'direct transfer reaches ramp base before climbing')
+	B.now += 0.37
+	manager:Update()
+	check((fresh.model.WorldPivot.Position - Scene.AutoTransferRampTop.Position).Magnitude < 0.1, 'direct transfer climbs to ramp top before the pass station')
 	manager:Destroy()
 end
 

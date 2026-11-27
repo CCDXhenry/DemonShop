@@ -24,7 +24,7 @@ description: DemonShop 项目身份、源码入口、Studio、工具及版本管
 - 存档元数据键集中于 `PlayerSaveLeaseRules.MetadataKeys`，保持持久化字符串兼容；业务代码通过常量访问，不直接改键。
 - strict：`pwsh -File Tools/check-strict.ps1 <文件>`、`-Staged`、`-All`。sourcemap 为生成缓存，不提交。现有共享库诊断与本次改动诊断分别报告。
 - 录屏优先 Studio MCP 的 `video_capture`（或实时 schema 含录像参数的 `screen_capture`）。MCP 录像不可用或失败后，OBS 作为后备：默认场景 `DemonShop_Studio_Viewport`、来源 `DemonShop_Studio_Window`，Studio 标题默认匹配 `Place1`；可用 `ROBLOX_OBS_SCENE` / `ROBLOX_OBS_SOURCE` / `ROBLOX_OBS_PROJECT` 覆盖；工具位于 `Tools/Studio`，依赖 `requirements-obs.txt`。校准、录制与 live tests 按实际任务授权执行。
-- 音频工具位于 `Tools/Audio`；上传显式提供 names、sounds-dir、manifest、creator-type、creator-id、prefix。凭证由 ROBLOX_API_KEY 环境变量提供。部署工具只生成 Luau，检查目标后经 MCP 执行；没有预置业务素材或归属 ID。
+- 音频工具位于 `Tools/Audio`；上传显式提供 names、sounds-dir、manifest、creator-type、creator-id、prefix。音频工具默认从 ROBLOX_API_KEY 读取凭据。本项目也可显式传入 `--api-key-env SIXCUBE_ROBLOX_OPENCLOUD_KEY`，复用既有 Open Cloud 凭据。部署工具只生成 Luau，检查目标后经 MCP 执行；没有预置业务素材或归属 ID。
 - 上传调用：`python Tools/Audio/upload_roblox_audio.py --names Click --sounds-dir Assets/Sounds --manifest Assets/Sounds/audio_manifest.json --creator-type group --creator-id <实际归属ID> --prefix DemonShop_`。部署前使用相同 names、sounds-dir、manifest、creator-type、creator-id 调用 `setup_sounds_in_studio.py --emit-code`，再经目标 MCP 执行。依赖声明在 `Tools/Audio/requirements.txt`。
 - UI 离线工具：`python Tools/UI/build_screen_layout_guide.py <实测samples.json> --output-dir .cache/layout`；采样器和 Edit 构建器复用 roblox-ui-system/assets，不额外复制实现。离线并集默认仅合并 `TopLeftCore`（仅保留原生跳跃键时按需传入 `JumpButton`）；系统区变化时补采样更新。
 - SVN 文件及 External 不纳入 Git；保留所有 .svn。不发布 Package。提交、推送与资产发布分别按实际授权执行。

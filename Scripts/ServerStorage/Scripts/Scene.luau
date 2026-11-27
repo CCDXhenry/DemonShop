@@ -6,6 +6,7 @@ local CageGeometry = require(ReplicatedStorage.Scripts.Shared.CageGeometry)
 local ThrowArc = require(ReplicatedStorage.Scripts.Shared.ThrowArc)
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local PaintRotation = require(ReplicatedStorage.Scripts.Shared.PaintRotation)
+local BodyPlacementMarkers = require(ReplicatedStorage.Scripts.Shared.BodyPlacementMarkers)
 local FixedCamera = require(ReplicatedStorage.Scripts.Shared.FixedCamera)
 local StreetZones = require(script.Parent.StreetWalkZones)
 local Scene = {}
@@ -145,6 +146,8 @@ local tableModel = district:WaitForChild("RuneBodyTable")
 Scene.TableModel = tableModel
 Scene.Table = Part(tableModel, "BodyPlacementAnchor")
 Scene.TableInteract = Part(tableModel, "TransferStartAnchor")
+local tableSlotSpecs = BodyPlacementMarkers.ReadSlotSpecs(tableModel, Scene.Table)
+BodyPlacementMarkers.HideAll(tableModel)
 FixedCamera.HideAll(district)
 Scene.Altar = Part(district:WaitForChild("SoulConversionAltar"), "BodyArrivalAnchor")
 local altarRest = Part(district:WaitForChild("SoulConversionAltar"), "BodyRest")
@@ -264,8 +267,17 @@ function Scene.StationRange(target: string): number
 	end
 	return Config.InteractionRange
 end
-function Scene.TablePose(): CFrame
-	return PaintRotation.TablePose(Scene.Table.Position)
+function Scene.TableSlot(slot: number?): BodyPlacementMarkers.SlotSpec
+	local index = slot or 1
+	return tableSlotSpecs[index] or tableSlotSpecs[1]
+end
+function Scene.TablePose(slot: number?): CFrame
+	local index = slot or 1
+	local spec = tableSlotSpecs[index]
+	if spec then
+		return spec.pose
+	end
+	return tableSlotSpecs[1].pose + (PaintRotation.BatchOffset(index) or Vector3.zero)
 end
 function Scene.CameraPose(_count: number?): CFrame
 	local markerPose = FixedCamera.GetCFrame(Scene.TableModel)
@@ -278,15 +290,138 @@ function Scene.PoolPose(slot: number): CFrame
 	return CFrame.new(Scene.PoolPickup.Position + Vector3.new(((slot - 1) % 4 - 1.5) * 4, 1.7, -5 - math.floor((slot - 1) / 4) * 4))
 		* CFrame.Angles(math.pi / 2, 0, 0)
 end
-function Scene.PoolDropTarget(random: Random): CFrame
-	local floor = Scene.PoolFloor
-	local inset = math.min(Physics.PoolInset, floor.Size.X * 0.5, floor.Size.Z * 0.5)
-	local x = random:NextNumber(-floor.Size.X * 0.5 + inset, floor.Size.X * 0.5 - inset)
-	local z = random:NextNumber(-floor.Size.Z * 0.5 + inset, floor.Size.Z * 0.5 - inset)
+local function ScoreDropCandidates(
+	frame: CFrame,
+	safeX: number,
+	safeZ: number,
+	floorTopLocalY: number,
+	clearance: number,
+	maxLocalY: number,
+	random: Random,
+	occupied: { Vector3 }?,
+	avoidPlayers: { Vector3 }?
+): (number, number, number)
+	local localOccupied: { Vector3 } = {}
+	if occupied then
+		for _, pos in occupied do
+			table.insert(localOccupied, frame:PointToObjectSpace(pos))
+		end
+	end
+	local localPlayers: { Vector3 } = {}
+	if avoidPlayers then
+		for _, pos in avoidPlayers do
+			table.insert(localPlayers, frame:PointToObjectSpace(pos))
+		end
+	end
+	local cfg = Physics.Cage
+	local count = cfg.DropCandidateCount
+	local bestScore = -math.huge
+	local bestX, bestY, bestZ = 0, floorTopLocalY + clearance, 0
+	for _ = 1, count do
+		local cx = random:NextNumber(-safeX, safeX)
+		local cz = random:NextNumber(-safeZ, safeZ)
+		local localTopY = floorTopLocalY
+		for _, op in localOccupied do
+			local dx, dz = op.X - cx, op.Z - cz
+			if dx * dx + dz * dz <= cfg.DropLocalHeightRadius * cfg.DropLocalHeightRadius then
+				localTopY = math.max(localTopY, op.Y)
+			end
+		end
+		local cy = math.clamp(math.max(floorTopLocalY + clearance, localTopY + cfg.DropLayerStep), floorTopLocalY + clearance, maxLocalY)
+		local minBodyDist = cfg.DropMinSpacing * 1.5
+		for _, op in localOccupied do
+			if math.abs(op.Y - cy) <= cfg.DropLayerStep * 1.5 then
+				local dist = math.sqrt((op.X - cx) ^ 2 + (op.Z - cz) ^ 2)
+				minBodyDist = math.min(minBodyDist, dist)
+			end
+		end
+		local minPlayerDist = cfg.PlayerAvoidRadius
+		for _, pp in localPlayers do
+			local dist = math.sqrt((pp.X - cx) ^ 2 + (pp.Z - cz) ^ 2)
+			minPlayerDist = math.min(minPlayerDist, dist)
+		end
+		local score = -(localTopY - floorTopLocalY) * 2.5
+			+ math.min(minBodyDist, cfg.DropMinSpacing * 1.5) * 1.8
+			- (if minBodyDist < cfg.DropMinSpacing then (cfg.DropMinSpacing - minBodyDist) * 3.0 else 0)
+			- (if minPlayerDist < cfg.PlayerAvoidRadius then (cfg.PlayerAvoidRadius - minPlayerDist) * 4.0 else 0)
+		if score > bestScore then
+			bestScore = score
+			bestX, bestY, bestZ = cx, cy, cz
+		end
+	end
+	return bestX, bestY, bestZ
+end
+
+local function SampleCageDropPose(
+	floor: BasePart,
+	inset: number,
+	random: Random,
+	occupied: { Vector3 }?,
+	avoidPlayers: { Vector3 }?,
+	clearance: number
+): CFrame
+	local innerX, innerZ = CageGeometry.InnerHalfSize(floor.Size, inset)
+	local margin = Physics.Cage.BodyEdgeMargin
+	local safeX = math.max(0.5, innerX - margin)
+	local safeZ = math.max(0.5, innerZ - margin)
+	local floorTopLocalY = floor.Size.Y * 0.5
+	local maxLocalY = math.max(floorTopLocalY + clearance, Physics.Cage.WallHeight - floorTopLocalY - 3)
+	local bestX, bestY, bestZ = ScoreDropCandidates(
+		floor.CFrame,
+		safeX,
+		safeZ,
+		floorTopLocalY,
+		clearance,
+		maxLocalY,
+		random,
+		occupied,
+		avoidPlayers
+	)
 	local yaw = random:NextNumber(-math.pi, math.pi)
 	return floor.CFrame
-		* CFrame.new(x, floor.Size.Y * 0.5 + Physics.PoolTossClearance, z)
-		* CFrame.Angles(random:NextNumber(-0.4, 0.4), yaw, random:NextNumber(-0.4, 0.4))
+		* CFrame.new(bestX, bestY, bestZ)
+		* CFrame.Angles(0, yaw, 0)
+		* CFrame.Angles(math.pi / 2 + random:NextNumber(-0.22, 0.22), 0, random:NextNumber(-0.22, 0.22))
+end
+
+function Scene.PoolDropTarget(random: Random, occupied: { Vector3 }?, avoidPlayers: { Vector3 }?): CFrame
+	return SampleCageDropPose(Scene.PoolFloor, Physics.Cage.PoolWallInset, random, occupied, avoidPlayers, Physics.PoolTossClearance)
+end
+
+function Scene.ChuteDropTarget(random: Random, occupied: { Vector3 }?, avoidPlayers: { Vector3 }?, fromOpening: boolean?): CFrame
+	local zone = Scene.ChuteDropZone
+	if not zone then
+		return Scene.ChuteDropPose(random)
+	end
+	if fromOpening and Scene.FastChuteOpening then
+		local opening = Scene.FastChuteOpening
+		local margin = Physics.Cage.BodyEdgeMargin + 0.4
+		local safeX = math.max(0.5, opening.Size.X * 0.5 - margin)
+		local safeZ = math.max(0.5, opening.Size.Z * 0.5 - margin)
+		local floorTopLocalY = zone.Size.Y * 0.5
+		local maxLocalY = math.max(floorTopLocalY + Physics.PoolTossClearance, Physics.Cage.WallHeight - floorTopLocalY - 3)
+		local bestX, _, bestZ = ScoreDropCandidates(
+			zone.CFrame,
+			safeX,
+			safeZ,
+			floorTopLocalY,
+			Physics.PoolTossClearance,
+			maxLocalY,
+			random,
+			occupied,
+			avoidPlayers
+		)
+		local zoneWorld = zone.CFrame:PointToWorldSpace(Vector3.new(bestX, 0, bestZ))
+		local openLocal = opening.CFrame:PointToObjectSpace(zoneWorld)
+		local clampedX = math.clamp(openLocal.X, -safeX, safeX)
+		local clampedZ = math.clamp(openLocal.Z, -safeZ, safeZ)
+		local dropWorld = opening.CFrame:PointToWorldSpace(Vector3.new(clampedX, opening.Size.Y * 0.5 + 0.4, clampedZ))
+		local yaw = random:NextNumber(-math.pi, math.pi)
+		return CFrame.new(dropWorld)
+			* CFrame.Angles(0, yaw, 0)
+			* CFrame.Angles(math.pi / 2 + random:NextNumber(-0.22, 0.22), 0, random:NextNumber(-0.22, 0.22))
+	end
+	return SampleCageDropPose(zone, Physics.Cage.ChuteWallInset, random, occupied, avoidPlayers, Physics.PoolTossClearance)
 end
 function Scene.CageInset(cage: string): number
 	return if cage == "Pool" then Physics.Cage.PoolWallInset else Physics.Cage.ChuteWallInset
@@ -430,6 +565,13 @@ function Scene.ChutePileContains(position: Vector3): boolean
 		and offset.Y >= -ChuteFallTolerance
 		and offset.Y <= zone.Size.Y * 0.5 + Physics.ChuteStackHeight
 end
+function Scene.ChuteFloorTopY(): number
+	local zone = Scene.ChuteDropZone
+	if zone then
+		return zone.Position.Y + zone.Size.Y * 0.5
+	end
+	return if Scene.ChuteLanding then Scene.ChuteLanding.Position.Y else ChuteFallbackLanding.Y
+end
 function Scene.AutoOutputPose(slot: number): CFrame
 	local index = math.max(0, slot - 1)
 	local col = (index % 3) - 1
@@ -440,6 +582,10 @@ end
 function Scene.AutoRunePose(): CFrame
 	local base = if Scene.AutoRuneWorkBed then Scene.AutoRuneWorkBed.Position else Vector3.new(-19.0, 4.4, -27.0)
 	return PaintRotation.TablePose(base + Vector3.new(0, 0.25, 0))
+end
+function Scene.AutoRuneIntakeEntry(): CFrame
+	local bed = Scene.AutoRunePose()
+	return bed + Vector3.new(-7.3, 0.60, 0)
 end
 function Scene.AutoSmelterPose(): CFrame
 	local base = if Scene.AutoSmelterCenter then Scene.AutoSmelterCenter.Position else Vector3.new(-1.0, 4.5, -27.0)
@@ -452,14 +598,45 @@ function Scene.AutoTransferPoses(): (CFrame, CFrame, CFrame, CFrame)
 	local inlet = if Scene.AutoSmelterInlet then Scene.AutoSmelterInlet.Position else Vector3.new(-5, 4.5, -27)
 	return PaintRotation.TablePose(ramp), PaintRotation.TablePose(rampTop), PaintRotation.TablePose(pass), PaintRotation.TablePose(inlet)
 end
+function Scene.AutoRampPose(t: number, origin: CFrame, target: CFrame): CFrame
+	local clamped = math.clamp(t, 0, 1)
+	local ramp, rampTop = Scene.AutoTransferPoses()
+	local slopeDelta = rampTop.Position - ramp.Position
+	local flatSpan = math.sqrt(slopeDelta.X * slopeDelta.X + slopeDelta.Z * slopeDelta.Z)
+	local pitch = if flatSpan > 0.01 then math.atan2(slopeDelta.Y, flatSpan) else 0
+	local climbRot = ramp.Rotation * CFrame.Angles(pitch, 0, 0)
+	local rampClimbed = CFrame.new(ramp.Position) * climbRot
+	local rampTopClimbed = CFrame.new(rampTop.Position) * climbRot
+	if clamped < 0.35 then
+		local alpha = clamped / 0.35
+		local eased = alpha * alpha * (3 - 2 * alpha)
+		return origin:Lerp(rampClimbed, eased)
+	elseif clamped < 0.72 then
+		local alpha = (clamped - 0.35) / 0.37
+		return rampClimbed:Lerp(rampTopClimbed, alpha)
+	else
+		local alpha = (clamped - 0.72) / 0.28
+		local eased = alpha * alpha * (3 - 2 * alpha)
+		return rampTopClimbed:Lerp(target, eased)
+	end
+end
 local transferPassLight = if Scene.AutoTransferPass then Scene.AutoTransferPass:FindFirstChild("TransferPassLight") else nil
 local transferPassStrip = if Scene.AutoRuneMachine then Scene.AutoRuneMachine:FindFirstChild("TransferPassStrip", true) else nil
 function Scene.SetAutoTransferLight(enabled: boolean): ()
-	if transferPassLight and transferPassLight:IsA("Light") and transferPassLight.Enabled ~= enabled then
-		transferPassLight.Enabled = enabled
-		if transferPassStrip and transferPassStrip:IsA("BasePart") then
-			transferPassStrip.Material = if enabled then Enum.Material.Neon else Enum.Material.SmoothPlastic
-			transferPassStrip.Transparency = if enabled then 0 else 0.75
+	if transferPassLight and transferPassLight:IsA("Light") then
+		if enabled then
+			transferPassLight.Brightness = Config.AutoTransferLightBrightness
+			transferPassLight.Color = Config.AutoTransferLightColor
+			if transferPassLight:IsA("PointLight") then
+				transferPassLight.Range = Config.AutoTransferLightRange
+			end
+		end
+		if transferPassLight.Enabled ~= enabled then
+			transferPassLight.Enabled = enabled
+			if transferPassStrip and transferPassStrip:IsA("BasePart") then
+				transferPassStrip.Material = if enabled then Enum.Material.Neon else Enum.Material.SmoothPlastic
+				transferPassStrip.Transparency = if enabled then 0 else 0.75
+			end
 		end
 	end
 end

@@ -5,6 +5,7 @@ local CFrame, Vector3, Instance = R.CFrame, R.Vector3, R.Instance
 local B = require('./StationPotionBoundary')
 local AltarFurnace = require('./AltarFurnaceView')
 local Config = require('./GameConfig')
+local Physics = require('./PhysicsConfig')
 local Scene = require('./StationScene')
 local Manager = require('./StationProcessingManager')
 local Movement = require('./PersonalMovement')
@@ -634,6 +635,8 @@ do
 	pickUp('m7-first')
 	local extra = pickUp('m7-over-capacity')
 	check(#m1:Carried(p1) == 1 and extra.holder == nil, 'T0 refuses a second white body')
+	m1.items[extra.id] = nil
+	extra.model:Destroy()
 	m1.players[p1].levels.carryTool = 4
 	local rapidFirst = pickUp('m7-tier3-2')
 	local rapidSecond = makeWorldBody('m7-tier3-3', 'Unpainted', 'Ground')
@@ -660,8 +663,25 @@ do
 	check(weapon.Parent == p1Bp, 'replenishing the shoulder stack keeps the weapon holstered')
 	movePlayer(p1Root, stationPositions.Pool + Vector3.new(0, 0, 4))
 	sendM1(p1, {action = 'Interact', target = 'Pool', version = m1.stationVersions.Pool})
-	check(#m1:Carried(p1) == 0 and m1.players[p1].carryOverflowCount == 0 and m1:PoolCount() == 14, 'one pool request deposits the full remaining load')
-	check(p1:GetAttribute('CarryBodyCount') == 0 and #m1.pool == 14 and m1.poolOverflowCount == 0, 'HUD count resets and all 14 bodies materialize in the pool')
+	check(m1:PoolCount() == 1 and m1:CarryCount(p1) == 13 and #m1:Carried(p1) == 8, 'first body launches immediately while replenishing shoulder stack')
+	-- 玩家走远且中途新拾取 1 具白膜：原批次不中断继续甩完 14 具，新拾取白膜留在肩上不被误甩
+	movePlayer(p1Root, stationPositions.Pool + Vector3.new(0, 0, 40))
+	for _ = 1, 8 do
+		B.now += 0.1
+		m1:Update()
+	end
+	local midWalkPicked = pickUp('m7-mid-walk')
+	for _ = 1, 30 do
+		if not m1.players[p1].depositQueue then break end
+		B.now += 0.1
+		m1:Update()
+	end
+	check(m1.players[p1].depositQueue == nil and m1:PoolCount() == 14 and #m1.pool == 14 and m1.poolOverflowCount == 0, 'staggered batch finishes depositing all 14 bodies into pool without interruption')
+	check(midWalkPicked.holder == p1 and m1:CarryCount(p1) == 1, 'newly picked up body during walk is not tossed by previous batch')
+	m1:ReleasePlayer(p1)
+	m1.items[midWalkPicked.id] = nil
+	midWalkPicked.model:Destroy()
+	check(p1:GetAttribute('CarryBodyCount') == 0, 'HUD count resets after releasing remaining carried body')
 	for _, item in m1.items do item.model:Destroy() end
 	table.clear(m1.items)
 	table.clear(m1.pool)
@@ -770,16 +790,39 @@ do
 	check(m1:PoolCount() == 9 and #m1.pool == 9 and m1.poolOverflowCount == 0, 'Table fetch takes directly from pool list')
 	m1:EndPaint(p2)
 
-	-- 滚出池外自动退回 Ground，未涂符 Ground 落入池内自动吸纳
+	-- 已入池白膜越界时自动拉回池内保持 Pool 不掉出；未涂符 Ground 落入池内自动吸纳；落稳休眠与取底层局部唤醒
 	local knockedOut = m1.items[m1.pool[#m1.pool]]
 	knockedOut.model.UpperTorso.Position = stationPositions.Pool + Vector3.new(30, 0, 0)
 	m1.nextUpdate = 0
 	m1:Update()
-	check(knockedOut.location == 'Ground' and m1:PoolCount() == 8, 'pool body knocked outside reverts to pickable Ground')
-	knockedOut.model.UpperTorso.Position = stationPositions.Pool
+	check(knockedOut.location == 'Pool' and knockedOut.model:GetAttribute('CageContained') == 'Pool' and m1:PoolCount() == 9, 'pool body knocked outside recovers back into pool instead of dropping to Ground')
+	local groundSettled = makeWorldBody('m1-ground-settled', 'Unpainted', 'Ground')
+	groundSettled.model.UpperTorso.Position = stationPositions.Pool
 	m1.nextUpdate = 0
 	m1:Update()
-	check(knockedOut.location == 'Pool' and m1:PoolCount() == 9, 'unpainted Ground body settled inside pool is absorbed into pool')
+	check(groundSettled.location == 'Pool' and m1:PoolCount() == 10, 'unpainted Ground body settled inside pool is absorbed into pool')
+	-- 落稳休眠 + 取底层时局部唤醒上方叠压白膜
+	local bottomSleep = m1.items[m1.pool[1]]
+	local topSleep = m1.items[m1.pool[2]]
+	bottomSleep.model.PrimaryPart.Position = stationPositions.Pool
+	bottomSleep.model.UpperTorso.Position = stationPositions.Pool
+	topSleep.model.PrimaryPart.Position = stationPositions.Pool + Vector3.new(0.5, 2.0, 0)
+	topSleep.model.UpperTorso.Position = stationPositions.Pool + Vector3.new(0.5, 2.0, 0)
+	bottomSleep.model:SetAttribute('PhysicsMode', 'Loose')
+	topSleep.model:SetAttribute('PhysicsMode', 'Loose')
+	bottomSleep.cageEnteredAt = B.now
+	topSleep.cageEnteredAt = B.now
+	B.now += Physics.Cage.SleepMinActiveSeconds + Physics.Cage.SleepStableSeconds + 0.15
+	m1.nextUpdate = 0
+	m1:Update()
+	check(bottomSleep.model:GetAttribute('PhysicsMode') == 'CageSleep' and bottomSleep.model.UpperTorso.Anchored == true, 'settled pool body sleeps and anchors in pose')
+	check(topSleep.model:GetAttribute('PhysicsMode') == 'CageSleep' and topSleep.model.UpperTorso.Anchored == true, 'upper stacked pool body sleeps too')
+	movePlayer(p2Root, bottomSleep.model.PrimaryPart.Position + Vector3.new(0, 0, 2))
+	sendM1(p2, { action = 'Interact', target = bottomSleep.id, version = bottomSleep.version })
+	check(bottomSleep.holder == p2 and topSleep.model:GetAttribute('PhysicsMode') == 'Loose' and topSleep.model.UpperTorso.Anchored == false, 'picking bottom body wakes stacked sleeping body above it')
+	m1:ReleasePlayer(p2)
+	m1.items[bottomSleep.id] = nil
+	bottomSleep.model:Destroy()
 
 	-- 池内大量实体白膜（>= 40 具）不占用 MaximumBodies(32) 街道刷怪配额
 	for i = 1, 35 do

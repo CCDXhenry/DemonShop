@@ -17,6 +17,7 @@ local GameScreenGuiManager = require(script.Parent.UIManager.GameScreenGuiManage
 local Hints = require(Shared:WaitForChild("Hints"))
 local WorldInteractionRules = require(Shared.WorldInteractionRules)
 local Rotation = require(Shared.PaintRotation)
+local BodyPlacementMarkers = require(Shared:WaitForChild("BodyPlacementMarkers"))
 local Surface = require(Shared.PaintSurface)
 local Curve = require(Shared.CurvedSurface)
 local Net = require(Shared:WaitForChild("ProcessingNet"))
@@ -38,6 +39,7 @@ local ManualThrow = require(script.Parent.ManualThrowController)
 local ThrowArc = require(Shared.ThrowArc)
 local AltarFurnace = require(script.Parent.AltarFurnaceView)
 local PotionShelf = require(script.Parent.PotionShelfView)
+local AutomationLineView = require(script.Parent.AutomationLineView)
 local AutomationRules = require(Shared.AutomationRules)
 local ProcessingText = require(script.Parent.ProcessingTextTool)
 local PersonalShop = require(script.Parent.PersonalShop)
@@ -82,6 +84,7 @@ export type Client = typeof(setmetatable(
 		altarLoopSound: Sound?,
 		potionShelf: PotionShelf.View,
 		autoPotionShelf: PotionShelf.View?,
+		automationView: AutomationLineView.View?,
 		lastHeldId: string?,
 		lastHeldKind: string?,
 		lastPoolCount: number?,
@@ -143,6 +146,8 @@ FixedCamera.HideAll(district)
 local tableModel = district:WaitForChild("RuneBodyTable")
 local tablePlacement = tableModel:WaitForChild("BodyPlacementAnchor") :: BasePart
 local tableInteract = tableModel:WaitForChild("TransferStartAnchor") :: BasePart
+local tableSlotSpecs = BodyPlacementMarkers.ReadSlotSpecs(tableModel, tablePlacement)
+BodyPlacementMarkers.HideAll(tableModel)
 local function Anchor(station: string, name: string): BasePart
 	return district:WaitForChild(station):WaitForChild(name) :: BasePart
 end
@@ -195,8 +200,13 @@ if autoShelfPickup then
 	interactionAnchors.AutoShelf = autoShelfPickup
 	positions.AutoShelf = autoShelfPickup.Position
 end
-local function TablePose(): CFrame
-	return Rotation.TablePose(tablePlacement.Position)
+local function TablePose(slot: number?): CFrame
+	local index = slot or 1
+	local spec = tableSlotSpecs[index]
+	if spec then
+		return spec.pose
+	end
+	return tableSlotSpecs[1].pose + (Rotation.BatchOffset(index) or Vector3.zero)
 end
 local function ActivePaintTarget(): number
 	local flatTarget: number? = (Config :: any).PaintFlatTarget
@@ -266,6 +276,7 @@ function Client.new(): Client
 			altarLoopSound = nil,
 			potionShelf = PotionShelf.new(positions.Shelf),
 			autoPotionShelf = PotionShelf.new(positions.AutoShelf or Vector3.new(10.0, 2.0, -27.2), "AutoPotionShelfPresentation"),
+			automationView = AutomationLineView.new(district, paint),
 			lastHeldId = nil,
 			lastHeldKind = nil,
 			lastPoolCount = nil,
@@ -932,6 +943,7 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 			snapshot.items = {}
 			for _, item in merged do table.insert(snapshot.items, item) end
 		end
+		local prevAutoShelf = if self.snapshot then self.snapshot.autoShelfItems else nil
 		self.snapshot = snapshot
 		local animate = notice.kind == "Delta" and self.synced
 		self.potionShelf:Apply(snapshot.shelfItems, animate, os.clock())
@@ -1000,6 +1012,9 @@ function Client.OnNotice(self: Client, notice: Types.Notice): ()
 		end
 		local previousItems = self.items
 		self.items = nextItems
+		if self.automationView then
+			self.automationView:OnSnapshot(snapshot, previousItems, nextItems, prevAutoShelf, animate, os.clock())
+		end
 		local currentHeld = self:Held()
 		local currentHeldId = currentHeld and currentHeld.id
 		local currentHeldKind = currentHeld and currentHeld.kind
@@ -2142,7 +2157,7 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 				self.presentation.targetOrientation=self.orientation
 			end
 			self.presentation:Update(TablePose(),math.min(dt,0.1),self.paintId ~= nil)
-			self.bodies:SyncPaintBatch()
+			self.bodies:SyncPaintBatch(tableSlotSpecs)
 		end
 	end)
 	self.scope:Connect(simulationPhase)
@@ -2164,6 +2179,9 @@ function Client.Init(self: Client, gui: ScreenGui): ()
 		self.potionShelf:Step(os.clock())
 		if self.autoPotionShelf then
 			self.autoPotionShelf:Step(os.clock())
+		end
+		if self.automationView then
+			self.automationView:Step(self.snapshot, self.items, os.clock(), workspace:GetServerTimeNow())
 		end
 		self:Update(dt)
 	end))
@@ -2208,6 +2226,10 @@ function Client.Destroy(self: Client): ()
 	self.potionShelf:Destroy()
 	if self.autoPotionShelf then
 		self.autoPotionShelf:Destroy()
+	end
+	if self.automationView then
+		self.automationView:Destroy()
+		self.automationView = nil
 	end
 	if self.altarLoopSound then
 		Sound.Stop(self.altarLoopSound)

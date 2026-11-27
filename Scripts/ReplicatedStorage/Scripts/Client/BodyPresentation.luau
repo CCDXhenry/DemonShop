@@ -14,7 +14,7 @@ export type Presentation=typeof(setmetatable({} :: {
 	antiGravity: {[BasePart]: VectorForce},aligners: {[BasePart]: AlignOrientation},
 	orientation: CFrame,targetOrientation: CFrame,
 	dynamic: boolean,spinning: boolean,
-	flipped: boolean,flipAnim: { started: number, duration: number }?,
+	flipped: boolean,flipAnim: { started: number, duration: number }?,flipLift: number,
 	targetBodyPose: Types.BodyPose?,restBodyPose: Types.BodyPose?,
 	geometry: Rotation.Geometry?, center: Vector3?,
 },Presentation))
@@ -22,7 +22,7 @@ function Presentation.new(): Presentation
 	return setmetatable({
 		model=nil,parts={},sockets={},baseFriction={},antiGravity={},aligners={},
 		orientation=CFrame.identity,targetOrientation=CFrame.identity,
-		dynamic=false,spinning=false,flipped=false,flipAnim=nil,targetBodyPose=nil,restBodyPose=nil,
+		dynamic=false,spinning=false,flipped=false,flipAnim=nil,flipLift=0,targetBodyPose=nil,restBodyPose=nil,
 	},Presentation)
 end
 function Presentation.Clear(self: Presentation): ()
@@ -46,7 +46,7 @@ function Presentation.Clear(self: Presentation): ()
 	self.model,self.targetBodyPose,self.restBodyPose=nil,nil,nil
 	self.geometry,self.center=nil,nil
 	self.dynamic,self.spinning=false,false
-	self.flipped,self.flipAnim=false,nil
+	self.flipped,self.flipAnim,self.flipLift=false,nil,0
 end
 local function ApplySocketFriction(self: Presentation,scale: number): ()
 	for _,socket in self.sockets do
@@ -152,6 +152,7 @@ end
 function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediate: boolean): ()
 	local effectivePose=pose
 	local animatingFlip=false
+	local currentFlipLift=0
 	if not GameConfig.PaintRotationEnabled then
 		local anim=self.flipAnim
 		if anim then
@@ -160,6 +161,7 @@ function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediat
 			self.orientation=flipRot
 			self.targetOrientation=flipRot
 			effectivePose=pose+Vector3.yAxis*lift
+			currentFlipLift=lift
 			animatingFlip=true
 			if alpha>=1 then
 				self.flipAnim=nil
@@ -170,6 +172,7 @@ function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediat
 			self.targetOrientation=flat
 		end
 	end
+	self.flipLift=currentFlipLift
 	local prevOrientation=self.orientation
 	local alpha=if immediate or animatingFlip then 1 else 1-math.exp(-Config.TableObserverResponse*dt)
 	self.orientation=if immediate or animatingFlip then self.targetOrientation else self.orientation:Lerp(self.targetOrientation,alpha)

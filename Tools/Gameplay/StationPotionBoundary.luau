@@ -776,6 +776,47 @@ B.Carry = {
 		item.model:SetAttribute('PhysicsMode', 'Loose')
 		item.model:SetAttribute('MotionState', 'Pool')
 	end,
+	TossIntoChute = function(item)
+		item.holder = nil
+		item.location = 'Chute'
+		item.stage = 'Unpainted'
+		item.model:SetAttribute('PhysicsMode', 'Loose')
+		item.model:SetAttribute('MotionState', 'ChutePile')
+	end,
+	SleepInCage = function(item, cage)
+		item.model:SetAttribute('CageContained', cage)
+		item.model:SetAttribute('PhysicsMode', 'CageSleep')
+		for _, p in item.model:GetDescendants() do
+			if p:IsA('BasePart') then
+				p.Anchored = true
+			end
+		end
+	end,
+	WakeInCage = function(item, cage, now)
+		item.model:SetAttribute('CageContained', cage)
+		item.model:SetAttribute('PhysicsMode', 'Loose')
+		item.cageEnteredAt = now
+		item.cageStableSince = nil
+		for _, p in item.model:GetDescendants() do
+			if p:IsA('BasePart') then
+				p.Anchored = false
+			end
+		end
+	end,
+	RecoverInCage = function(item, cage, target, now)
+		item.poolToss = nil
+		item.fall = nil
+		B.PivotTo(item.model, target)
+		B.Carry.Contain(item, cage)
+		local motion = if cage == 'Chute' then 'ChutePile' else 'Pool'
+		item.location = cage
+		item.motionState = motion
+		item.model:SetAttribute('PhysicsMode', 'Loose')
+		item.model:SetAttribute('MotionState', motion)
+		item.cageEnteredAt = now
+		item.cageStableSince = nil
+		item.version += 1
+	end,
 	FinishPool = function(item)
 		B.Carry.Contain(item, 'Pool')
 		item.fall = nil
@@ -837,6 +878,7 @@ B.Carry = {
 	end,
 	AdvanceTransition = function() end,
 	AdvanceAltarToss = function() return false end,
+	AdvanceManualToss = function() return false end,
 	AdvancePoolToss = function() return false end,
 	RecoverPool = function() end,
 	Update = function() return false end,

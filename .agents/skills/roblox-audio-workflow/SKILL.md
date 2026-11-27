@@ -13,6 +13,7 @@ description: >-
 
 - 时长、起音、尾音、密集叠响或触发前置条件异常：先读 [校准与触发验收](references/audio-calibration.md)。
 - 新增或合成音频：读 [素材设计与生成](references/audio-generation.md)。
+- 在 Codex 中生成、选定或继续部署 SFX：读 [SFX 自动化](references/sfx-automation.md)。
 - 上传、替换云端音频：读 [增量上传与回退](references/opencloud-upload.md)。
 - 部署模板、核对源码同步：读 [Studio 部署与同步验收](references/studio-deployment.md)。
 - 播放工具、业务接入、对象池：读 [运行时架构](references/audio-runtime-architecture.md)。
