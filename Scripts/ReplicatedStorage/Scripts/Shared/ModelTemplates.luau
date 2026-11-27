@@ -105,23 +105,4 @@ function ModelTemplates.WaitViewportWorld(): WorldModel
 	return world
 end
 
-function ModelTemplates.CollectPreloadable(assets: { Instance }, templates: { Instance }): boolean
-	local root = ModelTemplates.GetRoot()
-	if not root then
-		return false
-	end
-	for _, category in ModelTemplates.Categories do
-		local folder = root:FindFirstChild(category)
-		if folder and folder:IsA("Folder") and folder.Archivable then
-			for _, child in folder:GetChildren() do
-				if child.Archivable and (child:IsA("Model") or child:IsA("Tool")) then
-					table.insert(assets, child)
-					table.insert(templates, child)
-				end
-			end
-		end
-	end
-	return true
-end
-
 return ModelTemplates

@@ -128,11 +128,12 @@ function Ragdoll.SetMode(model: Model, mode: string, owner: Player?): ()
 					v.CFrame = base * rest
 				end
 			end
+			local isFaceShell = v.Name == "FaceShell"
 			local walkingContact = mode ~= "Walking" or v.Name == "Head" or v.Name == "UpperTorso" or v.Name == "LowerTorso"
-			v.CanCollide = walkingContact and not static and mode ~= "Carried" and v.Name ~= "HumanoidRootPart"
-			v.CanTouch = not static and mode ~= "Carried" and v.Name ~= "HumanoidRootPart"
-			v.CanQuery = v.Name ~= "HumanoidRootPart" and v:GetAttribute("Paintable")==true
-			v.Massless = mode == "Carried"
+			v.CanCollide = not isFaceShell and walkingContact and not static and mode ~= "Carried" and v.Name ~= "HumanoidRootPart"
+			v.CanTouch = not isFaceShell and not static and mode ~= "Carried" and v.Name ~= "HumanoidRootPart"
+			v.CanQuery = not isFaceShell and v.Name ~= "HumanoidRootPart" and v:GetAttribute("Paintable")==true
+			v.Massless = isFaceShell or mode == "Carried"
 			-- 击晕保留行走瞬间的有限速度；静态和搬运切换清掉旧动量。
 			if mode ~= "Loose" then
 				v.AssemblyLinearVelocity, v.AssemblyAngularVelocity = Vector3.zero, Vector3.zero

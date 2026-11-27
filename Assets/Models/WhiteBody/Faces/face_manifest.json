@@ -1,0 +1,36 @@
+{
+  "model": "ReplicatedStorage.Models.Characters.WhiteR15-People",
+  "sourceTemplate": "ReplicatedStorage.Models.Characters.WhiteR15-People",
+  "cleanBaseAtlas": {
+    "assetId": "rbxassetid://81479597400213",
+    "previousAssetId": "rbxassetid://93403321696864",
+    "file": "Assets/Models/WhiteBody/Faces/WhiteR15_People_CleanAtlas.png"
+  },
+  "faces": {
+    "Face_Normal": {
+      "assetId": "rbxassetid://78350979935544",
+      "file": "Assets/Models/WhiteBody/Faces/Face_Normal.png",
+      "source": "vector_4x_supersampled"
+    },
+    "Face_Panic": {
+      "assetId": "rbxassetid://139784704663645",
+      "file": "Assets/Models/WhiteBody/Faces/Face_Panic.png",
+      "source": "ai_generated_chroma_keyed"
+    },
+    "Face_Hit": {
+      "assetId": "rbxassetid://109580485818132",
+      "file": "Assets/Models/WhiteBody/Faces/Face_Hit.png",
+      "source": "vector_4x_supersampled"
+    },
+    "Face_Stunned": {
+      "assetId": "rbxassetid://77684885960227",
+      "file": "Assets/Models/WhiteBody/Faces/Face_Stunned.png",
+      "source": "vector_4x_supersampled"
+    },
+    "Face_Painting": {
+      "assetId": "rbxassetid://131720148652101",
+      "file": "Assets/Models/WhiteBody/Faces/Face_Painting.png",
+      "source": "vector_4x_supersampled"
+    }
+  }
+}

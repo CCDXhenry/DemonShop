@@ -75,12 +75,13 @@ export type Manager = typeof(setmetatable({} :: {
 	baffleConnections: { RBXScriptConnection },
 	baffleCooldowns: { [string]: number },
 	baffleBound: boolean,
+	hitFaceUntil: { [string]: number },
 }, Manager))
 function Manager.new(tableView: TableView.Presentation, hitView: HitView.Presentation, onDisplay: (string, Model?) -> ()): Manager
 	local self: Manager = setmetatable({views={}, items={}, enabled=true, destroyed=false, generation=0, step=0,
 		contacts={}, retiredAt={}, lastPositions={}, queries=0, contactEnabled=true, impactEnabled=true, fallEnabled=true, pureModel=false,
 		tableView=tableView, hitView=hitView, onDisplay=onDisplay, phases={}, flyOrigin={}, rootMissingAt={}, rootWarned={},
-		manualImpacts={}, softCageState={}, baffleConnections={}, baffleCooldowns={}, baffleBound=false}, Manager)
+		manualImpacts={}, softCageState={}, baffleConnections={}, baffleCooldowns={}, baffleBound=false, hitFaceUntil={}}, Manager)
 	hitView.managed = function(id, source)
 		local v = self.views[id]
 		return v ~= nil and v.mode == "Street" and v.authorityModel == source
@@ -114,6 +115,66 @@ function Manager.IsAltarTossing(self: Manager, id: string, now: number): boolean
 	if not toss then return false end
 	return not toss.settled and now < toss.landEnds
 end
+local function SetPartVisibility(part: BasePart, modifier: number): ()
+	part.LocalTransparencyModifier = modifier
+	if part.Name == "FaceShell" then
+		local decal = part:FindFirstChild("FaceDecal")
+		if decal and decal:IsA("Decal") then
+			(decal :: any).LocalTransparencyModifier = modifier
+		end
+	end
+end
+
+local function SyncFaceShell(model: Model): ()
+	local head = model:FindFirstChild("Head")
+	local shell = model:FindFirstChild("FaceShell")
+	if not head or not head:IsA("BasePart") or not shell or not shell:IsA("BasePart") then return end
+	local headRest, shellRest = head:GetAttribute("RestPose"), shell:GetAttribute("RestPose")
+	if typeof(headRest) == "CFrame" and typeof(shellRest) == "CFrame" then
+		shell.CFrame = head.CFrame * headRest:ToObjectSpace(shellRest)
+	end
+end
+
+local function ResolveFaceKey(item: Types.ItemView, source: Model, hitUntil: number?, now: number): string
+	if hitUntil ~= nil and now < hitUntil then
+		return "Hit"
+	end
+	if item.location == "Table" or item.location == "AutoRune" then
+		return "Painting"
+	end
+	if item.hits >= GameConfig.StunHits or source:GetAttribute("MotionState") == "Down" or item.location ~= "Street" then
+		return "Stunned"
+	end
+	if source:GetAttribute("MotionState") == "Run" then
+		return "Panic"
+	end
+	return "Normal"
+end
+
+local function ApplyFace(model: Model?, texture: string): ()
+	if not model or not model.Parent then return end
+	local shell = model:FindFirstChild("FaceShell")
+	local decal = if shell then shell:FindFirstChild("FaceDecal") else nil
+	if decal and decal:IsA("Decal") and decal.Texture ~= texture then
+		decal.Texture = texture
+	end
+end
+
+local function UpdateItemFace(self: Manager, item: Types.ItemView, now: number): ()
+	local textures = (GameConfig :: any).NpcFaceTextures :: { [string]: string }?
+	if not textures then return end
+	local source = item.model
+	if not source or not source:IsDescendantOf(workspace) then return end
+	local key = ResolveFaceKey(item, source, self.hitFaceUntil[item.id], now)
+	local texture = textures[key] or textures.Normal
+	if not texture then return end
+	ApplyFace(source, texture)
+	local view = self.views[item.id]
+	if view and view.visualModel then
+		ApplyFace(view.visualModel, texture)
+	end
+end
+
 local function Release(self: Manager, v: BodyView)
 	self.views[v.id] = nil
 	self.contacts[v.id]=nil
@@ -121,7 +182,7 @@ local function Release(self: Manager, v: BodyView)
 	v.altarToss = nil
 	v.manualToss = nil
 	table.clear(v.impacts)
-	for part, value in v.hidden do part.LocalTransparencyModifier = value end
+	for part, value in v.hidden do SetPartVisibility(part, value) end
 	table.clear(v.hidden)
 	for _, connection in v.cleanup do connection:Disconnect() end
 	table.clear(v.cleanup)
@@ -167,6 +228,7 @@ function Manager.Unbind(self: Manager, id: string)
 	self.rootMissingAt[id] = nil
 	self.rootWarned[id] = nil
 	self.softCageState[id] = nil
+	self.hitFaceUntil[id] = nil
 	ReleaseManualImpact(self, id)
 	if v then Release(self,v); self.onDisplay(id,nil) end
 end
@@ -189,7 +251,9 @@ local function Mode(item: Types.ItemView, source: Model, enabled: boolean): stri
 end
 local function Sanitize(parent: Instance, clone: Model, anchorAll: boolean, keepSockets: boolean)
 	for _, node in parent:GetChildren() do
-		if node:IsA("LuaSourceContainer") or node:IsA("Humanoid") or node:IsA("Animator") or node:IsA("AnimationController")
+		if node:IsA("WeldConstraint") and node.Name == "FaceShellWeld" then
+			continue
+		elseif node:IsA("LuaSourceContainer") or node:IsA("Humanoid") or node:IsA("Animator") or node:IsA("AnimationController")
 			or node:IsA("ProximityPrompt") or node:IsA("LayerCollector") or node:IsA("BodyMover")
 			or node:IsA("WeldConstraint") or (node:IsA("JointInstance") and not node:IsA("Motor6D"))
 			or node.Name=="CarryResources" or node.Name=="CarryAnchor" or node.Name=="StaggerAttachment" or node.Name=="WhiteBodyShoulder"
@@ -256,11 +320,15 @@ local function Prepare(self: Manager, v: BodyView, receivedPose: Types.BodyPose?
 			local copy = clone:FindFirstChild(node.Name)
 			assert(copy and copy:IsA("BasePart"), "missing visual part "..node.Name)
 			v.hidden[node] = node.LocalTransparencyModifier
-			copy.LocalTransparencyModifier = node.LocalTransparencyModifier
+			SetPartVisibility(copy, node.LocalTransparencyModifier)
 		end
 	end
+	local item = self.items[v.id]
+	if item then
+		UpdateItemFace(self, item, workspace:GetServerTimeNow())
+	end
 	clone.Parent = workspace
-	for part in v.hidden do part.LocalTransparencyModifier = 1 end
+	for part in v.hidden do SetPartVisibility(part, 1) end
 	v.mode = v.requested
 	return true
 end
@@ -351,7 +419,7 @@ end
 local function LimbInertia(name: string): (number, number)
 	if name == "HumanoidRootPart" or name == "LowerTorso" or name == "UpperTorso" then
 		return 0, 0
-	elseif name == "Head" then
+	elseif name == "Head" or name == "FaceShell" then
 		return 0.35, 0.14
 	elseif string.find(name, "Upper") then
 		return 0.55, 0.22
@@ -391,7 +459,7 @@ local function ApplyAltarSettledPose(v: BodyView, toss: LocalAltarToss): ()
 	for _, part in toss.parts do
 		if part.visual.Parent == visual then
 			part.visual.CFrame = toss.restRoot * part.restOffset
-			part.visual.LocalTransparencyModifier = 1
+			SetPartVisibility(part.visual, 1)
 		end
 	end
 	toss.settled = true
@@ -449,7 +517,7 @@ local function StepAltarToss(v: BodyView, now: number): ()
 		end
 		part.visual.CFrame = rootCFrame * localFrame
 		local original = v.hidden[part.source] or 0
-		part.visual.LocalTransparencyModifier = original + (1 - original) * fade
+		SetPartVisibility(part.visual, original + (1 - original) * fade)
 	end
 end
 
@@ -576,13 +644,16 @@ local function StepManual(v: BodyView, item: Types.ItemView, now: number): boole
 	local state = v.manualToss
 	if not state then return false end
 	local keep, show = ManualThrow.Step(state, item, now)
+	if keep then
+		SyncFaceShell(state.model)
+	end
 	if keep and show ~= v.manualVisible then
 		v.manualVisible = show
 		local clone = state.model
 		for part, original in v.hidden do
-			part.LocalTransparencyModifier = if show then 1 else original
+			SetPartVisibility(part, if show then 1 else original)
 			local copy = clone:FindFirstChild(part.Name)
-			if copy and copy:IsA("BasePart") then copy.LocalTransparencyModifier = if show then original else 1 end
+			if copy and copy:IsA("BasePart") then SetPartVisibility(copy, if show then original else 1) end
 		end
 	end
 	return keep
@@ -597,6 +668,10 @@ function Manager.Bind(self: Manager, item: Types.ItemView, receivedPose: Types.B
 	end
 	local previous = self.items[id]
 	if previous and previous.version > item.version then return end
+	if previous and item.hits > previous.hits then
+		local hitSeconds = ((GameConfig :: any).NpcFaceHitSeconds :: number?) or 0.6
+		self.hitFaceUntil[id] = workspace:GetServerTimeNow() + hitSeconds
+	end
 	self.items[id] = item
 	local source = self:GetAuthorityModel(id)
 	local v: BodyView? = self.views[id]
@@ -792,6 +867,8 @@ function Manager.Hit(self: Manager, id: string, actor: number, sequence: number?
 	if not v or v.mode~="Street" or not self.impactEnabled then return false end
 	if not v.rootTarget or v.dirty or v.finalVersion or version<v.appliedVersion or started<v.boundAt then return true end
 	if v.authorityModel:GetAttribute("PhysicsMode")=="Loose" then return true end
+	local hitSeconds = ((GameConfig :: any).NpcFaceHitSeconds :: number?) or 0.6
+	self.hitFaceUntil[id] = workspace:GetServerTimeNow() + hitSeconds
 	if confirmed and hits>=GameConfig.StunHits then v.finalVersion=version end
 	local key=if sequence then Key(actor,sequence) else "version/"..version
 	Impact.Input(v.impacts,key,v.sourceJoints,v.rootTarget.CFrame,position,direction,hits,started,confirmed,replay,(Tuning.GetEffectiveConfig()))
@@ -1236,6 +1313,7 @@ function Manager.Step(self: Manager, now: number, seconds: number, painting: boo
 	for _,item in self.items do
 		DrivePoolToss(item, now)
 		DriveManualToss(self, item, now)
+		UpdateItemFace(self, item, now)
 	end
 	BindLocalBaffles(self)
 	StepSoftCages(self, dt)
@@ -1340,6 +1418,7 @@ function Manager.SyncPaintBatch(self: Manager, slotSpecs: { [number]: BodyPlacem
 				end
 			end
 		end
+		SyncFaceShell(model)
 	end
 end
 
@@ -1418,6 +1497,7 @@ function Manager.Destroy(self: Manager)
 	table.clear(self.lastPositions)
 	table.clear(self.softCageState)
 	table.clear(self.baffleCooldowns)
+	table.clear(self.hitFaceUntil)
 	for _, conn in self.baffleConnections do conn:Disconnect() end
 	table.clear(self.baffleConnections)
 	for id in self.items do self:Unbind(id) end

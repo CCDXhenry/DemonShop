@@ -17,12 +17,14 @@ export type Presentation=typeof(setmetatable({} :: {
 	flipped: boolean,flipAnim: { started: number, duration: number }?,flipLift: number,
 	targetBodyPose: Types.BodyPose?,restBodyPose: Types.BodyPose?,
 	geometry: Rotation.Geometry?, center: Vector3?,
+	faceShellOffset: CFrame?,
 },Presentation))
 function Presentation.new(): Presentation
 	return setmetatable({
 		model=nil,parts={},sockets={},baseFriction={},antiGravity={},aligners={},
 		orientation=CFrame.identity,targetOrientation=CFrame.identity,
 		dynamic=false,spinning=false,flipped=false,flipAnim=nil,flipLift=0,targetBodyPose=nil,restBodyPose=nil,
+		faceShellOffset=nil,
 	},Presentation)
 end
 function Presentation.Clear(self: Presentation): ()
@@ -44,7 +46,7 @@ function Presentation.Clear(self: Presentation): ()
 	table.clear(self.antiGravity)
 	table.clear(self.parts)
 	self.model,self.targetBodyPose,self.restBodyPose=nil,nil,nil
-	self.geometry,self.center=nil,nil
+	self.geometry,self.center,self.faceShellOffset=nil,nil,nil
 	self.dynamic,self.spinning=false,false
 	self.flipped,self.flipAnim,self.flipLift=false,nil,0
 end
@@ -58,6 +60,14 @@ end
 function Presentation.Attach(self: Presentation,source: Model,model: Model,rootDrive: Instance,receivedPose: Types.BodyPose?)
 	self:Clear()
 	self.model=model
+	local head=model:FindFirstChild("Head")
+	local shell=model:FindFirstChild("FaceShell")
+	if head and head:IsA("BasePart") and shell and shell:IsA("BasePart") then
+		local headRest,shellRest=head:GetAttribute("RestPose"),shell:GetAttribute("RestPose")
+		self.faceShellOffset=if typeof(headRest)=="CFrame" and typeof(shellRest)=="CFrame"
+			then headRest:ToObjectSpace(shellRest)
+			else head.CFrame:ToObjectSpace(shell.CFrame)
+	end
 	local torso=model:FindFirstChild("UpperTorso")
 	assert(torso and torso:IsA("BasePart"),"Painting body requires UpperTorso")
 	for _,instance in model:GetDescendants() do
@@ -76,18 +86,25 @@ function Presentation.Attach(self: Presentation,source: Model,model: Model,rootD
 			if string.find(instance.Name,"Neck") then instance.UpperAngle=Config.TableNeckAngle end
 			table.insert(self.sockets,instance)
 		elseif instance:IsA("Constraint") then
-			if not instance:IsA("NoCollisionConstraint") then instance:Destroy() end
+			if not instance:IsA("NoCollisionConstraint") and instance.Name ~= "FaceShellWeld" then instance:Destroy() end
 		elseif instance:IsA("Attachment") and instance.Name=="TableZeroGravityAttachment" then
 			instance:Destroy()
 		elseif instance:IsA("BasePart") then
+			local isFaceShell = instance.Name == "FaceShell"
 			instance.Anchored=true
 			instance.CanCollide,instance.CanTouch=false,false
-			instance.CanQuery=instance.Name~="HumanoidRootPart" and instance:GetAttribute("Paintable")==true
-			instance.Massless=instance.Name=="HumanoidRootPart"
+			instance.CanQuery=not isFaceShell and instance.Name~="HumanoidRootPart" and instance:GetAttribute("Paintable")==true
+			instance.Massless=isFaceShell or instance.Name=="HumanoidRootPart"
 			instance.LocalTransparencyModifier=0
+			if isFaceShell then
+				local decal=instance:FindFirstChild("FaceDecal")
+				if decal and decal:IsA("Decal") then
+					(decal :: any).LocalTransparencyModifier=0
+				end
+			end
 			instance.AssemblyLinearVelocity,instance.AssemblyAngularVelocity=Vector3.zero,Vector3.zero
 			self.parts[instance.Name]=instance
-			if instance.Name~="UpperTorso" and instance.Name~="HumanoidRootPart" then
+			if not isFaceShell and instance.Name~="UpperTorso" and instance.Name~="HumanoidRootPart" then
 				local attachment=Instance.new("Attachment")
 				attachment.Name="TableZeroGravityAttachment"
 				attachment.Parent=instance
@@ -295,6 +312,10 @@ function Presentation.Update(self: Presentation,pose: CFrame,dt: number,immediat
 				local target=support*frame
 				part.CFrame=if not hadGeometry or immediate or animatingFlip then target else part.CFrame:Lerp(target,alpha)
 			end
+		end
+		local head,shell,offset=self.parts.Head,self.parts.FaceShell,self.faceShellOffset
+		if head and shell and offset then
+			shell.CFrame=head.CFrame*offset
 		end
 	end
 end

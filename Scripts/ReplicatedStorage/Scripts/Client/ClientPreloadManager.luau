@@ -1,597 +1,359 @@
--- 客户端资源预加载与离屏预渲染：下载动画、模型、界面、图片和声音，并在使用前编译着色器
+-- 客户端业务资产预加载与预热装配层：声明 DemonShop 资源清单并串联 AssetPreloader 与 AssetWarmup
 --!strict
-local ContentProvider = game:GetService("ContentProvider")
-local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
+
+local AssetPreloader = require(script.Parent.AssetPreloader)
+local AssetWarmup = require(script.Parent.AssetWarmup)
 local Config = require(ReplicatedStorage.Scripts.Shared.GameConfig)
 local GameData = require(ReplicatedStorage.Scripts.Shared.GameData)
 local ModelTemplates = require(ReplicatedStorage.Scripts.Shared.ModelTemplates)
+
 local Manager = {}
 
-export type WarmupOptions = {
-	offscreenPosition: Vector3?,
-	warmupFrames: number?,
-	hideAfterWarmup: boolean?,
+type Priority = number
+type UnitWarmupKind = "Model" | "Effect" | "Sky"
+export type TierStats = {
+	collected: number,
+	downloaded: number,
+	failed: number,
+	warmups: number,
+	warmed: number,
+	warmupFailed: number,
+}
+type Session = {
+	preloader: AssetPreloader.Preloader,
+	warmup: AssetWarmup.Warmup,
+	unitWarmups: { [Instance]: UnitWarmupKind },
+	connections: { RBXScriptConnection },
+	toolConnection: RBXScriptConnection?,
 }
 
-local LogPrefix = "[ClientPreloadManager]"
-local LayoutGuideName = "ScreenLayoutGuideFrame"
-local SlashSoundName = "WeaponSlash"
-local EffectAnchorName = "PreloadEffectAnchor"
-local ImageWarmupName = "PreloadImageWarmup"
-local ImageAssetPrefix = "rbxassetid://"
-local ImageWarmupDisplayOrder = -100
-local WarmupPosition = Vector3.new(0, 5000, 0)
-local WarmupFrameCount = 2
-local WarmupAnimationFade = 0
-local WarmupAnimationWeight = 0.0001
-local WarmupAnimationSpeed = 0.0001
-local WarmupParticleCount = 1
-local CharacterWaitSeconds = 5
-local DummyPartSize = Vector3.one
-local DummyPartTransparency = 1
+local WarmupUriKinds: { [AssetPreloader.AssetKind]: boolean } = {
+	Image = true,
+	Decal = true,
+	Animation = true,
+	Sound = true,
+	Video = true,
+}
 
-local generation = 0
-local characterConnection: RBXScriptConnection? = nil
-local heldAnimations: { Animation } = {}
-local heldSlashSounds: { Sound } = {}
-local ownedAnimations: { Animation } = {}
-local ownedSounds: { Sound } = {}
-local imageWarmup: ScreenGui? = nil
+local DefaultSounds: { [string]: Priority } = {
+	UIClick = 1,
+	UIOpen = 1,
+	UIClose = 1,
+	BGM = 1,
+	AttackSwing = 1,
+	HitImpact = 1,
+	BodyStun = 1,
+	BodyPickup = 2,
+	BodyDrop = 2,
+	PotionPickup = 2,
+}
 
-local function IsCurrent(token: number): boolean
-	return token == generation
+local ProcessingSounds: { [string]: boolean } = {
+	PaintComplete = true,
+	PaintStroke = true,
+	PoolRetrieve = true,
+	PoolDeposit = true,
+	AltarLoop = true,
+	AltarComplete = true,
+	AltarPlace = true,
+	CoinReward = true,
+}
+
+local UiScopes: { [string]: { priority: Priority, group: string? } } = {
+	GameScreenGui = { priority = 1 },
+	PersonalHudFrame = { priority = 1 },
+	TargetGui = { priority = 1 },
+	WorldInteractionPrompt = { priority = 1 },
+	PersonalShopFrame = { priority = 2, group = "Shop" },
+	PaintFaceGui = { priority = 2, group = "Processing" },
+	PaintCellFrame = { priority = 2, group = "Processing" },
+	PaintRuneImage = { priority = 2, group = "Processing" },
+}
+
+local session: Session? = nil
+local earlyPromotions: { [string]: boolean } = {}
+
+local function GroupsToList(groups: { [string]: boolean }): { string }
+	local list: { string } = {}
+	for group in groups do
+		table.insert(list, group)
+	end
+	return list
 end
 
-local function ReleaseAssets(animations: { Animation }, sounds: { Sound })
-	for _, animation in animations do
-		animation:Destroy()
-	end
-	for _, sound in sounds do
-		sound:Destroy()
-	end
+local function SkipLayoutGuide(node: Instance): boolean
+	return node.Name ~= "ScreenLayoutGuideFrame"
 end
 
-local function ResolvePosition(options: WarmupOptions?): Vector3
-	if options ~= nil and options.offscreenPosition ~= nil then
-		return options.offscreenPosition
+local function ResolveModelWarmupKind(root: Instance): UnitWarmupKind?
+	if not (root:IsA("Model") or root:IsA("Tool") or root:IsA("BasePart") or root:IsA("Attachment")) then
+		return nil
 	end
-	return WarmupPosition
-end
-
-local function ResolveFrames(options: WarmupOptions?): number
-	if options ~= nil and options.warmupFrames ~= nil then
-		return math.max(1, options.warmupFrames)
-	end
-	return WarmupFrameCount
-end
-
-local function ResolveHide(options: WarmupOptions?): boolean
-	if options ~= nil and options.hideAfterWarmup ~= nil then
-		return options.hideAfterWarmup
-	end
-	return true
-end
-
-local function WaitFrames(frames: number)
-	for _ = 1, frames do
-		RunService.Heartbeat:Wait()
-	end
-end
-
-local function EmitOnce(emitter: ParticleEmitter)
-	emitter:Emit(WarmupParticleCount)
-end
-
-local function EmitParticles(root: Instance)
-	if root:IsA("ParticleEmitter") then
-		pcall(EmitOnce, root)
-	end
-	for _, descendant in root:GetDescendants() do
-		if descendant:IsA("ParticleEmitter") then
-			pcall(EmitOnce, descendant)
+	for _, node in root:GetDescendants() do
+		if node:IsA("ParticleEmitter") or node:IsA("Beam") or node:IsA("Trail") then
+			return "Effect" :: UnitWarmupKind
 		end
 	end
+	return "Model" :: UnitWarmupKind
 end
 
-local function PlaceOffscreen(instance: Instance, position: Vector3): boolean
-	local pose = CFrame.new(position)
-	if instance:IsA("Model") then
-		instance.Parent = workspace
-		instance:PivotTo(pose)
-		return true
-	elseif instance:IsA("BasePart") then
-		instance.Parent = workspace
-		instance.CFrame = pose
-		return true
-	elseif instance:IsA("Tool") then
-		instance.Parent = workspace
-		local handle = instance:FindFirstChild("Handle") :: BasePart?
-		if handle ~= nil then
-			handle.CFrame = pose
+local function RegisterBusinessAssets(run: Session): ()
+	local preloader = run.preloader
+	local starterWeapon = GameData.GetWeaponByLevel(1).model
+
+	-- 1. 模型模板（ReplicatedStorage.Models）
+	for _, category in ModelTemplates.Categories do
+		local folder = ModelTemplates.GetCategory(category :: ModelTemplates.Category)
+		if not folder or not folder.Archivable then
+			continue
 		end
-		return true
-	end
-	return false
-end
-
-local function RestoreParents(attached: { Instance }, parents: { [Instance]: Instance? })
-	for _, instance in attached do
-		if instance.Parent == workspace then
-			instance.Parent = parents[instance]
-		end
-	end
-end
-
-local function FinishInstanceWarmup(frames: number, hideAfterWarmup: boolean, attached: { Instance }, parents: { [Instance]: Instance? })
-	WaitFrames(frames)
-	if hideAfterWarmup then
-		RestoreParents(attached, parents)
-	end
-end
-
-local function DestroyRoots(roots: { Instance })
-	for _, instance in roots do
-		instance:Destroy()
-	end
-end
-
-local function FinishEffectWarmup(frames: number, roots: { Instance })
-	WaitFrames(frames)
-	DestroyRoots(roots)
-end
-
-local function CreateEffectAnchor(position: Vector3): Part
-	local part = Instance.new("Part")
-	part.Name = EffectAnchorName
-	part.Size = DummyPartSize
-	part.Anchored = true
-	part.CanCollide = false
-	part.CanTouch = false
-	part.CanQuery = false
-	part.Transparency = DummyPartTransparency
-	part.CFrame = CFrame.new(position)
-	return part
-end
-
-local function LoadTrack(animator: Animator, animation: Animation): AnimationTrack
-	return animator:LoadAnimation(animation)
-end
-
-local function PlayWarmup(track: AnimationTrack)
-	track:Play(WarmupAnimationFade, WarmupAnimationWeight, WarmupAnimationSpeed)
-end
-
-local function StopWarmup(track: AnimationTrack)
-	track:Stop(WarmupAnimationFade)
-end
-
-local function StopWarmupLater(track: AnimationTrack)
-	pcall(StopWarmup, track)
-end
-
-local function RequestPreload(targets: { Instance | string }, onAssetFetched: ((string, Enum.AssetFetchStatus) -> ())?): boolean
-	ContentProvider:PreloadAsync(targets, onAssetFetched)
-	return true
-end
-
-local function CreateAnimation(animationId: string): Animation
-	local animation = Instance.new("Animation")
-	animation.AnimationId = animationId
-	return animation
-end
-
-local function CreateConfiguredAnimations(): { Animation }
-	local animations: { Animation } = {}
-	local seen: { [string]: boolean } = {}
-	local function AddOwnedAnimation(animationId: string)
-		if animationId ~= "" and not seen[animationId] then
-			seen[animationId] = true
-			local animation = CreateAnimation(animationId)
-			table.insert(ownedAnimations, animation)
-			table.insert(animations, animation)
+		for _, root in folder:GetChildren() do
+			if not root.Archivable then
+				continue
+			end
+			local priority = 3
+			local groups: { string } = {}
+			if category == "Weapons" or category == "CarryRigs" then
+				priority = if root.Name == starterWeapon then 1 else 2
+				groups = { "Shop", "Equipment:" .. root.Name }
+			elseif category == "Effects" then
+				priority = if root.Name == "ThrowAim" then 2 else 3
+				groups = { "Equipment:" .. root.Name }
+			elseif category == "Items" then
+				priority = 2
+				groups = { "Equipment:" .. root.Name }
+			elseif category == "Previews" then
+				priority = 2
+				groups = { "Shop" }
+			elseif category == "Characters" and (root.Name == "WhiteR15" or root.Name == "WhiteR15-People") then
+				priority = 1
+			end
+			local warmupKind: UnitWarmupKind? = ResolveModelWarmupKind(root)
+			if warmupKind == "Effect" then
+				run.unitWarmups[root] = "Effect"
+			elseif warmupKind == "Model" then
+				run.unitWarmups[root] = "Model"
+			end
+			preloader:AddTree(root, { priority = priority, groups = groups })
 		end
 	end
-	local function AddTemplateAnimation(animation: Animation)
-		local animationId = animation.AnimationId
-		if animationId ~= "" and not seen[animationId] then
-			seen[animationId] = true
-			table.insert(animations, animation)
+
+	-- 2. UI 模板（拆出 Image 单图预热，跳过设计参考与整棵 Gui 重克隆）
+	local ui = ReplicatedStorage:FindFirstChild("UI")
+	if ui then
+		for _, root in ui:GetChildren() do
+			if root.Name == "ScreenLayoutGuideFrame" then
+				continue
+			end
+			local spec = UiScopes[root.Name]
+			local priority = if spec then spec.priority else 3
+			local groups = if spec and spec.group then { spec.group } else nil
+			preloader:AddTree(root, { priority = priority, groups = groups, filter = SkipLayoutGuide })
 		end
 	end
-	for _, weapon in GameData.GetAllWeapons() do
-		local template = weapon.slashAnimation
-		if template then
-			AddTemplateAnimation(template)
-		else
-			AddOwnedAnimation(weapon.slashAnim)
+
+	-- 3. 音效目录（ReplicatedStorage.Sounds）
+	local sounds = ReplicatedStorage:FindFirstChild("Sounds")
+	if sounds then
+		for _, root in sounds:GetChildren() do
+			local priority = if ProcessingSounds[root.Name] then 2 else (DefaultSounds[root.Name] or 3)
+			local groups = if ProcessingSounds[root.Name] then { "Processing" } else nil
+			preloader:AddTree(root, { priority = priority, groups = groups })
 		end
 	end
-	local baseIds = {
+
+	-- 4. 天空盒（Lighting.Sky）
+	for _, root in Lighting:GetChildren() do
+		if root:IsA("Sky") and root.Archivable then
+			run.unitWarmups[root] = "Sky"
+			preloader:AddTree(root, { priority = 1 })
+		end
+	end
+
+	-- 5. 显式 GameConfig 常量资产
+	local faces = Config.NpcFaceTextures :: { [string]: string }?
+	if faces then
+		for key, uri in faces do
+			local isPainting = key == "Painting"
+			preloader:AddUri(uri, "Decal", {
+				priority = if isPainting then 2 else 1,
+				groups = if isPainting then { "Processing" } else nil,
+			})
+		end
+	end
+	for _, uri in {
 		Config.WeaponSlashAnimation,
 		Config.BodyCarryAnimation,
 		Config.IdleAnimation,
 		Config.WalkAnimation,
 		Config.NpcRunAnimation,
-	}
-	for _, animationId in baseIds do
-		AddOwnedAnimation(animationId)
+	} do
+		preloader:AddUri(uri, "Animation", { priority = 1 })
 	end
-	return animations
-end
+	preloader:AddUri(Config.WeaponSlashSound, "Sound", { priority = 1 })
+	preloader:AddUri(Config.PotionIcon, "Image", { priority = 2, groups = { "Equipment:Potion" } })
 
-local function CreateSlashSounds(): { Sound }
-	local sounds: { Sound } = {}
-	local seen: { [string]: boolean } = {}
-	local function AddOwnedSound(soundId: string, suffix: string)
-		if soundId ~= "" and not seen[soundId] then
-			seen[soundId] = true
-			local sound = Instance.new("Sound")
-			sound.Name = SlashSoundName .. suffix
-			sound.SoundId = soundId
-			table.insert(ownedSounds, sound)
-			table.insert(sounds, sound)
-		end
-	end
-	local function AddTemplateSound(sound: Sound)
-		local soundId = sound.SoundId
-		if soundId ~= "" and not seen[soundId] then
-			seen[soundId] = true
-			table.insert(sounds, sound)
-		end
-	end
+	-- 6. GameData 武器与搬运工具表资产
+	local shopGroup = { "Shop" }
 	for _, weapon in GameData.GetAllWeapons() do
-		local template = weapon.slashSoundTemplate
-		if template then
-			AddTemplateSound(template)
-		else
-			AddOwnedSound(weapon.slashSound, "_" .. tostring(weapon.id))
-		end
-	end
-	AddOwnedSound(Config.WeaponSlashSound, "")
-	return sounds
-end
-
-local function CollectModels(assets: { Instance }, templates: { Instance })
-	if not ModelTemplates.CollectPreloadable(assets, templates) then
-		warn(string.format("%s missing ReplicatedStorage.Models", LogPrefix))
-	end
-end
-
-local function CollectUserInterface(assets: { Instance })
-	local folder = ReplicatedStorage:FindFirstChild("UI")
-	if folder == nil then
-		warn(string.format("%s missing ReplicatedStorage.UI", LogPrefix))
-		return
-	end
-	for _, child in folder:GetChildren() do
-		if child.Name ~= LayoutGuideName then
-			table.insert(assets, child)
-		end
-	end
-end
-
-local function IsImageUri(uri: string): boolean
-	return string.sub(uri, 1, #ImageAssetPrefix) == ImageAssetPrefix
-end
-
-local function AddImageUri(uris: { string }, seen: { [string]: boolean }, uri: string?)
-	if uri == nil or not IsImageUri(uri) or seen[uri] then
-		return
-	end
-	seen[uri] = true
-	table.insert(uris, uri)
-end
-
-local function AddNodeImages(uris: { string }, seen: { [string]: boolean }, node: Instance)
-	if node:IsA("ImageLabel") or node:IsA("ImageButton") then
-		AddImageUri(uris, seen, node.Image)
-	end
-	for _, value in node:GetAttributes() do
-		if typeof(value) == "string" then
-			AddImageUri(uris, seen, value)
-		end
-	end
-end
-
-local function CollectImages(uris: { string })
-	local seen: { [string]: boolean } = {}
-	for _, weapon in GameData.GetAllWeapons() do
-		AddImageUri(uris, seen, weapon.icon)
+		local weaponPriority = if weapon.level == 1 then 1 else 3
+		local weaponGroups = { "Equipment:" .. weapon.model }
+		local animUri = if weapon.slashAnimation then weapon.slashAnimation.AnimationId else weapon.slashAnim
+		local soundUri = if weapon.slashSoundTemplate then weapon.slashSoundTemplate.SoundId else weapon.slashSound
+		preloader:AddUri(animUri, "Animation", { priority = weaponPriority, groups = weaponGroups })
+		preloader:AddUri(soundUri, "Sound", { priority = weaponPriority, groups = weaponGroups })
+		preloader:AddUri(weapon.icon, "Image", { priority = 2, groups = shopGroup })
 	end
 	for _, carryTool in GameData.GetAllCarryTools() do
-		AddImageUri(uris, seen, carryTool.icon)
+		preloader:AddUri(carryTool.icon, "Image", { priority = 2, groups = shopGroup })
 	end
-	AddImageUri(uris, seen, Config.PotionIcon)
-	local folder = ReplicatedStorage:FindFirstChild("UI")
-	if folder == nil then
+end
+
+local function BindEquipment(run: Session): ()
+	local player = Players.LocalPlayer
+	if not player then
 		return
 	end
-	for _, child in folder:GetChildren() do
-		if child.Name ~= LayoutGuideName then
-			AddNodeImages(uris, seen, child)
-			for _, descendant in child:GetDescendants() do
-				AddNodeImages(uris, seen, descendant)
-			end
+	local function OnChildAdded(child: Instance)
+		if session == run and child:IsA("Tool") then
+			Manager.Promote("Equipment:" .. child.Name)
 		end
 	end
-end
-
-local function CreateWarmupImage(uri: string): ImageLabel
-	local image = Instance.new("ImageLabel")
-	image.BackgroundTransparency = 1
-	image.BorderSizePixel = 0
-	image.Size = UDim2.fromOffset(1, 1)
-	image.Image = uri
-	return image
-end
-
-local function ReleaseImageWarmup()
-	local screen = imageWarmup
-	imageWarmup = nil
-	if screen ~= nil then
-		screen:Destroy()
-	end
-end
-
-local function CollectSounds(assets: { Instance })
-	local folder = ReplicatedStorage:FindFirstChild("Sounds")
-	if folder == nil then
-		return
-	end
-	for _, child in folder:GetChildren() do
-		if child:IsA("Sound") and child.SoundId ~= "" then
-			table.insert(assets, child)
+	local function OnCharacterAdded(character: Model)
+		if run.toolConnection then
+			run.toolConnection:Disconnect()
+		end
+		run.toolConnection = character.ChildAdded:Connect(OnChildAdded)
+		for _, child in character:GetChildren() do
+			OnChildAdded(child)
 		end
 	end
-end
-
-local function AnchorClone(root: Instance)
-	if root:IsA("BasePart") then
-		root.Anchored = true
-	end
-	for _, descendant in root:GetDescendants() do
-		if descendant:IsA("BasePart") then
-			descendant.Anchored = true
-		end
+	table.insert(run.connections, player.CharacterAdded:Connect(OnCharacterAdded))
+	if player.Character then
+		OnCharacterAdded(player.Character)
 	end
 end
 
-local function WarmupTemplates(templates: { Instance }, token: number)
-	local clones: { Instance } = {}
-	for _, template in templates do
-		if not IsCurrent(token) then
-			break
-		end
-		local clone = template:Clone()
-		AnchorClone(clone)
-		if PlaceOffscreen(clone, WarmupPosition) then
-			EmitParticles(clone)
-			table.insert(clones, clone)
-		else
-			clone:Destroy()
-		end
-	end
-	if IsCurrent(token) then
-		WaitFrames(WarmupFrameCount)
-	end
-	DestroyRoots(clones)
-end
-
-local function OnCharacterAdded(character: Model)
-	local token = generation
-	local humanoidInstance = character:WaitForChild("Humanoid", CharacterWaitSeconds)
-	if not IsCurrent(token) or humanoidInstance == nil or not humanoidInstance:IsA("Humanoid") then
-		return
-	end
-	local animatorInstance = humanoidInstance:WaitForChild("Animator", CharacterWaitSeconds)
-	if not IsCurrent(token) or animatorInstance == nil or not animatorInstance:IsA("Animator") then
-		return
-	end
-	local animations = table.clone(heldAnimations)
-	if not IsCurrent(token) then
-		return
-	end
-	Manager.WarmupAnimations(animatorInstance, animations)
-end
-
-local function BindCharacterWarmup(token: number)
-	if not IsCurrent(token) then
-		return
-	end
-	if characterConnection ~= nil then
-		characterConnection:Disconnect()
-	end
-	characterConnection = Players.LocalPlayer.CharacterAdded:Connect(OnCharacterAdded)
-	local character = Players.LocalPlayer.Character
-	if character ~= nil then
-		task.spawn(OnCharacterAdded, character)
-	end
-end
-
--- 空列表直接成功；下载失败只警告，不阻止进入游戏。
 function Manager.PreloadAsync(targets: { Instance | string }, onAssetFetched: ((string, Enum.AssetFetchStatus) -> ())?): boolean
-	if #targets == 0 then
-		return true
-	end
-	local success, reason = pcall(RequestPreload, targets, onAssetFetched)
-	if not success then
-		warn(string.format("%s PreloadAsync warning: %s", LogPrefix, tostring(reason)))
-	end
-	return success
+	return AssetPreloader.PreloadAsync(targets, onAssetFetched)
 end
 
--- 把模型、零件或工具挂到离屏位置渲染数帧。调用方传入的实例会被临时改挂父级。
-function Manager.WarmupInstances(instances: { Instance }, options: WarmupOptions?)
-	local position = ResolvePosition(options)
-	local frames = ResolveFrames(options)
-	local hideAfterWarmup = ResolveHide(options)
-	local attached: { Instance } = {}
-	local parents: { [Instance]: Instance? } = {}
-	for _, instance in instances do
-		if instance:IsA("Model") or instance:IsA("BasePart") or instance:IsA("Tool") then
-			parents[instance] = instance.Parent
-			if PlaceOffscreen(instance, position) then
-				table.insert(attached, instance)
+function Manager.Promote(group: string): ()
+	if session then
+		session.preloader:Promote(group)
+		session.warmup:Promote(group)
+	elseif group ~= "" then
+		earlyPromotions[group] = true
+	end
+end
+
+function Manager.GetStats(): { TierStats }
+	local snapshot: { TierStats } = {}
+	local run = session
+	if not run then
+		return snapshot
+	end
+	local progress = run.preloader:GetProgress()
+	local warmupStats = run.warmup:GetStats()
+	for index = 1, 3 do
+		local dl = progress.byPriority[index]
+		local wm = warmupStats.byPriority[index]
+		snapshot[index] = {
+			collected = if dl then dl.total else 0,
+			downloaded = if dl then dl.succeeded else 0,
+			failed = if dl then dl.failed else 0,
+			warmups = if wm then wm.queued else 0,
+			warmed = if wm then wm.warmed else 0,
+			warmupFailed = if wm then wm.failed else 0,
+		}
+	end
+	return snapshot
+end
+
+function Manager.Cancel(): ()
+	local run = session
+	session = nil
+	table.clear(earlyPromotions)
+	if not run then
+		return
+	end
+	if run.toolConnection then
+		run.toolConnection:Disconnect()
+		run.toolConnection = nil
+	end
+	for _, connection in run.connections do
+		connection:Disconnect()
+	end
+	table.clear(run.connections)
+	run.preloader:Cancel()
+	run.warmup:Cancel()
+end
+
+function Manager.PrepareGame(): ()
+	if session then
+		Manager.Cancel()
+	end
+	local warmup = AssetWarmup.new()
+	local unitWarmups: { [Instance]: UnitWarmupKind } = {}
+
+	local preloader = AssetPreloader.new({
+		onUriReady = function(uri: string, kind: AssetPreloader.AssetKind, success: boolean, groups: { [string]: boolean }, priority: number)
+			if not success or not WarmupUriKinds[kind] then
+				return
 			end
-		end
-	end
-	if #attached == 0 then
-		return
-	end
-	task.spawn(FinishInstanceWarmup, frames, hideAfterWarmup, attached, parents)
-end
+			warmup:Enqueue({
+				key = kind .. ":" .. uri,
+				kind = kind,
+				uri = uri,
+				priority = priority,
+				groups = GroupsToList(groups),
+			})
+		end,
+		onUnitReady = function(_unitId: string, root: Instance?, allSucceeded: boolean, groups: { [string]: boolean }, priority: number)
+			if not allSucceeded or not root then
+				return
+			end
+			local warmupKind = unitWarmups[root]
+			if not warmupKind then
+				return
+			end
+			warmup:Enqueue({
+				key = root,
+				kind = warmupKind,
+				source = root,
+				priority = priority,
+				groups = GroupsToList(groups),
+			})
+		end,
+	})
 
--- 在目标 Animator 上以极小权重播放一帧，完成骨骼与动画资源的首次编译。
-function Manager.WarmupAnimations(animator: Animator, animations: { Animation }): { AnimationTrack }
-	local tracks: { AnimationTrack } = {}
-	for _, animation in animations do
-		local ok, result = pcall(LoadTrack, animator, animation)
-		if ok and typeof(result) == "Instance" and result:IsA("AnimationTrack") then
-			pcall(PlayWarmup, result)
-			task.defer(StopWarmupLater, result)
-			table.insert(tracks, result)
-		end
+	for group in earlyPromotions do
+		preloader:Promote(group)
+		warmup:Promote(group)
 	end
-	return tracks
-end
+	table.clear(earlyPromotions)
 
--- 克隆特效到离屏处，发射一颗粒子以编译粒子着色器，数帧后销毁克隆。
-function Manager.WarmupEffects(effectTemplates: { Instance }, options: WarmupOptions?)
-	local position = ResolvePosition(options)
-	local frames = ResolveFrames(options)
-	local roots: { Instance } = {}
-	for _, template in effectTemplates do
-		local cloned = template:Clone()
-		if cloned:IsA("Model") or cloned:IsA("BasePart") then
-			AnchorClone(cloned)
-			PlaceOffscreen(cloned, position)
-			table.insert(roots, cloned)
-		elseif cloned:IsA("Attachment") then
-			local anchor = CreateEffectAnchor(position)
-			cloned.Parent = anchor
-			anchor.Parent = workspace
-			table.insert(roots, anchor)
-		else
-			cloned:Destroy()
-		end
-	end
-	if #roots == 0 then
-		return
-	end
-	for _, root in roots do
-		EmitParticles(root)
-	end
-	task.spawn(FinishEffectWarmup, frames, roots)
-end
+	local run: Session = {
+		preloader = preloader,
+		warmup = warmup,
+		unitWarmups = unitWarmups,
+		connections = {},
+		toolConnection = nil,
+	}
+	session = run
 
--- 把图片画进 PlayerGui 预渲染，并保留到取消或下一次调用。
-function Manager.WarmupImages(uris: { string }, options: WarmupOptions?)
-	local token = generation
-	if #uris == 0 then
-		ReleaseImageWarmup()
-		return
-	end
-	local playerGui = Players.LocalPlayer:FindFirstChild("PlayerGui")
-	if playerGui == nil then
-		warn(string.format("%s missing PlayerGui", LogPrefix))
-		return
-	end
-	local screen = Instance.new("ScreenGui")
-	screen.Name = ImageWarmupName
-	screen.ResetOnSpawn = false
-	screen.DisplayOrder = ImageWarmupDisplayOrder
-	local seen: { [string]: boolean } = {}
-	for _, uri in uris do
-		if not seen[uri] and IsImageUri(uri) then
-			seen[uri] = true
-			local image = CreateWarmupImage(uri)
-			image.Parent = screen
-		end
-	end
-	if not IsCurrent(token) then
-		screen:Destroy()
-		return
-	end
-	ReleaseImageWarmup()
-	if #screen:GetChildren() == 0 then
-		screen:Destroy()
-		return
-	end
-	screen.Parent = playerGui
-	imageWarmup = screen
-	WaitFrames(ResolveFrames(options))
-	if imageWarmup ~= screen or not IsCurrent(token) then
-		if imageWarmup == screen then
-			imageWarmup = nil
-		end
-		screen:Destroy()
-	end
-end
+	RegisterBusinessAssets(run)
+	BindEquipment(run)
+	warmup:Start()
+	preloader:Start()
 
--- 后台收集本局资源并预渲染克隆。取消后在途任务不再继续挂载。
-function Manager.PrepareGame()
-	local token = generation
-	table.clear(ownedAnimations)
-	table.clear(ownedSounds)
-	local animations = CreateConfiguredAnimations()
-	local slashSounds = CreateSlashSounds()
-	heldAnimations = animations
-	heldSlashSounds = slashSounds
-	local assets: { Instance } = {}
-	local templates: { Instance } = {}
-	for _, animation in animations do
-		table.insert(assets, animation)
-	end
-	CollectModels(assets, templates)
-	CollectUserInterface(assets)
-	CollectSounds(assets)
-	for _, slashSound in slashSounds do
-		table.insert(assets, slashSound)
-	end
-	local imageUris: { string } = {}
-	CollectImages(imageUris)
-	local preloadImages: { Instance } = {}
-	for _, uri in imageUris do
-		local image = CreateWarmupImage(uri)
-		table.insert(preloadImages, image)
-		table.insert(assets, image)
-	end
-	if not IsCurrent(token) then
-		DestroyRoots(preloadImages)
+	if not preloader:WaitForIdle() or session ~= run then
 		return
 	end
-	local effectTemplates: { Instance } = {}
-	for _, weapon in GameData.GetAllWeapons() do
-		local effect = ModelTemplates.FindEffect(weapon.model)
-		if effect then
-			table.insert(effectTemplates, effect)
-		end
-	end
-	Manager.WarmupEffects(effectTemplates)
-	Manager.PreloadAsync(assets)
-	DestroyRoots(preloadImages)
-	if not IsCurrent(token) then
-		return
-	end
-	Manager.WarmupImages(imageUris)
-	WarmupTemplates(templates, token)
-	BindCharacterWarmup(token)
-end
-
-function Manager.Cancel()
-	generation += 1
-	if characterConnection ~= nil then
-		characterConnection:Disconnect()
-		characterConnection = nil
-	end
-	ReleaseImageWarmup()
-	ReleaseAssets(ownedAnimations, ownedSounds)
-	table.clear(ownedAnimations)
-	table.clear(ownedSounds)
-	table.clear(heldAnimations)
-	table.clear(heldSlashSounds)
+	warmup:WaitForIdle()
 end
 
 return Manager

@@ -354,4 +354,13 @@ GameConfig.NpcPanicDurationMax = 3.0
 GameConfig.NpcStuckSeconds = 1.2
 GameConfig.NpcCrowdStepInterval = 0.05
 
+GameConfig.NpcFaceHitSeconds = 0.6 -- 白膜 NPC 受击瞬间痛苦表情持续时长，秒
+GameConfig.NpcFaceTextures = {
+	Normal = "rbxassetid://78350979935544",
+	Panic = "rbxassetid://139784704663645",
+	Hit = "rbxassetid://109580485818132",
+	Stunned = "rbxassetid://77684885960227",
+	Painting = "rbxassetid://131720148652101",
+}
+
 return GameConfig

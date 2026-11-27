@@ -207,10 +207,18 @@ def write_model_templates(out_name, rs_expr):
     body = src[src.index("local ModelTemplates = {}"):].replace(":WaitForChild(", ":FindFirstChild(")
     (OUT / out_name).write_text(f"local ReplicatedStorage = {rs_expr}\n" + body, encoding="utf-8")
 
-text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientPreloadManager.luau").read_text(encoding="utf-8")
-text=text.replace("instance:PivotTo(pose)", "B.PivotTo(instance, pose)", 1)
 write_model_templates("ClientPreloadModelTemplates.luau", "require('./ClientPreloadBoundary').ReplicatedStorage")
-prefix="local B=require('./ClientPreloadBoundary')\nlocal ContentProvider,RunService,Players,ReplicatedStorage=B.ContentProvider,B.RunService,B.Players,B.ReplicatedStorage\nlocal workspace,Instance,Vector3,CFrame,Content,UDim2=B.workspace,B.Instance,B.Vector3,B.CFrame,B.Content,B.UDim2\nlocal task=require('@lune/task')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal ModelTemplates=require('./ClientPreloadModelTemplates')\n"
+preloader_src=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/AssetPreloader.luau").read_text(encoding="utf-8")
+preloader_prefix="local task=require('@lune/task')\nlocal B=require('./ClientPreloadBoundary')\nlocal ContentProvider,RunService=B.ContentProvider,B.RunService\nlocal Instance,Enum,UDim2=B.Instance,B.Enum,B.UDim2\n"
+(OUT/"AssetPreloader.luau").write_text(preloader_prefix+preloader_src[preloader_src.index("local AssetPreloader = {}"):],encoding="utf-8")
+
+warmup_src=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/AssetWarmup.luau").read_text(encoding="utf-8")
+warmup_src=warmup_src.replace("workspace.CurrentCamera", "B.GetCurrentCamera()").replace("clone:PivotTo(targetPose)", "B.PivotTo(clone, targetPose)")
+warmup_prefix="local task=require('@lune/task')\nlocal B=require('./ClientPreloadBoundary')\nlocal Players,RunService,workspace=B.Players,B.RunService,B.workspace\nlocal Instance,Vector3,CFrame,Enum,UDim2=B.Instance,B.Vector3,B.CFrame,B.Enum,B.UDim2\n"
+(OUT/"AssetWarmup.luau").write_text(warmup_prefix+warmup_src[warmup_src.index("local AssetWarmup = {}"):],encoding="utf-8")
+
+text=(ROOT/"Scripts/ReplicatedStorage/Scripts/Client/ClientPreloadManager.luau").read_text(encoding="utf-8")
+prefix="local B=require('./ClientPreloadBoundary')\nlocal Players,ReplicatedStorage,Lighting=B.Players,B.ReplicatedStorage,B.Lighting\nlocal AssetPreloader=require('./AssetPreloader')\nlocal AssetWarmup=require('./AssetWarmup')\nlocal Config=require('./GameConfig')\nlocal GameData=require('./GameData')\nlocal ModelTemplates=require('./ClientPreloadModelTemplates')\n"
 (OUT/"ClientPreloadManager.luau").write_text(prefix+text[text.index("local Manager = {}"):],encoding="utf-8")
 for name in ("ClientPreloadBoundary","test_client_preload"):
     (OUT/(name+".luau")).write_text((ROOT/"Tools/Gameplay"/(name+".luau")).read_text(encoding="utf-8"),encoding="utf-8")

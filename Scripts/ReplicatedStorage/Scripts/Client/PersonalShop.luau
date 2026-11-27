@@ -18,6 +18,7 @@ local WindowBase = require(script.Parent.UIManager.WindowBase)
 local UIActions = require(script.Parent.UIManager.UIActions)
 local Text = require(script.Parent.ProcessingTextTool)
 local Sprint = require(script.Parent.SprintController)
+local ClientPreloadManager = require(script.Parent.ClientPreloadManager)
 
 local Shop = {}
 local player = Players.LocalPlayer
@@ -134,6 +135,7 @@ function Shop.Init(gui: ScreenGui, sprintButton: ImageButton, scope: Lifecycle.L
 	end
 
 	local function NewWindow(frame: Frame, id: string, actions: UIActions.UIActions): WindowBase.WindowBase
+		ClientPreloadManager.Promote("Shop")
 		local window = WindowBase.new(frame, id, actions)
 		local panel = frame:FindFirstChild("PanelFrame") :: ImageLabel
 		local windowText = Text.new()

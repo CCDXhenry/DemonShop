@@ -45,6 +45,7 @@ local ProcessingText = require(script.Parent.ProcessingTextTool)
 local PersonalShop = require(script.Parent.PersonalShop)
 local PersonalRules = require(Shared.PersonalUpgradeRules)
 local TouchJumpController = require(script.Parent.TouchJumpController)
+local ClientPreloadManager = require(script.Parent.ClientPreloadManager)
 local Client = {}
 Client.__index = Client
 local player = Players.LocalPlayer
@@ -564,6 +565,7 @@ function Client.ExitView(self: Client, altarIntakeEnds: number?): ()
 	self.ui:SetPainting(false)
 end
 function Client.EnterView(self: Client, id: string, session: string, frames: Types.BodyPose?, initialFlipped: boolean?, batch: { string }?): ()
+	ClientPreloadManager.Promote("Processing")
 	if self.paintId then
 		self:ExitView()
 	end
